@@ -21,10 +21,11 @@
     else
     {
         var networkOn = _access.ListenUrls.Any(u => !u.Contains("127.0.0.1") && !u.Contains("localhost") && !u.Contains("[::1]"));
-        @if (!networkOn)
+        @if (!networkOn && _https is null)
         {
             <div class="notice">
-                Right now Locus only listens on this computer, so your phone can't reach it. Turn on network access with a password
+                Right now Locus only listens on this computer, so your phone can't reach it. Easiest and most private: the Tailscale
+                secure link below (works without opening Locus to your Wi-Fi). Or turn on network access with a password
                 (anyone on your network would otherwise be able to use your bots):
                 <code class="snippet">LOCUS_PASSWORD='pick-a-strong-one' scripts/install-service-macos.sh</code>
                 <span class="muted small">(Docker: set LOCUS_PASSWORD in docker-compose and it's already on the network.)</span>
@@ -50,14 +51,19 @@
             <p class="muted small">Scan with your phone's camera, sign in, then <b>Share → Add to Home Screen</b> (iPhone) or <b>⋮ → Install app</b> (Android).</p>
         }
 
-        <details class="steps">
-            <summary>Use it away from home with Tailscale (free, private, no port forwarding)</summary>
+        <details class="steps" open="@(_https is null && _tailscale is not null)">
+            <summary>🔒 Secure link from anywhere with Tailscale (free, private, HTTPS, no port forwarding)</summary>
             <ol>
                 <li>Install <a href="https://tailscale.com/download" target="_blank" rel="noopener">Tailscale</a> on this computer and on your phone, signed in to the same account.</li>
-                <li>Turn on network access (above). The Tailscale address appears here automatically.</li>
-                <li>On your phone, open the Tailscale address. It works on mobile data too, and only your own devices can reach it.</li>
+                <li>On this computer, run once: <code class="snippet">tailscale serve --bg @_port</code>
+                    This gives Locus an <b>https://…ts.net</b> address that only your own devices can open, encrypted end to end. Locus can
+                    stay closed to your Wi-Fi.</li>
+                <li>Open that link on your phone (it appears at the top of this card), then add it to your home screen.</li>
             </ol>
             @if (_tailscale is null) { <span class="muted small">Tailscale isn't running on this computer yet.</span> }
+            else if (_https is null) { <span class="muted small">Tailscale is running as @_tailscale, but isn't serving Locus yet — run the command above.</span> }
+            else { <span class="ok-text small">✓ Serving Locus at @_https</span> }
+            @if (!_access!.PasswordSet) { <div class="muted small">Tip: set a password too (LOCUS_PASSWORD), in case someone else ever joins your tailnet.</div> }
         </details>
     }
 </section>
@@ -66,6 +72,8 @@
     private IAccessInfo? _access;
     private List<(string label, string url)> _urls = [];
     private string? _tailscale;
+    private string? _https;
+    private int _port;
 
     protected override async Task OnInitializedAsync()
     {
@@ -74,9 +82,13 @@
         var port = _access.ListenUrls.Select(u => Uri.TryCreate(u.Replace("+", "x").Replace("*", "x").Replace("[::]", "x").Replace("0.0.0.0", "x"), UriKind.Absolute, out var x) ? x.Port : 0)
             .FirstOrDefault(p => p > 0);
         if (port == 0) return;
+        _port = port;
         foreach (var ip in LanAddresses()) _urls.Add(("Home network", $"http://{ip}:{port}"));
         _tailscale = await TailscaleNameAsync();
-        if (_tailscale is not null) _urls.Insert(0, ("Tailscale (works anywhere)", $"http://{_tailscale}:{port}"));
+        var networkOn = _access.ListenUrls.Any(u => !u.Contains("127.0.0.1") && !u.Contains("localhost") && !u.Contains("[::1]"));
+        if (_tailscale is not null && networkOn) _urls.Insert(0, ("Tailscale (works anywhere)", $"http://{_tailscale}:{port}"));
+        if (_tailscale is not null && await ServesPortAsync(port)) _https = $"https://{_tailscale}";
+        if (_https is not null) _urls.Insert(0, ("Secure link (Tailscale HTTPS)", _https));
     }
 
     private static IEnumerable<string> LanAddresses() =>
@@ -87,19 +99,34 @@
                         && !a.Address.ToString().StartsWith("169.254.") && !a.Address.ToString().StartsWith("100."))
             .Select(a => a.Address.ToString()).Distinct().Take(3);
 
+    private static string? TailscaleExe() =>
+        new[] { "/Applications/Tailscale.app/Contents/MacOS/Tailscale", "/usr/bin/tailscale", "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale",
+                @"C:\Program Files\Tailscale\tailscale.exe" }.FirstOrDefault(File.Exists);
+
+    private async Task<string?> TailscaleAsync(string args)
+    {
+        if (!Platform.CanRunProcesses || TailscaleExe() is not { } exe) return null;
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(exe, args) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            var output = await p.StandardOutput.ReadToEndAsync();
+            await p.WaitForExitAsync();
+            return p.ExitCode == 0 ? output : null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Whether "tailscale serve" is proxying HTTPS to this port.</summary>
+    private async Task<bool> ServesPortAsync(int port) =>
+        await TailscaleAsync("serve status --json") is { } json && (json.Contains($"127.0.0.1:{port}\"") || json.Contains($"localhost:{port}\""));
+
     /// <summary>The MagicDNS name (or 100.x address) of this machine on Tailscale, if it's running.</summary>
     private async Task<string?> TailscaleNameAsync()
     {
-        if (!Platform.CanRunProcesses) return null;
-        var exe = new[] { "/Applications/Tailscale.app/Contents/MacOS/Tailscale", "/usr/bin/tailscale", "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale" }
-            .FirstOrDefault(File.Exists);
-        if (exe is null) return null;
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo(exe, "status --json") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
-            using var p = System.Diagnostics.Process.Start(psi)!;
-            var json = await p.StandardOutput.ReadToEndAsync();
-            await p.WaitForExitAsync();
+            if (await TailscaleAsync("status --json") is not { } json) return null;
             var self = System.Text.Json.Nodes.JsonNode.Parse(json)?["Self"];
             var dns = self?["DNSName"]?.ToString().TrimEnd('.');
             return string.IsNullOrEmpty(dns) ? self?["TailscaleIPs"]?[0]?.ToString() : dns;

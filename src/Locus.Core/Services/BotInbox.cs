@@ -142,7 +142,8 @@ public sealed class BotInbox(IAppPaths paths, ChatService chat, BotStore bots, C
                       "(Write the reply email body only — no subject line. It will be sent from the bot's mailbox.)",
         });
         await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Channel, $"Bot inbox: email from {from}", msg.Subject, bot?.Id, conv.Id));
-        var reply = await chat.RunAgentAsync(conv, bot, new SendOptions(model, false, false, true), () => Task.CompletedTask, ct, autoTitle: false);
+        var reply = await chat.RunAgentAsync(conv, bot, new SendOptions(model, false, false, true), () => Task.CompletedTask, ct, autoTitle: false,
+            untrustedInput: $"an email from {from}");
         if (reply is null || reply.Error is not null || reply.Content.Length == 0) return false;
 
         // Ask before sending unless allowed on the Permissions page.

@@ -33,6 +33,7 @@
                     wants to run <b>@pending.ToolName</b>
                     <span class="muted small"> · @Ago(pending.Since) · <a href="c/@pending.ConversationId">@pending.ConversationTitle</a></span>
                     <code class="args">@Clip(pending.ArgumentsJson, 220)</code>
+                    @if (pending.Reason is not null) { <span class="tiny-error">⚠ @pending.Reason</span> }
                 </span>
                 <button class="btn ghost small" @onclick="() => Approvals.Decide(pending.Id, false)">Deny</button>
                 <button class="btn primary small" @onclick="() => Approvals.Decide(pending.Id, true)">Allow</button>

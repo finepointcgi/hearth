@@ -29,6 +29,9 @@ public sealed class ToolContext
     public int Depth { get; init; }
     /// <summary>No one is watching (routines): tools that need approval are declined.</summary>
     public bool Unattended { get; init; }
+    /// <summary>Set once this run has read untrusted content (web, email…); see <see cref="Models.ContentTrust"/>.</summary>
+    public string? TaintedBy { get; set; }
+    public bool Tainted => TaintedBy is not null;
 }
 
 public interface ITool

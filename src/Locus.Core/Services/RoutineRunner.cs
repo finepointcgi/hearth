@@ -90,7 +90,8 @@ public sealed class RoutineRunner(
             });
             conv.Unread = true;
             var reply = await chat.RunAgentAsync(conv, bot, new SendOptions(model, false, false, true),
-                () => Task.CompletedTask, ct, autoTitle: false, unattended: true);
+                () => Task.CompletedTask, ct, autoTitle: false, unattended: true,
+                untrustedInput: eventPayload is null ? null : $"the event that triggered \"{routine.Name}\"");
             conv.Unread = true;
             await conversations.SaveAsync(conv);
             RoutineFinished?.Invoke(conv.Id);

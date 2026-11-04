@@ -155,10 +155,21 @@ changing: **Allow** (no prompt), **Ask**, **Block** (the tool is hidden from bot
 **Careful** sets everything that changes things to Ask. Every tool call is written to an **audit log**
 (filter by bot, text and days).
 
+**Guard against hidden instructions** (on by default): web pages, emails, shared files and other bots' replies can contain
+text written to steer an AI ("prompt injection"). Locus labels that content as information, not instructions, and once a
+run has read it, anything that changes things (sending, writing, running code or remote commands, saving memories or
+skills) asks you first, with the reason shown, even where it normally wouldn't. Areas you set to **Allow** still run;
+routines and tasks with no one to ask skip those actions and say so. Inbox emails and event-triggered routines start
+out guarded.
+
+**Secrets at rest**: model-server API keys and MCP environment values/headers in `settings.json`, chat tokens and
+Google credentials are encrypted with a local key (`vault.key`, owner-only).
+
 ## Phone app
 Open Locus in your phone's browser and **Add to Home Screen**: it installs as an app (PWA). Connections →
-**Phone** shows QR codes for your local network and for [Tailscale](https://tailscale.com) (use it from
-anywhere without opening ports). Set `LOCUS_PASSWORD` first; the page warns if you haven't.
+**Phone** shows QR codes for your links. Best: [Tailscale](https://tailscale.com) on this computer and your phone, then
+run `tailscale serve --bg 5290` once. Locus gets a private **https://…ts.net** link that works anywhere, while staying
+closed to your Wi-Fi. For plain home-network access instead, set `LOCUS_PASSWORD` (the page warns if you haven't).
 
 ## Heartbeat (proactive check-ins)
 **📊 Today → 💓 Heartbeat.** Every 15 min – 4 h, Locus (or a bot you pick) goes through a checklist you write —

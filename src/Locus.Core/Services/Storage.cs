@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Locus.Core.Models;
@@ -47,9 +48,15 @@ internal static class Json
     }
 }
 
+/// <summary>
+/// App settings in settings.json. Secrets inside them (model-server API keys, MCP environment values and headers) are
+/// encrypted on disk with the local vault key and decrypted in memory.
+/// </summary>
 public sealed class SettingsStore(IAppPaths paths)
 {
+    private const string SealedPrefix = "sealed:";
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly SecretBox _box = new(paths);
     private AppSettings? _cached;
     private string FilePath => Path.Combine(paths.DataDirectory, "settings.json");
 
@@ -59,7 +66,16 @@ public sealed class SettingsStore(IAppPaths paths)
     {
         if (_cached is not null) return _cached;
         await _lock.WaitAsync();
-        try { return _cached ??= await Json.ReadAsync<AppSettings>(FilePath) ?? new AppSettings(); }
+        try
+        {
+            if (_cached is not null) return _cached;
+            if (!File.Exists(FilePath)) return _cached = new AppSettings();
+            var node = JsonNode.Parse(await File.ReadAllTextAsync(FilePath)) as JsonObject ?? [];
+            var hadPlaintext = Unseal(node);
+            _cached = node.Deserialize<AppSettings>(Json.Options) ?? new AppSettings();
+            if (hadPlaintext) await WriteAsync(_cached); // encrypt secrets saved by older versions
+            return _cached;
+        }
         finally { _lock.Release(); }
     }
 
@@ -69,10 +85,62 @@ public sealed class SettingsStore(IAppPaths paths)
         try
         {
             _cached = settings;
-            await Json.WriteAtomicAsync(FilePath, settings);
+            await WriteAsync(settings);
         }
         finally { _lock.Release(); }
         Changed?.Invoke();
+    }
+
+    private async Task WriteAsync(AppSettings settings)
+    {
+        var node = JsonSerializer.SerializeToNode(settings, Json.Options) as JsonObject ?? [];
+        Seal(node);
+        await Json.WriteAtomicAsync(FilePath, node);
+    }
+
+    /// <summary>Encrypts secrets in the JSON about to be written.</summary>
+    private void Seal(JsonObject root)
+    {
+        root.Remove("ActiveProvider"); // computed; older versions wrote a duplicate (with its key) here
+        foreach (var p in (root["Providers"] as JsonArray ?? []).OfType<JsonObject>())
+            if (p["ApiKey"]?.GetValue<string>() is { Length: > 0 } key)
+            {
+                p["ApiKeySealed"] = _box.Seal(key);
+                p.Remove("ApiKey");
+            }
+        foreach (var m in (root["McpServers"] as JsonArray ?? []).OfType<JsonObject>())
+            foreach (var section in new[] { "Environment", "Headers" })
+                if (m[section] is JsonObject values)
+                    foreach (var k in values.Select(kv => kv.Key).ToList())
+                        if (values[k]?.GetValue<string>() is { Length: > 0 } v && !v.StartsWith(SealedPrefix))
+                            values[k] = SealedPrefix + _box.Seal(v);
+    }
+
+    /// <summary>Decrypts secrets after reading. Returns true when the file still had plaintext secrets.</summary>
+    private bool Unseal(JsonObject root)
+    {
+        var plaintext = root.Remove("ActiveProvider"); // duplicate copy written by older versions
+        foreach (var p in (root["Providers"] as JsonArray ?? []).OfType<JsonObject>())
+        {
+            if (p["ApiKeySealed"]?.GetValue<string>() is { Length: > 0 } sealedKey)
+            {
+                try { p["ApiKey"] = _box.Open(sealedKey); }
+                catch { p["ApiKey"] = null; } // vault key lost: the user re-enters it
+                p.Remove("ApiKeySealed");
+            }
+            else if (p["ApiKey"]?.GetValue<string>() is { Length: > 0 }) plaintext = true;
+        }
+        foreach (var m in (root["McpServers"] as JsonArray ?? []).OfType<JsonObject>())
+            foreach (var section in new[] { "Environment", "Headers" })
+                if (m[section] is JsonObject values)
+                    foreach (var k in values.Select(kv => kv.Key).ToList())
+                        if (values[k]?.GetValue<string>() is { Length: > 0 } v)
+                        {
+                            if (!v.StartsWith(SealedPrefix)) { plaintext = true; continue; }
+                            try { values[k] = _box.Open(v[SealedPrefix.Length..]); }
+                            catch { values[k] = ""; }
+                        }
+        return plaintext;
     }
 }
 

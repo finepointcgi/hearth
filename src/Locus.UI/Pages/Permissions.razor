@@ -46,6 +46,10 @@
                 </div>
             }
         </div>
+        <label class="check"><input type="checkbox" checked="@State.Settings.Tools.GuardUntrustedContent" @onchange="ToggleGuard" />
+            <span><b>Guard against hidden instructions</b> — after a bot reads web pages, email, shared files or another bot's reply, it asks
+            before anything that changes things (sending, writing, running code, saving memories or skills), even where it normally
+            wouldn't. Areas set to <b>Allow</b> above still run; routines and tasks with no one to ask skip those actions.</span></label>
         <div class="row">
             <button class="btn ghost small" @onclick="Careful">Careful preset: ask before every change</button>
             <button class="btn ghost small" @onclick="Reset">Reset all to Default</button>
@@ -124,6 +128,13 @@
         var level = Enum.TryParse<PermissionLevel>(value, out var l) ? l : PermissionLevel.Default;
         if (level == PermissionLevel.Default) _s!.Permissions.Remove(key); else _s!.Permissions[key] = level;
         await SaveAsync();
+    }
+
+    private async Task ToggleGuard(ChangeEventArgs e)
+    {
+        var s = await Store.GetAsync();
+        s.Tools.GuardUntrustedContent = (bool)e.Value!;
+        await Store.SaveAsync(s);
     }
 
     private async Task Careful()

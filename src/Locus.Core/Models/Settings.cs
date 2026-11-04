@@ -65,6 +65,7 @@ public sealed class AppSettings
     public ComputerSettings Computer { get; set; } = new();
     public GoogleSettings Google { get; set; } = new();
 
+    [System.Text.Json.Serialization.JsonIgnore]
     public ProviderProfile ActiveProvider =>
         Providers.FirstOrDefault(p => p.Id == ActiveProviderId) ?? Providers.FirstOrDefault()
         ?? new ProviderProfile();
@@ -76,6 +77,8 @@ public sealed class AppSettings
 
 public sealed class ToolSettings
 {
+    /// <summary>After reading web pages, email and the like, ask before actions that change things.</summary>
+    public bool GuardUntrustedContent { get; set; } = true;
     /// <summary>Default state of the Tools toggle in the composer.</summary>
     public bool EnabledByDefault { get; set; } = true;
     public List<string> DisabledTools { get; set; } = [];
@@ -142,7 +145,7 @@ public sealed class McpServerConfig
     /// <summary>Run this server's tools without asking.</summary>
     public bool AutoApprove { get; set; }
 
-    public string Fingerprint => System.Text.Json.JsonSerializer.Serialize(this);
+    [System.Text.Json.Serialization.JsonIgnore] public string Fingerprint => System.Text.Json.JsonSerializer.Serialize(this);
 }
 
 /// <summary>The bots' shared computer: a persistent browser profile plus a workspace folder.</summary>

@@ -28,6 +28,11 @@ builder.Services.AddSingleton<IAccessInfo>(sp => new ServerAccessInfo(
     sp.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>(), !string.IsNullOrEmpty(builder.Configuration["Locus:Password"])));
 
 var app = builder.Build();
+// Behind "tailscale serve" (or another local HTTPS proxy): honour its X-Forwarded-* headers. Only loopback proxies are trusted.
+app.UseForwardedHeaders(new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto,
+});
 
 if (!app.Environment.IsDevelopment()) app.UseExceptionHandler("/error", createScopeForErrors: true);
 

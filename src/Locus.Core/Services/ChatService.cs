@@ -140,7 +140,8 @@ public sealed class ChatService(
 
     /// <summary>Generates one assistant reply (as <paramref name="bot"/> when given) and saves the conversation.</summary>
     public async Task<ChatMessage?> RunAgentAsync(Conversation conv, Bot? bot, SendOptions opts, Func<Task> onUpdate,
-        CancellationToken ct, bool autoTitle = true, int depth = 0, bool unattended = false, IReadOnlyList<ITool>? extraTools = null, int? historyWindow = null)
+        CancellationToken ct, bool autoTitle = true, int depth = 0, bool unattended = false, IReadOnlyList<ITool>? extraTools = null, int? historyWindow = null,
+        string? untrustedInput = null)
     {
         var settings = await settingsStore.GetAsync();
         var client = factory.CreateForBot(settings, bot);
@@ -221,7 +222,7 @@ public sealed class ChatService(
             var ctx = new ToolContext
             {
                 Conversation = conv, Reply = reply, Settings = settings, Client = client, Model = model,
-                Bot = bot, Depth = depth, Unattended = unattended,
+                Bot = bot, Depth = depth, Unattended = unattended, TaintedBy = untrustedInput,
             };
             var definitions = available.Select(t => new ToolDefinition(t.Name, t.Description, t.Parameters)).ToList();
             var content = new StringBuilder();
@@ -443,13 +444,18 @@ public sealed class ChatService(
             return;
         }
 
-        if (PermissionCatalog.NeedsApproval(tool, ctx.Settings, ctx))
+        var held = ContentTrust.ShouldHold(tool, ctx) && !PermissionCatalog.IsBlocked(tool, ctx.Settings);
+        if (held) tc.ApprovalReason = $"Asking because this conversation just read {ctx.TaintedBy}, which could contain hidden instructions.";
+        if (held || PermissionCatalog.NeedsApproval(tool, ctx.Settings, ctx))
         {
             if (ctx.Unattended || ctx.Depth > 0)
             {
                 tc.Status = ToolCallStatus.Denied;
-                tc.Result = "This tool needs the user's approval and they aren't available right now. Continue without it, " +
-                            "or tell the user what you'd like to run.";
+                tc.Result = held
+                    ? $"Not run: this run read {ctx.TaintedBy}, so actions that change things need the user's OK, and they aren't available. " +
+                      "Finish without it and tell the user what you'd like to do (they can allow this area under Permissions)."
+                    : "This tool needs the user's approval and they aren't available right now. Continue without it, " +
+                      "or tell the user what you'd like to run.";
                 return;
             }
             tc.Status = ToolCallStatus.AwaitingApproval;
@@ -478,6 +484,11 @@ public sealed class ChatService(
         {
             var result = await tool.ExecuteAsync(args, ctx, ct);
             tc.Result = Tools.Schema.Truncate(result.Text, MaxToolResultChars);
+            if (ContentTrust.UntrustedSource(tool) is { } source && !result.IsError)
+            {
+                ctx.TaintedBy ??= source;
+                if (ctx.Settings.Tools.GuardUntrustedContent) tc.Result = ContentTrust.Label(source, tc.Result);
+            }
             tc.Status = result.IsError ? ToolCallStatus.Error : ToolCallStatus.Done;
             if (result.Images is { Count: > 0 }) ctx.Reply.GeneratedImages.AddRange(result.Images);
             tc.Image = result.ModelImage;
@@ -577,14 +588,16 @@ public sealed class ChatService(
         m.Role == ChatRole.User ? "User" : members.FirstOrDefault(b => b.Id == m.BotId)?.Name ?? "Bot";
 
     /// <summary>Delivers a message from one bot to another (in the recipient's own chat) and returns the reply.</summary>
-    internal async Task<string> MessageBotAsync(Bot from, Bot to, string message, SendOptions opts, int depth, CancellationToken ct)
+    internal async Task<string> MessageBotAsync(Bot from, Bot to, string message, SendOptions opts, int depth, CancellationToken ct,
+        string? untrusted = null)
     {
         var conv = await store.GetOrCreateDirectAsync(to);
         await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Message, $"{from.Name} → {to.Name}",
             message.Length > 200 ? message[..200] + "…" : message, to.Id, conv.Id));
         conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = message, FromBotId = from.Id });
         conv.Unread = true;
-        var reply = await RunAgentAsync(conv, to, opts, () => Task.CompletedTask, ct, autoTitle: false, depth: depth);
+        var reply = await RunAgentAsync(conv, to, opts, () => Task.CompletedTask, ct, autoTitle: false, depth: depth,
+            untrustedInput: untrusted is null ? null : $"{untrusted} (via {from.Name})");
         if (reply?.Error is not null) return $"{to.Name} couldn't reply: {reply.Error}";
         return string.IsNullOrWhiteSpace(reply?.Content) ? $"{to.Name} sent an empty reply." : reply.Content;
     }
@@ -804,7 +817,7 @@ internal sealed class MessageBotTool(ChatService chat, Bot self, IReadOnlyList<B
         if (string.IsNullOrWhiteSpace(message)) return ToolResult.Error("message is required");
         // Pass on the chat's model, unless the sender runs on its own server (its model name means nothing elsewhere).
         var model = ctx.Settings.ProviderFor(self).Id == ctx.Settings.ActiveProvider.Id ? ctx.Model : opts.Model;
-        var reply = await chat.MessageBotAsync(self, target, message, opts with { Model = model }, ctx.Depth + 1, ct);
+        var reply = await chat.MessageBotAsync(self, target, message, opts with { Model = model }, ctx.Depth + 1, ct, ctx.TaintedBy);
         return new ToolResult($"{target.Name} replied:\n\n{reply}");
     }
 }

@@ -22,7 +22,7 @@
     @if (Call.Status == ToolCallStatus.AwaitingApproval)
     {
         <div class="approval">
-            <span>⚠ This tool can make changes or run code. Allow it?</span>
+            <span>⚠ @(Call.ApprovalReason ?? "This tool can make changes or run code.") Allow it?</span>
             <button class="btn ghost" @onclick="() => Decide(false)">Deny</button>
             <button class="btn primary" @onclick="() => Decide(true)">Allow</button>
         </div>

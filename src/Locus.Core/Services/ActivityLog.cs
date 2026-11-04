@@ -73,7 +73,8 @@ public sealed record PendingApproval(
     string? BotId,
     string ToolName,
     string ArgumentsJson,
-    TaskCompletionSource<bool> Decision);
+    TaskCompletionSource<bool> Decision,
+    string? Reason = null);
 
 /// <summary>
 /// Every tool call waiting for approval, so the dashboard, the chat and Telegram/Discord can all answer it.
@@ -90,7 +91,7 @@ public sealed class ApprovalCenter
 
     public PendingApproval Register(Conversation conv, Bot? bot, ToolCall call, TaskCompletionSource<bool> decision)
     {
-        var p = new PendingApproval(call.Id, DateTimeOffset.Now, conv.Id, conv.Title, bot?.Id, call.Name, call.ArgumentsJson, decision);
+        var p = new PendingApproval(call.Id, DateTimeOffset.Now, conv.Id, conv.Title, bot?.Id, call.Name, call.ArgumentsJson, decision, call.ApprovalReason);
         _pending[p.Id] = p;
         decision.Task.ContinueWith(t =>
         {

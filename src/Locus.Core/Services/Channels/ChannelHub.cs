@@ -400,7 +400,8 @@ public sealed class ChannelHub
         {
             var bot = await _bots.GetAsync(p.BotId ?? "");
             var args = p.ArgumentsJson.Length > 600 ? p.ArgumentsJson[..600] + "…" : p.ArgumentsJson;
-            var text = $"🔐 {bot?.Name ?? "Locus"} wants to run {p.ToolName}\n{args}\n\n(from \"{p.ConversationTitle}\")";
+            var text = $"🔐 {bot?.Name ?? "Locus"} wants to run {p.ToolName}\n{args}\n\n(from \"{p.ConversationTitle}\")" +
+                       (p.Reason is null ? "" : $"\n⚠ {p.Reason}");
             // Approvals from a Telegram/Discord conversation go to that chat; others go to chats that opted in.
             if (_convToChat.TryGetValue(p.ConversationId, out var origin))
             {

@@ -55,6 +55,8 @@ public sealed class ToolCall
     public string Name { get; set; } = "";
     public string ArgumentsJson { get; set; } = "{}";
     public string? Result { get; set; }
+    /// <summary>Why approval was asked for when it normally isn't (e.g. the run read untrusted content).</summary>
+    public string? ApprovalReason { get; set; }
     public ToolCallStatus Status { get; set; }
     public int Round { get; set; }
     /// <summary>Provider data for the turn that made this call (set on the round's first call), replayed verbatim.</summary>
