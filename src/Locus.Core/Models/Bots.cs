@@ -216,6 +216,8 @@ public sealed class Bot
     /// <summary>Model server this bot runs on; null uses the app's active server.</summary>
     public string? ProviderId { get; set; }
     public BotAbilities Abilities { get; set; } = new();
+    /// <summary>Example questions with what a good answer looks like, re-run after changes.</summary>
+    public List<BotCheck> Checks { get; set; } = [];
     public BotMemory Memory { get; set; } = new();
     /// <summary>Advanced: "Selected" further limits the bot to <see cref="AllowedTools"/>.</summary>
     public BotToolMode ToolMode { get; set; } = BotToolMode.All;
@@ -263,3 +265,16 @@ public static class BotTemplates
                            "and keep the group chat fun — but stay accurate if facts come up." },
     ];
 }
+
+public sealed class BotCheck
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+    public string Question { get; set; } = "";
+    /// <summary>What a good answer does, in plain words (judged by a model).</summary>
+    public string Expect { get; set; } = "";
+    /// <summary>Optional words the answer must contain (comma-separated, case-insensitive).</summary>
+    public string? MustInclude { get; set; }
+    public BotCheckResult? Last { get; set; }
+}
+
+public sealed record BotCheckResult(bool Pass, string Reason, string Answer, DateTimeOffset At, string Model, long Milliseconds);

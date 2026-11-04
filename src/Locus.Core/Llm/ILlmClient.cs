@@ -78,20 +78,21 @@ public interface ILlmClientFactory
     }
 }
 
-public sealed class LlmClientFactory(IHttpClientFactory http, PlatformInfo platform, IAppPaths paths) : ILlmClientFactory
+public sealed class LlmClientFactory(IHttpClientFactory http, PlatformInfo platform, IAppPaths paths, UsageStore? usage = null) : ILlmClientFactory
 {
     public const string HttpClientName = "llm";
 
     public ILlmClient Create(ProviderProfile profile)
     {
         var client = http.CreateClient(HttpClientName);
-        return profile.Kind switch
+        ILlmClient inner = profile.Kind switch
         {
             ProviderKind.Ollama => new OllamaClient(client, profile),
             ProviderKind.Anthropic => new ClaudeApiClient(profile),
             ProviderKind.ClaudeCode => new ClaudeCodeClient(profile, platform, paths),
             _ => new OpenAICompatibleClient(client, profile),
         };
+        return usage is null ? inner : new MeteredLlmClient(inner, profile, usage);
     }
 }
 

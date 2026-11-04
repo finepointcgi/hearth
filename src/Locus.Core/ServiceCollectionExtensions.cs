@@ -21,6 +21,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ILlmClientFactory, LlmClientFactory>();
         services.AddSingleton<SettingsStore>();
         services.AddSingleton<ConversationStore>();
+        services.AddSingleton<UsageStore>();
         services.TryAddSingleton<ServerEmbedder>();
         services.TryAddSingleton<IEmbedder>(sp => sp.GetRequiredService<ServerEmbedder>());
         services.TryAddSingleton<IMemoryProvider>(sp => new SqliteMemoryProvider(
@@ -38,6 +39,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<BotInbox>();
         services.AddSingleton<ChatHistoryIndex>();
         services.AddSingleton<HeartbeatRunner>();
+        services.AddSingleton<PushNotifier>();
+        services.AddSingleton<BackupService>();
+        services.AddSingleton<BotCheckRunner>();
+        services.TryAddSingleton<IAppRestarter, NoRestarter>();
         services.AddSingleton<SkillPorter>();
         services.AddSingleton<MemoryCurator>();
         services.AddSingleton<SkillTeacher>();

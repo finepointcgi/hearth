@@ -12,6 +12,32 @@
 </header>
 
 <div class="settings">
+    <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="@(_tab == "phone")" class="tab @(_tab == "phone" ? "on" : "")" @onclick='() => _tab = "phone"'><Icon Name="monitor" Size="16" /> Phone</button>
+        <button role="tab" aria-selected="@(_tab == "chat")" class="tab @(_tab == "chat" ? "on" : "")" @onclick='() => _tab = "chat"'><Icon Name="message-circle" Size="16" /> Chat apps</button>
+        <button role="tab" aria-selected="@(_tab == "google")" class="tab @(_tab == "google" ? "on" : "")" @onclick='() => _tab = "google"'><Icon Name="calendar" Size="16" /> Google</button>
+        <button role="tab" aria-selected="@(_tab == "email")" class="tab @(_tab == "email" ? "on" : "")" @onclick='() => _tab = "email"'><Icon Name="mail" Size="16" /> Email</button>
+        <button role="tab" aria-selected="@(_tab == "more")" class="tab @(_tab == "more" ? "on" : "")" @onclick='() => _tab = "more"'><Icon Name="plug" Size="16" /> More</button>
+    </div>
+    @if (_tab == "phone")
+    {
+    <PhoneAccess />
+    <NotificationsCard />
+    }
+    @if (_tab == "chat")
+    {
+    <ChannelCard Channel="telegram" />
+    <ChannelCard Channel="discord" />
+    <ChannelCard Channel="slack" />
+    <ChannelCard Channel="signal" />
+    @if (OperatingSystem.IsMacOS())
+    {
+        <ChannelCard Channel="imessage" />
+    }
+
+    }
+    @if (_tab == "google")
+    {
     <section class="card">
         <div class="row">
             <span class="conn-logo">📊</span>
@@ -135,25 +161,23 @@
         </section>
     }
 
-    <PhoneAccess />
-
-    <ChannelCard Channel="telegram" />
-    <InboxCard />
-    <ChannelCard Channel="discord" />
-    <ChannelCard Channel="slack" />
-    <ChannelCard Channel="signal" />
-    @if (OperatingSystem.IsMacOS())
-    {
-        <ChannelCard Channel="imessage" />
     }
-
+    @if (_tab == "email")
+    {
+    <InboxCard />
+    }
+    @if (_tab == "more")
+    {
     <section class="card">
         <h3>More connections</h3>
         <p class="muted">Anything with an MCP server (GitHub, Notion, Slack, Home Assistant, databases…) can be added on <a href="tools">Tools & MCP</a>.</p>
     </section>
+    }
 </div>
 
 @code {
+    private string _tab = "phone";
+
     private Locus.Core.Services.Google.GoogleConnection _conn = new();
     private AppSettings? _s;
     private int _mode;

@@ -1,0 +1,140 @@
+@page "/backup"
+@inherits StatefulComponent
+@inject BackupService Backups
+@inject SettingsStore Settings
+@inject IAppRestarter Restarter
+@inject IJSRuntime JS
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <h2 class="topbar-title">Backup and restore</h2>
+</header>
+
+<div class="settings">
+    <section class="card">
+        <h3>Back up now</h3>
+        <p class="muted small">One file with your bots, chats, memory, skills, settings and connected accounts. It includes the key that unlocks
+            your saved passwords and tokens, so keep it somewhere private. The embedding model and browser sign-ins aren't included
+            (the model downloads again; sign in again after a restore).</p>
+        <div class="row">
+            <button class="btn primary" @onclick="DownloadNow" disabled="@_busy"><Icon Name="download" Size="16" /> Download a backup</button>
+            <button class="btn ghost" @onclick="SaveCopy" disabled="@_busy">Save a copy to the backup folder</button>
+        </div>
+        @if (_message is not null) { <div class="@(_ok ? "ok-text" : "error-box")">@_message</div> }
+    </section>
+
+    <section class="card">
+        <h3>Daily copies</h3>
+        <label class="option-row"><span class="grow-text">Make a copy every day<small>@(_b.LastBackup is { } last ? $"Last copy {last:MMM d, h:mm tt}" : "No copy yet")</small></span>
+            <input type="checkbox" class="switch" role="switch" checked="@_b.Daily" @onchange="e => Change(b => b.Daily = (bool)e.Value!)" /></label>
+        <label>Folder (point it at iCloud Drive, Dropbox or a NAS folder for copies off this computer)
+            <input @bind="_folder" @bind:after="SaveFolder" placeholder="@Backups.DefaultFolder" /></label>
+        <label>Keep the last
+            <select value="@_b.Keep" @onchange="e => Change(b => b.Keep = int.Parse(e.Value!.ToString()!))">
+                @foreach (var n in new[] { 3, 7, 14, 30 }) { <option value="@n">@n copies</option> }
+            </select></label>
+        @foreach (var f in _copies)
+        {
+            var file = f;
+            <div class="usage-row">
+                <span class="grow">@Path.GetFileName(file.FullName)<br /><span class="muted small">@file.LastWriteTime.ToString("MMM d, h:mm tt") · @(file.Length / 1024) KB</span></span>
+                <button class="btn ghost small" @onclick="() => DownloadFile(file)"><Icon Name="download" Size="15" /></button>
+            </div>
+        }
+    </section>
+
+    <section class="card">
+        <h3>Restore</h3>
+        @if (Backups.RestorePending)
+        {
+            <div class="notice">A backup is ready to restore. Locus applies it the next time it starts, after setting your current data aside
+                (you'll find it in a "locus-before-restore" folder inside the data folder).</div>
+            <div class="row">
+                @if (Restarter.CanRestart) { <button class="btn primary" @onclick="RestartNow">Restart Locus now</button> }
+                else { <span class="muted small">Quit and reopen Locus to finish.</span> }
+                <button class="btn ghost" @onclick="Cancel">Cancel restore</button>
+            </div>
+        }
+        else
+        {
+            <p class="muted small">Restore everything from a Locus backup file, for example on a new computer. Your current data is kept aside, not deleted.</p>
+            <label class="btn ghost file-btn"><Icon Name="upload" Size="16" /> Choose a backup file…
+                <InputFile OnChange="Stage" accept=".zip,application/zip" style="display:none" /></label>
+        }
+    </section>
+</div>
+
+@code {
+    private BackupSettings _b = new();
+    private string _folder = "";
+    private string? _message;
+    private bool _ok, _busy;
+    private List<FileInfo> _copies = [];
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _b = (await Settings.GetAsync()).Backup;
+        _folder = _b.Folder ?? "";
+        var dir = string.IsNullOrWhiteSpace(_b.Folder) ? Backups.DefaultFolder : _b.Folder!;
+        _copies = Directory.Exists(dir) ? new DirectoryInfo(dir).GetFiles("locus-backup-*.zip").OrderByDescending(f => f.Name).ToList() : [];
+    }
+
+    private async Task Change(Action<BackupSettings> change)
+    {
+        var s = await Settings.GetAsync();
+        change(s.Backup);
+        await Settings.SaveAsync(s);
+        await LoadAsync();
+    }
+
+    private Task SaveFolder() => Change(b => b.Folder = string.IsNullOrWhiteSpace(_folder) ? null : _folder.Trim());
+
+    private async Task DownloadNow()
+    {
+        await Run(async () =>
+        {
+            using var ms = new MemoryStream();
+            await Backups.WriteAsync(ms);
+            await JS.InvokeVoidAsync("locus.downloadImage", "data:application/zip;base64," + Convert.ToBase64String(ms.ToArray()),
+                $"locus-backup-{DateTime.Now:yyyy-MM-dd}.zip");
+            return "Backup downloaded.";
+        });
+    }
+
+    private Task SaveCopy() => Run(async () => $"Saved {Path.GetFileName(await Backups.BackUpToFolderAsync())}.");
+
+    private async Task DownloadFile(FileInfo f) =>
+        await JS.InvokeVoidAsync("locus.downloadImage", "data:application/zip;base64," + Convert.ToBase64String(await File.ReadAllBytesAsync(f.FullName)), f.Name);
+
+    private async Task Stage(InputFileChangeEventArgs e)
+    {
+        await Run(async () =>
+        {
+            await using var stream = e.File.OpenReadStream(500_000_000);
+            var problem = await Backups.StageRestoreAsync(stream);
+            if (problem is not null) throw new InvalidOperationException(problem);
+            return "Backup checked and ready.";
+        });
+    }
+
+    private void Cancel() { Backups.CancelRestore(); _message = "Restore cancelled."; _ok = true; }
+
+    private void RestartNow()
+    {
+        _message = "Restarting… this page reconnects in a few seconds.";
+        _ok = true;
+        Restarter.Restart();
+    }
+
+    private async Task Run(Func<Task<string>> work)
+    {
+        _busy = true;
+        try { _message = await work(); _ok = true; }
+        catch (Exception ex) { _message = ex.Message; _ok = false; }
+        finally { _busy = false; await LoadAsync(); }
+    }
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+}

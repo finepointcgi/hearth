@@ -38,6 +38,20 @@
             <button class="mention" title="Everyone replies" @onclick='() => Mention("everyone")'><Icon Name="users" Size="15" /> @@everyone</button>
         </div>
     }
+    @if (MentionMatches.Count > 0)
+    {
+        <div class="slash-menu">
+            @foreach (var (name, bot, inChat) in MentionMatches)
+            {
+                var n = name;
+                <button class="slash-item" @onclick="() => PickMention(n)">
+                    @if (bot is not null) { <BotAvatar Bot="bot" Size="sm" /> } else { <Icon Name="users" Size="15" /> }
+                    <b>@@@name</b>
+                    <span class="muted small ellipsis">@(bot is null ? "Everyone replies" : inChat ? bot.Title : $"Adds to this chat · {bot.Title}")</span>
+                </button>
+            }
+        </div>
+    }
     @if (SlashMatches.Count > 0)
     {
         <div class="slash-menu">
@@ -149,6 +163,42 @@
         }
     }
 
+    /// <summary>The "@que" being typed at the end of the text, if any.</summary>
+    private string? MentionQuery
+    {
+        get
+        {
+            var at = _text.LastIndexOf('@');
+            if (at < 0 || (at > 0 && !char.IsWhiteSpace(_text[at - 1]))) return null;
+            var q = _text[(at + 1)..];
+            return q.Any(char.IsWhiteSpace) ? null : q;
+        }
+    }
+
+    /// <summary>Bot suggestions while typing "@": bots in this chat first, then any other bot (mentioning adds it).</summary>
+    private List<(string name, Bot? bot, bool inChat)> MentionMatches
+    {
+        get
+        {
+            if (MentionQuery is not { } q) return [];
+            var list = State.Bots
+                .Where(b => b.Name.StartsWith(q, StringComparison.OrdinalIgnoreCase))
+                .Select(b => (b.Name, (Bot?)b, Members.Any(m => m.Id == b.Id)))
+                .OrderByDescending(x => x.Item3)
+                .ToList();
+            if (Members.Count > 1 && "everyone".StartsWith(q, StringComparison.OrdinalIgnoreCase)) list.Add(("everyone", null, true));
+            if (list.Count == 1 && list[0].Item1.Equals(q, StringComparison.OrdinalIgnoreCase)) return []; // already typed in full
+            return list.Take(8).ToList();
+        }
+    }
+
+    private async Task PickMention(string name)
+    {
+        var at = _text.LastIndexOf('@');
+        _text = (at < 0 ? _text : _text[..at]) + "@" + name + " ";
+        await JS.InvokeVoidAsync("locus.focus", _textarea);
+    }
+
     private async Task PickSlash(string name)
     {
         _text = "/" + name + " ";
@@ -173,8 +223,8 @@
     private DotNetObjectReference<Composer>? _ref;
 
     private string Placeholder => Members.Count > 1 && State.SelectedModel is not null
-        ? "Message the group · @name to ask one bot"
-        : Members.Count == 1 && State.SelectedModel is not null ? $"Message {Members[0].Name}"
+        ? "Message the group · @name to ask or add a bot"
+        : Members.Count == 1 && State.SelectedModel is not null ? $"Message {Members[0].Name} · @name to add a bot"
         : State.SelectedModel is null
         ? (State.CanImagine ? "/imagine a prompt… (connect a model in Settings to chat)" : "Connect a model in Settings to start…")
         : State.CanImagine ? "Ask anything · /imagine to draw" : "Ask anything";

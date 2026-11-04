@@ -48,6 +48,44 @@
     </section>
 
     <section class="card">
+        <h3>Add an integration</h3>
+        <p class="muted small">Popular MCP servers, set up for you. Versions are pinned; secrets you enter are encrypted on this computer.</p>
+        <div class="catalog-grid">
+            @foreach (var item in McpCatalog.All)
+            {
+                var it = item;
+                var added = _s?.McpServers.Any(m => m.Name == it.Id) == true;
+                var missing = it.Needs is { } need && !OnPath(need == "node" ? "npx" : "uvx");
+                <button class="catalog-item @(_adding == it ? "on" : "")" disabled="@(added || (missing && it.Transport == McpTransport.Stdio) || (it.Transport == McpTransport.Stdio && !Platform.CanRunProcesses))"
+                        @onclick="() => StartAdd(it)" title="@(added ? "Already added" : missing ? $"Needs {(it.Needs == "node" ? "Node.js" : "uv")} installed" : it.Description)">
+                    <span class="needs-icon"><Icon Name="@it.Icon" Size="17" /></span>
+                    <span class="grow-text"><b>@it.Name</b><small>@(added ? "Added" : missing ? $"Needs {(it.Needs == "node" ? "Node.js" : "uv")}" : it.Description)</small></span>
+                </button>
+            }
+        </div>
+        @if (_adding is { } adding)
+        {
+            <div class="catalog-form">
+                <b>@adding.Name</b> <a class="small" href="@adding.Docs" target="_blank" rel="noopener">About</a>
+                @foreach (var f in adding.Fields)
+                {
+                    var field = f;
+                    <label>@field.Label
+                        <input type="@(field.Secret ? "password" : "text")" placeholder="@field.Placeholder" autocomplete="off"
+                               value="@_values.GetValueOrDefault(field.Label)" @onchange="e => _values[field.Label] = e.Value?.ToString() ?? string.Empty" />
+                        @if (field.Help is not null) { <span class="muted small">@field.Help</span> }
+                    </label>
+                }
+                @if (adding.Fields.Count == 0) { <span class="muted small">Nothing to fill in.</span> }
+                <div class="row end">
+                    <button class="btn ghost" @onclick="() => _adding = null">Cancel</button>
+                    <button class="btn primary" disabled="@(!adding.IsComplete(_values))" @onclick="AddFromCatalog">Add @adding.Name</button>
+                </div>
+            </div>
+        }
+    </section>
+
+    <section class="card">
         <h3>MCP servers</h3>
         <p class="muted">
             Plug in any <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">Model Context Protocol</a> server (files, GitHub, databases, Home Assistant…).
@@ -66,7 +104,7 @@
                         <option value="@McpTransport.Stdio">Local command (stdio)</option>
                         <option value="@McpTransport.Http">HTTP</option>
                     </select>
-                    <button class="icon-btn" title="Remove" @onclick="() => _s.McpServers.Remove(server)">🗑</button>
+                    <button class="icon-btn" title="Remove" aria-label="Remove" @onclick="() => _s.McpServers.Remove(server)"><Icon Name="trash-2" Size="15" /></button>
                 </div>
                 @if (server.Transport == McpTransport.Stdio)
                 {
@@ -101,7 +139,7 @@
             </div>
         }
         <div class="row">
-            <button class="btn ghost" @onclick="AddServer">＋ Add server</button>
+            <button class="btn ghost" @onclick="AddServer"><Icon Name="plus" Size="16" /> Add a server by hand</button>
             <button class="btn ghost" @onclick="() => _showImport = !_showImport">Import JSON…</button>
         </div>
         @if (_showImport)
@@ -137,6 +175,25 @@
         _s!.Tools.DisabledTools.Remove(name);
         if (!on) _s.Tools.DisabledTools.Add(name);
     }
+
+    private McpCatalogItem? _adding;
+    private Dictionary<string, string> _values = [];
+
+    private void StartAdd(McpCatalogItem item) { _adding = item; _values = []; }
+
+    private async Task AddFromCatalog()
+    {
+        if (_adding is null || _s is null) return;
+        _s.McpServers.Add(_adding.Build(_values));
+        _adding = null;
+        _values = [];
+        await Save();
+    }
+
+    private static bool OnPath(string exe) =>
+        (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
+            .Concat([Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin"])
+            .Any(d => File.Exists(Path.Combine(d, exe)) || File.Exists(Path.Combine(d, exe + ".cmd")) || File.Exists(Path.Combine(d, exe + ".exe")));
 
     private void AddServer() => _s!.McpServers.Add(new McpServerConfig { Name = $"server{_s.McpServers.Count + 1}", Transport = Platform.CanRunProcesses ? McpTransport.Stdio : McpTransport.Http });
 

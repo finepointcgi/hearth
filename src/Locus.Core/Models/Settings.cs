@@ -20,6 +20,9 @@ public sealed class ProviderProfile
     public string BaseUrl { get; set; } = "http://localhost:11434";
     public string? ApiKey { get; set; }
     public string? DefaultModel { get; set; }
+    /// <summary>Optional prices (USD per million tokens) for cloud servers, for cost estimates.</summary>
+    public decimal? InputPricePerMillion { get; set; }
+    public decimal? OutputPricePerMillion { get; set; }
 }
 
 public sealed class AppSettings
@@ -54,6 +57,10 @@ public sealed class AppSettings
     public bool RecallByMeaning { get; set; } = true;
     public SkillLearningSettings SkillLearning { get; set; } = new();
     public Services.HeartbeatSettings Heartbeat { get; set; } = new();
+    public Services.NotificationSettings Notifications { get; set; } = new();
+    public Services.BackupSettings Backup { get; set; } = new();
+    /// <summary>First-run setup finished (or skipped because Locus was already in use).</summary>
+    public bool SetupDone { get; set; }
     /// <summary>Other computers bots may run commands on over SSH.</summary>
     public List<Tools.RemoteHost> RemoteHosts { get; set; } = [];
     public DocumentSettings Documents { get; set; } = new();

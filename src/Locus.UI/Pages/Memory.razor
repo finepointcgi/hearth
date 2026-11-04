@@ -42,7 +42,7 @@
     {
         <section class="card">
             <div class="row">
-                <h3 class="grow">👤 Your profile</h3>
+                <h3 class="grow">Your profile</h3>
                 <button class="btn ghost" @onclick="Tidy" disabled="@_tidying">@(_tidying ? "Thinking…" : "🧹 Tidy up now")</button>
             </div>
             <p class="muted small">A short summary of you that every chat starts with (bots that use shared memory too). Locus keeps it up to date from what it learns, with your OK.</p>
@@ -54,7 +54,7 @@
         @if (_cleanup is { } c)
         {
             <section class="card">
-                <h3>🧹 Suggested tidy-up</h3>
+                <h3>Suggested tidy-up</h3>
                 <p class="muted small">Untick anything you want to keep as it is, then apply.</p>
                 @if (c.Profile is not null)
                 {

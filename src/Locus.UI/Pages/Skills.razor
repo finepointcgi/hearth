@@ -45,7 +45,7 @@
     }
 
     <section class="card">
-        <h3>📒 Bots write their own skills</h3>
+        <h3>Bots write their own skills</h3>
         <label class="check"><input type="checkbox" checked="@State.Settings.SkillLearning.Enabled" @onchange="e => SetLearning(s => s.Enabled = (bool)e.Value!)" />
             <span><b>Learn from experience</b> — after a job that took several steps, a bot saves the method as a skill, and fixes skills that turned out wrong</span></label>
         @if (State.Settings.SkillLearning.Enabled)
@@ -84,7 +84,7 @@
     }
 
     <section class="card">
-        <h3>📦 Import &amp; export</h3>
+        <h3>Import &amp; export</h3>
         <p class="muted small">
             Skills use the open <code>SKILL.md</code> format, so they move between Locus, Claude, Hermes and OpenClaw. Import a
             GitHub folder or file link (e.g. a skill from a skills hub), a raw SKILL.md link, a .zip, or a .md file. Imported skills

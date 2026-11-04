@@ -101,7 +101,7 @@
                     @foreach (var s in Suggestions)
                     {
                         <button class="suggestion" @onclick="() => Send(new ComposerInput(s.prompt, [], []))">
-                            <span>@s.icon</span> @s.label
+                            <Icon Name="@s.icon" Size="17" /> @s.label
                         </button>
                     }
                 </div>
@@ -185,12 +185,12 @@
 
     private static readonly (string icon, string label, string prompt)[] Suggestions =
     [
-        ("🧠", "Explain like I'm five", "Explain how large language models work like I'm five."),
-        ("🐛", "Debug my code", "I'll paste some code. Find the bugs and explain the fixes."),
-        ("✈️", "Plan a weekend trip", "Plan a fun, cheap 2-day weekend trip itinerary. Ask me where I live first."),
-        ("🔥", "Roast my playlist", "Roast my music taste. I mostly listen to 2000s pop-punk and lo-fi beats."),
-        ("🧮", "Crunch some numbers", "If I invest $300 a month at 7% annual return, how much will I have after 25 years? Show the math."),
-        ("🧠", "Get to know me", "Ask me 3 quick questions about myself and remember my answers for future chats."),
+        ("sparkles", "Explain like I'm five", "Explain how large language models work like I'm five."),
+        ("code", "Debug my code", "I'll paste some code. Find the bugs and explain the fixes."),
+        ("globe", "Plan a weekend trip", "Plan a fun, cheap 2-day weekend trip itinerary. Ask me where I live first."),
+        ("headphones", "Roast my playlist", "Roast my music taste. I mostly listen to 2000s pop-punk and lo-fi beats."),
+        ("calculator", "Crunch some numbers", "If I invest $300 a month at 7% annual return, how much will I have after 25 years? Show the math."),
+        ("user", "Get to know me", "Ask me 3 quick questions about myself and remember my answers for future chats."),
     ];
 
     private string Greeting => DateTime.Now.Hour switch

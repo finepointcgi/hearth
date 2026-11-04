@@ -15,7 +15,7 @@ public sealed class AppState : IDisposable
     private Task? _init;
 
     public AppState(SettingsStore settings, ConversationStore conversations, ILlmClientFactory factory,
-        BotStore bots, RoutineRunner routines, SkillStore skills, Locus.Core.Services.Channels.ChannelHub channels, TaskRunner tasks, BotInbox inbox, HeartbeatRunner heartbeat, SkillPorter porter, MemoryCurator curator, ChatHistoryIndex history)
+        BotStore bots, RoutineRunner routines, SkillStore skills, Locus.Core.Services.Channels.ChannelHub channels, TaskRunner tasks, BotInbox inbox, HeartbeatRunner heartbeat, SkillPorter porter, MemoryCurator curator, ChatHistoryIndex history, PushNotifier notifier, BackupService backups)
     {
         _settings = settings;
         _conversations = conversations;
@@ -33,6 +33,8 @@ public sealed class AppState : IDisposable
         _porter = porter;
         _curator = curator;
         _history = history;
+        _notifier = notifier;
+        _backups = backups;
         _skills.Changed += OnSkillsChanged;
     }
 
@@ -44,6 +46,8 @@ public sealed class AppState : IDisposable
     private readonly SkillPorter _porter;
     private readonly MemoryCurator _curator;
     private readonly ChatHistoryIndex _history;
+    private readonly PushNotifier _notifier;
+    private readonly BackupService _backups;
 
     private async void OnSkillsChanged()
     {
@@ -108,6 +112,8 @@ public sealed class AppState : IDisposable
         _porter.EnsureStarted();
         _curator.EnsureStarted();
         _history.EnsureStarted();
+        _notifier.EnsureStarted();
+        _backups.EnsureStarted();
         _ = _channels.EnsureStartedAsync().ContinueWith(_ => { }); // Telegram/Discord; errors show on Connections
         NotifyChanged();
         await RefreshModelsAsync();

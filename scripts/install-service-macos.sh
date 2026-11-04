@@ -46,6 +46,7 @@ XML
   <key>EnvironmentVariables</key>
   <dict>
     <key>ASPNETCORE_ENVIRONMENT</key><string>Production</string>
+    <key>LOCUS_SERVICE</key><string>1</string>
 XML
   [[ -n "${LOCUS_PASSWORD:-}" ]] && echo "    <key>Locus__Password</key><string>$(printf '%s' "$LOCUS_PASSWORD" | xml_escape)</string>"
   cat <<XML

@@ -15,6 +15,7 @@ internal static class Program
     {
         var os = OperatingSystem.IsLinux() ? "Linux" : OperatingSystem.IsWindows() ? "Windows" : "macOS";
 
+        Locus.Core.Services.BackupService.ApplyPendingRestore(new Locus.Core.Services.DefaultAppPaths().DataDirectory);
         var builder = PhotinoBlazorAppBuilder.CreateDefault(args);
         const int webhookPort = 5299;
         builder.Services.AddLocus(new PlatformInfo($"{os} ({RuntimeInformation.OSArchitecture})", IsMobile: false,

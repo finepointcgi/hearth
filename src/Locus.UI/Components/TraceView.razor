@@ -1,0 +1,23 @@
+@* How a reply was produced: every model round and tool call, with time and tokens. *@
+<div class="trace">
+    <div class="trace-head">
+        <b>@Steps.Count steps · @Fmt(Steps.Sum(s => s.Ms))</b>
+        <span class="muted small">model @Fmt(Steps.Where(s => s.Kind == "model").Sum(s => s.Ms)) · tools @Fmt(Steps.Where(s => s.Kind == "tool").Sum(s => s.Ms))
+            @if (Steps.Any(s => s.InputTokens is not null)) { <text> · @Steps.Sum(s => s.InputTokens ?? 0).ToString("N0") in / @Steps.Sum(s => s.OutputTokens ?? 0).ToString("N0") out tokens</text> }</span>
+    </div>
+    @foreach (var s in Steps)
+    {
+        <div class="trace-row @s.Kind">
+            <span class="trace-icon"><Icon Name="@(s.Kind == "model" ? "sparkles" : ToolCallView.IconFor(s.Name))" Size="13" /></span>
+            <span class="trace-name">@(s.Kind == "model" ? "Model" : ToolCallView.LabelFor(s.Name))</span>
+            <span class="trace-bar"><span style="width:@(Max == 0 ? 0 : Math.Max(2, s.Ms * 100 / Max))%"></span></span>
+            <span class="trace-ms">@Fmt(s.Ms)@if (s.OutputTokens is { } o) { <small> · @o tok</small> }</span>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<TraceStep> Steps { get; set; } = [];
+    private long Max => Steps.Select(s => s.Ms).DefaultIfEmpty(0).Max();
+    private static string Fmt(long ms) => ms >= 60_000 ? $"{ms / 60_000.0:0.#} min" : ms >= 1000 ? $"{ms / 1000.0:0.#} s" : $"{ms} ms";
+}

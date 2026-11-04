@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Security.Cryptography;
 using System.Text;
 using Locus.UI;
@@ -12,6 +13,9 @@ using Locus.Web.Components;
 if (args.Contains("--install-browser"))
     return Microsoft.Playwright.Program.Main(["install", "--with-deps", "chromium"]);
 
+// A restore staged on the Backup page is applied before anything opens the data folder.
+BackupService.ApplyPendingRestore(new DefaultAppPaths().DataDirectory);
+
 var builder = WebApplication.CreateBuilder(args);
 // HttpClient's request logs include full URLs — Telegram puts the bot token in the URL — so keep them out of logs.
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
@@ -24,6 +28,7 @@ builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 4 * 1024 * 1024);
 var allowProcesses = builder.Configuration.GetValue<bool>("Locus:AllowLocalProcesses");
 builder.Services.AddLocus(new PlatformInfo("Web server", IsMobile: false, CanRunProcesses: allowProcesses, WebhookBaseUrl: ""));
 builder.Services.AddLocusComputer(); // the bots' browser; only usable when AllowLocalProcesses is on
+builder.Services.Replace(Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<IAppRestarter, WebRestarter>());
 builder.Services.AddSingleton<IAccessInfo>(sp => new ServerAccessInfo(
     sp.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>(), !string.IsNullOrEmpty(builder.Configuration["Locus:Password"])));
 
@@ -112,6 +117,8 @@ app.Services.GetRequiredService<HeartbeatRunner>().EnsureStarted();
 app.Services.GetRequiredService<SkillPorter>().EnsureStarted();
 app.Services.GetRequiredService<MemoryCurator>().EnsureStarted();
 app.Services.GetRequiredService<ChatHistoryIndex>().EnsureStarted();
+app.Services.GetRequiredService<PushNotifier>().EnsureStarted();
+app.Services.GetRequiredService<BackupService>().EnsureStarted();
 _ = app.Services.GetRequiredService<Locus.Core.Services.Channels.ChannelHub>().EnsureStartedAsync().ContinueWith(_ => { });
 
 app.MapRazorComponents<App>()
@@ -138,6 +145,13 @@ static string LoginPage(bool wrong) => $$"""
     """;
 
 /// <summary>Where this server listens, for the "Phone access" card.</summary>
+/// <summary>Stops the server; the background service (launchd/systemd/Docker) starts it again.</summary>
+sealed class WebRestarter(IHostApplicationLifetime lifetime) : IAppRestarter
+{
+    public bool CanRestart => Environment.GetEnvironmentVariable("LOCUS_SERVICE") == "1" || File.Exists("/.dockerenv");
+    public void Restart() => _ = Task.Delay(500).ContinueWith(_ => lifetime.StopApplication());
+}
+
 sealed class ServerAccessInfo(Microsoft.AspNetCore.Hosting.Server.IServer server, bool passwordSet) : IAccessInfo
 {
     public IReadOnlyList<string> ListenUrls =>

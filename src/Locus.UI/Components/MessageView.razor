@@ -156,6 +156,10 @@
                 {
                     <button title="Regenerate" aria-label="Regenerate" @onclick="OnRegenerate"><Icon Name="refresh-cw" Size="15" /></button>
                 }
+                @if (Message.Trace.Count > 0)
+                {
+                    <button class="@(_showTrace ? "on" : "")" title="How this reply was made (steps and timing)" aria-label="Show steps and timing" @onclick="() => _showTrace = !_showTrace"><Icon Name="timer" Size="15" /></button>
+                }
                 <span class="meta">
                     @Message.Model
                     @if (Message.Stats?.TokensPerSecond is { } tps)
@@ -168,11 +172,14 @@
                     }
                 </span>
             </div>
+            @if (_showTrace && Message.Trace.Count > 0) { <TraceView Steps="Message.Trace" /> }
         }
     }
 </div>
 
 @code {
+    private bool _showTrace;
+
     [Parameter, EditorRequired] public ChatMessage Message { get; set; } = default!;
     [Parameter] public bool IsLast { get; set; }
     [Parameter] public bool Busy { get; set; }

@@ -29,6 +29,7 @@ ExecStart=$DOTNET $APP_DIR/Locus.Web.dll --urls http://$BIND:$PORT $EXTRA
 Restart=always
 RestartSec=5
 Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=LOCUS_SERVICE=1
 ${LOCUS_PASSWORD:+Environment=Locus__Password=$LOCUS_PASSWORD}
 
 [Install]

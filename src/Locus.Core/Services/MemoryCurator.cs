@@ -69,6 +69,7 @@ public sealed class MemoryCurator(MemoryStore memories, SettingsStore settingsSt
     public async Task<MemoryCleanup?> ProposeAsync(CancellationToken ct = default)
     {
         if (Interlocked.Exchange(ref _busy, 1) == 1) return await PendingAsync();
+        using var usageScope = UsageScope.Begin("Memory tidy-up");
         try
         {
             var facts = await memories.ListAsync();

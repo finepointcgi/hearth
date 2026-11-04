@@ -38,6 +38,8 @@ public sealed class ChatMessage
     public List<string> Learned { get; set; } = [];
     /// <summary>Skills this reply created or improved ("saved /x", "improved /y").</summary>
     public List<string> SkillNotes { get; set; } = [];
+    /// <summary>How this reply was produced: each model round and tool call with its time and tokens.</summary>
+    public List<TraceStep> Trace { get; set; } = [];
     /// <summary>Informational note, e.g. "this model doesn't support tools".</summary>
     public string? Notice { get; set; }
 }
@@ -57,6 +59,7 @@ public sealed class ToolCall
     public string? Result { get; set; }
     /// <summary>Why approval was asked for when it normally isn't (e.g. the run read untrusted content).</summary>
     public string? ApprovalReason { get; set; }
+    public long DurationMs { get; set; }
     public ToolCallStatus Status { get; set; }
     public int Round { get; set; }
     /// <summary>Provider data for the turn that made this call (set on the round's first call), replayed verbatim.</summary>
@@ -95,3 +98,6 @@ public sealed record ModelInfo(string Id, string? Family = null, long? SizeBytes
 {
     public string Display => SizeBytes is > 0 ? $"{Id} ({SizeBytes.Value / 1_000_000_000.0:0.0} GB)" : Id;
 }
+
+/// <summary>One step of a reply: a model round ("model") or a tool call ("tool").</summary>
+public sealed record TraceStep(string Kind, string Name, long Ms, int? InputTokens = null, int? OutputTokens = null);

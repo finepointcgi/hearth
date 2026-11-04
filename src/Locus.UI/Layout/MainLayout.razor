@@ -1,6 +1,8 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject AppState State
+@inject NavigationManager Nav
+@inject SettingsStore SettingsStore
 
 <div class="shell @(State.SidebarOpen ? "sidebar-open" : "")">
     <NavRail />
@@ -16,6 +18,17 @@
     {
         State.Changed += OnChanged;
         await State.EnsureInitializedAsync();
+        // First run: walk through setup. Installs already in use are marked as set up.
+        var settings = await SettingsStore.GetAsync();
+        if (!settings.SetupDone)
+        {
+            if (State.Bots.Count > 0 || State.Conversations.Count > 0)
+            {
+                settings.SetupDone = true;
+                await SettingsStore.SaveAsync(settings);
+            }
+            else if (!Nav.Uri.Contains("/welcome")) Nav.NavigateTo("welcome");
+        }
     }
 
     private void CloseSidebar() { State.SidebarOpen = false; State.NotifyChanged(); }

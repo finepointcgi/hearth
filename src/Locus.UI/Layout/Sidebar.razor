@@ -80,6 +80,7 @@
                 <a class="@(Here("dashboard") ? "active" : "")" href="dashboard" @onclick="Close"><Icon Name="layout-dashboard" /> Overview
                     @if (Approvals.Pending.Count > 0) { <span class="count-badge" title="Waiting on you">@Approvals.Pending.Count</span> }</a>
                 <a class="@(Here("tasks") ? "active" : "")" href="tasks" @onclick="Close"><Icon Name="target" /> Tasks</a>
+                <a class="@(Here("usage") ? "active" : "")" href="usage" @onclick="Close"><Icon Name="chart-bar" /> Usage and cost</a>
                 @if (_heartbeatChat is not null)
                 {
                     <a class="@(IsActive(_heartbeatChat) ? "active" : "")" href="c/@_heartbeatChat" @onclick="Close"><Icon Name="heart-pulse" /> Heartbeat messages</a>
@@ -90,6 +91,7 @@
         case "library":
             <nav class="side-nav" aria-label="Library">
                 <a class="@(Here("skills") ? "active" : "")" href="skills" @onclick="Close"><Icon Name="zap" /> Skills</a>
+                <a class="@(Here("files") ? "active" : "")" href="files" @onclick="Close"><Icon Name="folder" /> Files</a>
                 <a class="@(Here("documents") ? "active" : "")" href="documents" @onclick="Close"><Icon Name="file-text" /> Documents</a>
                 <a class="@(Here("memory") ? "active" : "")" href="memory" @onclick="Close"><Icon Name="brain" /> Memory</a>
             </nav>
@@ -101,6 +103,7 @@
                 <a class="@(Here("connections") ? "active" : "")" href="connections" @onclick="Close"><Icon Name="link" /> Connections</a>
                 <a class="@(Here("permissions") ? "active" : "")" href="permissions" @onclick="Close"><Icon Name="shield" /> Permissions</a>
                 <a class="@(Here("tools") ? "active" : "")" href="tools" @onclick="Close"><Icon Name="plug" /> Tools and MCP</a>
+                <a class="@(Here("backup") ? "active" : "")" href="backup" @onclick="Close"><Icon Name="archive-restore" /> Backup and restore</a>
                 <a class="only-in-app" href="locus-app://switch-server"><Icon Name="server" /> Switch server</a>
                 <a class="@(Here("computer") ? "active" : "")" href="computer" @onclick="Close"><Icon Name="monitor" /> Computer
                     @if (Computer.Status.Running) { <span class="live-dot" title="Browser running"></span> }</a>

@@ -11,9 +11,9 @@ public static class ShellSections
     [
         new("chats", "Chats", "message-circle", "", ["", "c", "bot"]),
         new("bots", "Bots", "bot", "bots", ["bots"]),
-        new("inbox", "Inbox", "inbox", "dashboard", ["dashboard", "tasks"]),
-        new("library", "Library", "library", "skills", ["skills", "documents", "memory"]),
-        new("settings", "Settings", "settings", "settings", ["settings", "connections", "permissions", "tools", "computer"]),
+        new("inbox", "Inbox", "inbox", "dashboard", ["dashboard", "tasks", "usage"]),
+        new("library", "Library", "library", "skills", ["skills", "documents", "memory", "files"]),
+        new("settings", "Settings", "settings", "settings", ["settings", "connections", "permissions", "tools", "computer", "backup"]),
     ];
 
     public static string Current(NavigationManager nav)

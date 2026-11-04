@@ -114,6 +114,8 @@ public sealed class SettingsStore(IAppPaths paths)
                     foreach (var k in values.Select(kv => kv.Key).ToList())
                         if (values[k]?.GetValue<string>() is { Length: > 0 } v && !v.StartsWith(SealedPrefix))
                             values[k] = SealedPrefix + _box.Seal(v);
+        if (root["Notifications"] is JsonObject n && n["Token"]?.GetValue<string>() is { Length: > 0 } t && !t.StartsWith(SealedPrefix))
+            n["Token"] = SealedPrefix + _box.Seal(t);
     }
 
     /// <summary>Decrypts secrets after reading. Returns true when the file still had plaintext secrets.</summary>
@@ -140,6 +142,11 @@ public sealed class SettingsStore(IAppPaths paths)
                             try { values[k] = _box.Open(v[SealedPrefix.Length..]); }
                             catch { values[k] = ""; }
                         }
+        if (root["Notifications"] is JsonObject n && n["Token"]?.GetValue<string>() is { Length: > 0 } t)
+        {
+            if (!t.StartsWith(SealedPrefix)) plaintext = true;
+            else try { n["Token"] = _box.Open(t[SealedPrefix.Length..]); } catch { n["Token"] = null; }
+        }
         return plaintext;
     }
 }

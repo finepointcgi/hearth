@@ -33,6 +33,8 @@ public sealed class ChatService(
     /// <summary>Entry point from the chat UI: replies to the last user message in any kind of conversation.</summary>
     public async Task GenerateAsync(Conversation conv, SendOptions opts, Func<Task> onUpdate, CancellationToken ct)
     {
+        var lastUser = conv.Messages.LastOrDefault(m => m.Role == ChatRole.User);
+        if (lastUser is { FromBotId: null }) await JoinMentionedBotsAsync(conv, lastUser.Content, null, onUpdate);
         if (conv.BotIds.Count == 0)
         {
             await RunAgentAsync(conv, null, opts, onUpdate, ct);
@@ -43,23 +45,64 @@ public sealed class ChatService(
         if (members.Count == 0) throw new InvalidOperationException("The bots in this chat were deleted.");
         if (members.Count == 1)
         {
-            await RunAgentAsync(conv, members[0], opts, onUpdate, ct);
+            var reply = await RunAgentAsync(conv, members[0], opts, onUpdate, ct);
+            if (reply is null || reply.Error is not null) return;
+            // The bot may have brought others in by @mentioning them: carry on as a group, newcomers first.
+            var joined = await JoinMentionedBotsAsync(conv, reply.Content, members[0], onUpdate);
+            if (joined.Count > 0)
+                await RunGroupTurnAsync(conv, [.. members, .. joined], opts, onUpdate, ct, joined,
+                    new() { [members[0].Id] = 1 });
             return;
         }
         await RunGroupTurnAsync(conv, members, opts, onUpdate, ct);
     }
 
+    /// <summary>
+    /// "@Name" for a bot that isn't in this chat adds it, so any chat can grow into a group just by mentioning
+    /// someone (up to Bot.MaxPerGroup). Works for the user's messages and for bots' replies (when the bot is
+    /// allowed to message bots). Returns the bots that joined.
+    /// </summary>
+    private async Task<List<Bot>> JoinMentionedBotsAsync(Conversation conv, string text, Bot? by, Func<Task> onUpdate)
+    {
+        if (!text.Contains('@') || by is { Abilities.MessageBots: false }) return [];
+        var room = Bot.MaxPerGroup - conv.BotIds.Count;
+        if (room <= 0) return [];
+
+        var outsiders = (await bots.ListAsync()).Where(b => !conv.BotIds.Contains(b.Id)).ToList();
+        var joining = Mentions(text, outsiders, includeEveryone: false).Take(room).ToList();
+        if (joining.Count == 0) return [];
+
+        var wasGroup = conv.BotIds.Count > 1;
+        conv.BotIds.AddRange(joining.Select(b => b.Id));
+        // A one-on-one chat titled after its bot becomes a group: retitle it after everyone in it.
+        if (!wasGroup && conv.BotIds.Count > 1)
+        {
+            var all = await bots.GetManyAsync(conv.BotIds);
+            if (all.Any(b => b.Name == conv.Title)) conv.Title = string.Join(", ", all.Select(b => b.Name));
+        }
+        var names = string.Join(", ", joining.Select(b => $"{b.Emoji} {b.Name}"));
+        conv.Messages.Add(new ChatMessage
+        {
+            Role = ChatRole.Assistant,
+            Notice = by is null ? $"{names} joined the chat." : $"{by.Emoji} {by.Name} added {names} to the chat.",
+        });
+        await store.SaveAsync(conv);
+        await onUpdate();
+        return joining;
+    }
+
     // ---------------------------------------------------------------- group chats
 
-    private async Task RunGroupTurnAsync(Conversation conv, List<Bot> members, SendOptions opts, Func<Task> onUpdate, CancellationToken ct)
+    private async Task RunGroupTurnAsync(Conversation conv, List<Bot> members, SendOptions opts, Func<Task> onUpdate,
+        CancellationToken ct, List<Bot>? startWith = null, Dictionary<string, int>? repliesSoFar = null)
     {
         var settings = await settingsStore.GetAsync();
         var lastUser = conv.Messages.Last(m => m.Role == ChatRole.User);
-        var queue = new List<Bot>(Mentions(lastUser.Content, members, includeEveryone: true));
+        var queue = new List<Bot>(startWith ?? Mentions(lastUser.Content, members, includeEveryone: true));
         if (queue.Count == 0) queue.AddRange(await RouteAsync(conv, members, lastUser.Content, opts.Model, ct));
 
-        var repliesPerBot = new Dictionary<string, int>();
-        var hops = 0;
+        var repliesPerBot = repliesSoFar ?? [];
+        var hops = repliesPerBot.Values.Sum();
         while (queue.Count > 0 && hops < Math.Max(1, settings.MaxBotHops) && !ct.IsCancellationRequested)
         {
             var bot = queue[0];
@@ -70,6 +113,8 @@ public sealed class ChatService(
             var reply = await RunAgentAsync(conv, bot, opts, onUpdate, ct, autoTitle: false);
             if (reply is null || reply.Error is not null) break;
 
+            // Bots @mentioned in the reply who aren't here yet join the chat.
+            members.AddRange(await JoinMentionedBotsAsync(conv, reply.Content, bot, onUpdate));
             // Handoffs: bots @mentioned in the reply speak next (each at most twice per user message).
             foreach (var next in Mentions(reply.Content, members, includeEveryone: false))
                 if (next.Id != bot.Id && !queue.Contains(next) && repliesPerBot.GetValueOrDefault(next.Id) < 2)
@@ -105,6 +150,7 @@ public sealed class ChatService(
     /// <summary>No @mention: ask the model which member(s) should answer.</summary>
     private async Task<List<Bot>> RouteAsync(Conversation conv, List<Bot> members, string message, string model, CancellationToken ct)
     {
+        using var usageScope = UsageScope.Begin("Routing", null, conv.Id);
         var fallback = members.FirstOrDefault(b => b.IsCoordinator) ?? members[0];
         try
         {
@@ -141,7 +187,7 @@ public sealed class ChatService(
     /// <summary>Generates one assistant reply (as <paramref name="bot"/> when given) and saves the conversation.</summary>
     public async Task<ChatMessage?> RunAgentAsync(Conversation conv, Bot? bot, SendOptions opts, Func<Task> onUpdate,
         CancellationToken ct, bool autoTitle = true, int depth = 0, bool unattended = false, IReadOnlyList<ITool>? extraTools = null, int? historyWindow = null,
-        string? untrustedInput = null)
+        string? untrustedInput = null, bool learn = true)
     {
         var settings = await settingsStore.GetAsync();
         var client = factory.CreateForBot(settings, bot);
@@ -155,6 +201,16 @@ public sealed class ChatService(
             ?? throw new InvalidOperationException("No user message to reply to.");
         var allBots = bot is null ? [] : await bots.ListAsync();
         var members = conv.BotIds.Select(id => allBots.FirstOrDefault(b => b.Id == id)).OfType<Bot>().ToList();
+        using var usageScope = UsageScope.Begin(lastUser.RoutineName switch
+        {
+            "Heartbeat" => "Heartbeat",
+            "Task" => "Task",
+            "Bot check" => "Bot check",
+            not null => "Routine",
+            _ when depth > 0 => "Bot handoff",
+            _ when untrustedInput?.StartsWith("an email") == true => "Bot inbox",
+            _ => "Chat",
+        }, bot?.Id, conv.Id);
 
         var reply = new ChatMessage { Role = ChatRole.Assistant, Model = model, IsStreaming = true, BotId = bot?.Id };
         conv.Messages.Add(reply);
@@ -240,11 +296,13 @@ public sealed class ChatService(
                 if (content.Length > 0 && !content.ToString().EndsWith("\n\n")) content.Append("\n\n");
                 List<LlmToolCall> calls = [];
                 string? providerState = null;
+                var roundTimer = System.Diagnostics.Stopwatch.StartNew();
+                LlmStats? roundStats = null;
                 await foreach (var chunk in client.StreamChatAsync(request, ct))
                 {
                     if (!string.IsNullOrEmpty(chunk.Content)) content.Append(chunk.Content);
                     if (!string.IsNullOrEmpty(chunk.Thinking)) thinking.Append(chunk.Thinking);
-                    if (chunk.Stats is not null) reply.Stats = chunk.Stats;
+                    if (chunk.Stats is not null) reply.Stats = roundStats = chunk.Stats;
                     if (chunk.ToolCalls is not null) calls.AddRange(chunk.ToolCalls);
                     if (chunk.Notice is not null) reply.Notice = chunk.Notice;
                     if (chunk.ProviderState is not null) providerState = chunk.ProviderState;
@@ -253,6 +311,7 @@ public sealed class ChatService(
                     await onUpdate();
                 }
 
+                reply.Trace.Add(new TraceStep("model", model, roundTimer.ElapsedMilliseconds, roundStats?.PromptTokens, roundStats?.CompletionTokens));
                 if (calls.Count == 0) break;
 
                 var batch = calls.Select(call => new ToolCall
@@ -301,16 +360,16 @@ public sealed class ChatService(
         }
 
         // Helpers count too: delegated bots often do the real multi-step work.
-        var reflect = reply.Error is null && reply.Content.Length > 0 && settings.SkillLearning.Enabled
+        var reflect = learn && reply.Error is null && reply.Content.Length > 0 && settings.SkillLearning.Enabled
                       && lastUser.RoutineName != "Heartbeat" // routine check-ins aren't methods worth keeping
                       && (bot is null || bot.Abilities.Skills) && reply.SkillNotes.Count == 0
                       && reply.ToolCalls.Count(t => t.Status == ToolCallStatus.Done) >= Math.Max(2, settings.SkillLearning.MinToolCalls);
         if (reflect)
             _ = Task.Run(() => ReflectAsync(conv, bot, reply, client, model, settings, onUpdate));
 
-        var learn = reply.Error is null && reply.Content.Length > 0 && depth == 0 && settings.MemoryEnabled
+        var learnMemory = learn && reply.Error is null && reply.Content.Length > 0 && depth == 0 && settings.MemoryEnabled
                     && (bot is null ? settings.MemoryAutoLearn : bot.Memory is { Enabled: true, AutoLearn: true });
-        if (learn)
+        if (learnMemory)
             _ = Task.Run(() => LearnAsync(conv, bot, reply, client, model, onUpdate));
 
         if (autoTitle && settings.AutoTitle && reply.Error is null && conv.Title == "New chat"
@@ -389,6 +448,16 @@ public sealed class ChatService(
                 system.AppendLine($"- {b.Name}: {b.Title}");
             if (bot.IsCoordinator)
                 system.Append("As the coordinator, delegate specialist work to them with message_bot and combine the results. Independent requests to different bots can go out in the same turn so they work in parallel.");
+        }
+
+        if (bot is not null && bot.Abilities.MessageBots && members.Count < Bot.MaxPerGroup)
+        {
+            var outside = allBots.Where(b => b.Id != bot.Id && !conv.BotIds.Contains(b.Id)).ToList();
+            if (outside.Count > 0)
+                system.AppendLine().AppendLine()
+                    .Append("If someone who isn't in this chat is needed, bring them in by @mentioning their exact name in your reply ")
+                    .Append("— they join the chat and reply next. Only do this when their help is really needed. Not in this chat: ")
+                    .Append(string.Join(", ", outside.Select(b => $"{b.Name} ({b.Title})"))).Append('.');
         }
 
         if (byName.Count > 0)
@@ -481,9 +550,12 @@ public sealed class ChatService(
 
         tc.Status = ToolCallStatus.Running;
         await onUpdate();
+        var toolTimer = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             var result = await tool.ExecuteAsync(args, ctx, ct);
+            tc.DurationMs = toolTimer.ElapsedMilliseconds;
+            lock (ctx.Reply.Trace) ctx.Reply.Trace.Add(new TraceStep("tool", tc.Name, tc.DurationMs));
             tc.Result = Tools.Schema.Truncate(result.Text, MaxToolResultChars);
             if (ContentTrust.UntrustedSource(tool) is { } source && !result.IsError)
             {
@@ -546,6 +618,7 @@ public sealed class ChatService(
         {
             if (m.Error is not null && m.Content.Length == 0) continue;
             if (m.IsStreaming) continue;
+            if (m.Content.Length == 0 && m.Notice is not null && m.Trace.Count == 0) continue; // UI-only notes ("X joined")
             if (m.Role == ChatRole.User)
             {
                 var text = Skill.Match(m.Content, skills) is { } hit ? hit.skill.Expand(hit.rest) : m.Content;
@@ -643,6 +716,7 @@ public sealed class ChatService(
     /// </summary>
     private async Task LearnAsync(Conversation conv, Bot? bot, ChatMessage reply, ILlmClient client, string model, Func<Task> onUpdate)
     {
+        using var usageScope = UsageScope.Begin("Memory learning", bot?.Id, conv.Id);
         try
         {
             var lastUser = conv.Messages.LastOrDefault(m => m.Role == ChatRole.User && m.FromBotId is null);
@@ -699,6 +773,7 @@ public sealed class ChatService(
     internal async Task ReflectAsync(Conversation conv, Bot? bot, ChatMessage reply, ILlmClient client, string model,
         AppSettings settings, Func<Task> onUpdate)
     {
+        using var usageScope = UsageScope.Begin("Skill learning", bot?.Id, conv.Id);
         try
         {
             var lastUser = conv.Messages.LastOrDefault(m => m.Role == ChatRole.User);
@@ -761,6 +836,7 @@ public sealed class ChatService(
 
     private async Task AutoTitleAsync(Conversation conv, ILlmClient client, string model, Func<Task> onUpdate)
     {
+        using var usageScope = UsageScope.Begin("Titles", null, conv.Id);
         try
         {
             var first = conv.Messages.First(m => m.Role == ChatRole.User).Content;

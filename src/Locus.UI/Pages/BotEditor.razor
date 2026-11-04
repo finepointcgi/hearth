@@ -10,6 +10,7 @@
 @inject IJSRuntime JS
 @inject IBotComputer Computer
 @inject ISandboxDesktops Sandboxes
+@inject BotCheckRunner CheckRunner
 @inject Locus.Core.Llm.ILlmClientFactory Llms
 @inject Locus.Core.Services.Google.GoogleAuth GoogleAuth
 
@@ -239,6 +240,42 @@
     </section>
 
     }
+    @if (_tab == "checks")
+    {
+    <section class="card">
+        <div class="row">
+            <h3 class="grow">Checks</h3>
+            @if (_bot.Checks.Count > 0) { <button class="btn primary" @onclick="RunAllChecks" disabled="@(_runningCheck is not null)"><Icon Name="refresh-cw" Size="15" /> Run all</button> }
+        </div>
+        <p class="muted small">Example questions with what a good answer does. Run them after changing the instructions, abilities or model to see that
+            @(string.IsNullOrWhiteSpace(_bot.Name) ? "this bot" : _bot.Name) still works. Checks use the settings on this page, even before you save,
+            run in a throwaway chat, skip anything that needs approval, and never change its memory or skills.</p>
+        @foreach (var c in _bot.Checks)
+        {
+            var check = c;
+            <div class="check-card @(check.Last is null ? "" : check.Last.Pass ? "pass" : "fail")">
+                <div class="row">
+                    <span class="check-status">@if (_runningCheck == check.Id) { <text>Running…</text> } else if (check.Last is { } r) { <Icon Name="@(r.Pass ? "check" : "circle-x")" Size="16" /> @(r.Pass ? "Pass" : "Fail") } else { <text>Not run</text> }</span>
+                    <span class="spacer"></span>
+                    <button class="btn ghost small" @onclick="() => RunCheck(check)" disabled="@(_runningCheck is not null || string.IsNullOrWhiteSpace(check.Question))">Run</button>
+                    <button class="icon-btn" title="Remove" aria-label="Remove check" @onclick="() => _bot.Checks.Remove(check)"><Icon Name="trash-2" Size="15" /></button>
+                </div>
+                <label>Question <textarea rows="2" @bind="check.Question" placeholder="What's the monthly payment on $20,000 over 5 years at 6%?"></textarea></label>
+                <label>A good answer… <input @bind="check.Expect" placeholder="uses the calculator and gives about $386.66 per month" /></label>
+                <label>Must include (optional, comma-separated) <input @bind="check.MustInclude" placeholder="386.66" /></label>
+                @if (check.Last is { } last)
+                {
+                    <div class="small"><b>@(last.Pass ? "Why it passed" : "Why it failed"):</b> @last.Reason
+                        <span class="muted"> · @last.Model · @(last.Milliseconds / 1000.0)s · @last.At.ToString("MMM d, h:mm tt")</span></div>
+                    @if (last.Answer.Length > 0) { <details class="advanced"><summary>The answer</summary><div class="md"><Markdown Text="@last.Answer" /></div></details> }
+                }
+            </div>
+        }
+        <button class="btn ghost" @onclick="() => _bot.Checks.Add(new BotCheck())"><Icon Name="plus" Size="16" /> Add a check</button>
+        @if (_checkSummary is not null) { <div class="@(_checkSummary.StartsWith("All") ? "ok-text" : "tiny-error")">@_checkSummary</div> }
+    </section>
+    }
+
     @if (_tab == "routines")
     {
     <section class="card">
@@ -385,6 +422,30 @@
 
 @code {
     private string _tab = "profile";
+    private string? _runningCheck;
+    private string? _checkSummary;
+
+    private async Task RunCheck(BotCheck check)
+    {
+        _runningCheck = check.Id;
+        _checkSummary = null;
+        StateHasChanged();
+        try { check.Last = await CheckRunner.RunAsync(_bot!, check); }
+        catch (Exception ex) { check.Last = new BotCheckResult(false, ex.Message, "", DateTimeOffset.Now, "", 0); }
+        finally { _runningCheck = null; }
+        if (!_isNew) await Store.SaveAsync(_bot!); // keep results with the bot
+    }
+
+    private async Task RunAllChecks()
+    {
+        foreach (var c in _bot!.Checks.Where(c => !string.IsNullOrWhiteSpace(c.Question)).ToList())
+        {
+            await RunCheck(c);
+            StateHasChanged();
+        }
+        var failed = _bot.Checks.Count(c => c.Last is { Pass: false });
+        _checkSummary = failed == 0 ? $"All {_bot.Checks.Count} checks pass." : $"{failed} of {_bot.Checks.Count} checks failed.";
+    }
 
     private IEnumerable<(string id, string label, string icon, string? badge)> Tabs()
     {
@@ -394,6 +455,9 @@
         yield return ("memory", "Memory", "brain", null);
         var routines = _bot?.Routines.Count ?? 0;
         yield return ("routines", "Routines", "clock", routines > 0 ? routines.ToString() : null);
+        var checks = _bot?.Checks ?? [];
+        var failing = checks.Count(c => c.Last is { Pass: false });
+        yield return ("checks", "Checks", "list-checks", checks.Count == 0 ? null : failing > 0 ? $"{failing} failing" : checks.Count.ToString());
     }
 
     [Parameter] public string Id { get; set; } = "";

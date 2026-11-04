@@ -44,7 +44,20 @@ services:
     volumes:
       - signal-data:/home/.local/share/signal-cli
 
+  # Optional private push server for phone notifications: `docker compose --profile ntfy up -d`, then in Locus →
+  # Connections → Phone notifications set the server to http://<this machine>:8082 (and subscribe the ntfy app to it).
+  ntfy:
+    profiles: [ntfy]
+    image: binwiederhier/ntfy:latest
+    command: serve
+    restart: unless-stopped
+    ports:
+      - "8082:80"
+    volumes:
+      - ntfy-cache:/var/cache/ntfy
+
 volumes:
   locus-data:
+  ntfy-cache:
   signal-data:
   speech-models:

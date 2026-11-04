@@ -11,6 +11,7 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+        BackupService.ApplyPendingRestore(FileSystem.Current.AppDataDirectory);
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()

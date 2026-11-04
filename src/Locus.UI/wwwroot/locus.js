@@ -64,6 +64,30 @@ window.locus = {
         setTimeout(() => (e.target.textContent = "Copy"), 1200);
       });
       pre.prepend(bar);
+      // Rich previews: HTML/SVG render in a sandboxed frame (no access to Locus), CSV as a table.
+      const kind = /^(html|svg|xml)$/i.test(lang) ? "page" : /^csv$/i.test(lang) ? "table" : null;
+      if (kind && code) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = kind === "page" ? "Preview" : "Table";
+        bar.insertBefore(btn, bar.lastElementChild);
+        let view = null;
+        btn.addEventListener("click", () => {
+          if (view) { view.remove(); view = null; btn.textContent = kind === "page" ? "Preview" : "Table"; return; }
+          btn.textContent = "Hide";
+          if (kind === "page") {
+            view = document.createElement("iframe");
+            view.className = "code-preview";
+            view.setAttribute("sandbox", "allow-scripts");
+            view.srcdoc = code.innerText;
+          } else {
+            view = document.createElement("div");
+            view.className = "code-preview table";
+            view.innerHTML = this.csvTable(code.innerText);
+          }
+          pre.after(view);
+        });
+      }
     });
     root.querySelectorAll(".md a:not([data-enh])").forEach((a) => {
       a.dataset.enh = "1";
@@ -75,6 +99,23 @@ window.locus = {
         a.rel = "noopener noreferrer";
       }
     });
+  },
+
+  csvTable(text) {
+    const esc = (v) => v.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+    const rows = [];
+    for (const line of text.trim().split(/\r?\n/).slice(0, 500)) {
+      const cells = []; let cur = "", q = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+        else if (ch === '"') q = true; else if (ch === ",") { cells.push(cur); cur = ""; } else cur += ch;
+      }
+      cells.push(cur); rows.push(cells);
+    }
+    if (rows.length === 0) return "";
+    const [head, ...body] = rows;
+    return `<table><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
   },
 
   async copy(text) {
