@@ -171,6 +171,38 @@ Open Locus in your phone's browser and **Add to Home Screen**: it installs as an
 run `tailscale serve --bg 5290` once. Locus gets a private **https://…ts.net** link that works anywhere, while staying
 closed to your Wi-Fi. For plain home-network access instead, set `LOCUS_PASSWORD` (the page warns if you haven't).
 
+## First-run setup
+A new install opens **Welcome**: it finds a model server running on this computer (Ollama, LM Studio, oMLX) or
+lets you enter one (or Claude Code), makes your first bot or the starter team, and shows the phone link.
+
+## Notifications on your phone
+**Connections → Phone → Notifications** sends approvals, heartbeat alerts, finished tasks and routines, and problems to
+your phone with [ntfy](https://ntfy.sh): install the ntfy app, scan the QR code to subscribe to your private topic,
+then **Send test**. Messages are short by default (no chat content) unless you turn on **Include details**. To keep it
+all at home, run your own server (`docker compose --profile ntfy up -d`, port 8082) and enter its address; an
+access token is stored encrypted.
+
+## Usage and cost
+**Inbox → Usage and cost** shows tokens, model time and estimated cost per day, bot, model and kind of work
+(chat, routines, tasks, heartbeat, memory learning…), plus the most expensive chats. Local models count as $0 unless
+you enter prices for that server; Claude Code is covered by the subscription. The ⏱ button on any reply shows its
+step-by-step trace (each model call and tool, with time and tokens).
+
+## Files
+**Library → Files** collects everything bots made: files in the workspace and images from chats, with filters,
+previews and downloads. In chat, `html`/`svg` code blocks get a **Preview** (sandboxed) and `csv` blocks a **Table**.
+
+## Backup and moving machines
+**Settings → Backup and restore**: **Download backup** (a zip of chats, bots, memory, settings and keys; downloaded
+models are left out), or turn on a **daily copy** to a folder (keeps the last 7). To move to a new computer, install
+Locus there, open Backup, **Restore** the zip and restart. The current data is kept in a `locus-before-restore-…`
+folder. A backup contains your keys, so store it somewhere private.
+
+## Bot checks
+Bot editor → **Checks**: example questions with what a good answer does (and words it must include). **Run all**
+after changing a bot's instructions, abilities or model; each check runs in a throwaway chat (no memories learned) and
+a model judges the answer. Failing checks show on the tab.
+
 ## Heartbeat (proactive check-ins)
 **📊 Today → 💓 Heartbeat.** Every 15 min – 4 h, Locus (or a bot you pick) goes through a checklist you write —
 "anything due today, important email, finished tasks, things I asked you to watch" — using its tools, and messages you
@@ -306,6 +338,9 @@ Ollama models without support fall back to plain chat automatically.
 **DeepSearch** with tools on = multi-step research (several searches, reads pages, cites [n]).
 
 ### MCP servers
+**Tools & MCP → Add an integration**: one-click setup for GitHub, Notion, Home Assistant, files, Brave Search, library docs,
+Git and time. Fill in the token or folder it asks for and it is added.
+
 **Tools & MCP → Add server** or **Import JSON** (Claude Desktop / Cursor `mcpServers` format):
 ```json
 { "mcpServers": {

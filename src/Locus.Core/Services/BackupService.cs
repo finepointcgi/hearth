@@ -10,6 +10,7 @@ public sealed class BackupSettings
     public string? Folder { get; set; }
     public int Keep { get; set; } = 7;
     public DateTimeOffset? LastBackup { get; set; }
+    public string? LastError { get; set; }
 }
 
 /// <summary>Lets the host restart Locus (the web host stops and its service manager starts it again).</summary>
@@ -48,7 +49,16 @@ public sealed class BackupService(IAppPaths paths, SettingsStore settingsStore) 
             if (!b.Daily || b.LastBackup is { } last && DateTimeOffset.Now - last < TimeSpan.FromHours(23)) return;
             await BackUpToFolderAsync();
         }
-        catch { /* retried next hour */ }
+        catch (Exception ex)
+        {
+            try
+            {
+                var s = await settingsStore.GetAsync();
+                s.Backup.LastError = $"{DateTime.Now:MMM d, h:mm tt}: {ex.Message}";
+                await settingsStore.SaveAsync(s);
+            }
+            catch { /* retried next hour */ }
+        }
     }
 
     /// <summary>Writes a backup into the backup folder, prunes old ones, and returns its path.</summary>
@@ -58,11 +68,25 @@ public sealed class BackupService(IAppPaths paths, SettingsStore settingsStore) 
         var folder = string.IsNullOrWhiteSpace(settings.Backup.Folder) ? DefaultFolder : settings.Backup.Folder!;
         Directory.CreateDirectory(folder);
         var path = Path.Combine(folder, $"locus-backup-{DateTime.Now:yyyy-MM-dd-HHmm}.zip");
-        await using (var fs = File.Create(path)) await WriteAsync(fs);
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        var partial = path + ".partial";
+        try
+        {
+            await using (var fs = File.Create(partial))
+            {
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(partial, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                await WriteAsync(fs);
+            }
+            File.Move(partial, path, overwrite: true); // only complete backups get a real name
+        }
+        catch
+        {
+            File.Delete(partial);
+            throw;
+        }
         foreach (var old in Directory.EnumerateFiles(folder, "locus-backup-*.zip").OrderByDescending(f => f).Skip(Math.Max(1, settings.Backup.Keep)))
             File.Delete(old);
         settings.Backup.LastBackup = DateTimeOffset.Now;
+        settings.Backup.LastError = null;
         await settingsStore.SaveAsync(settings);
         return path;
     }
@@ -73,10 +97,10 @@ public sealed class BackupService(IAppPaths paths, SettingsStore settingsStore) 
         var root = paths.DataDirectory;
         await CheckpointDatabasesAsync(root);
         using var zip = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true);
-        zip.CreateEntry("LOCUS-BACKUP.txt").Open().Dispose();
-        await using (var w = new StreamWriter(zip.GetEntry("LOCUS-BACKUP.txt")!.Open()))
+        await using (var w = new StreamWriter(zip.CreateEntry("LOCUS-BACKUP.txt").Open()))
             await w.WriteAsync($"Locus backup {DateTimeOffset.Now:o}\nContains your settings, secrets and their key (vault.key). Keep it private.\n");
-        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        var files = Directory.EnumerateFiles(root, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true }).ToList();
+        foreach (var file in files)
         {
             var rel = Path.GetRelativePath(root, file).Replace('\\', '/');
             var top = rel.Split('/')[0];
@@ -89,7 +113,7 @@ public sealed class BackupService(IAppPaths paths, SettingsStore settingsStore) 
                 await using var dst = entry.Open();
                 await src.CopyToAsync(dst);
             }
-            catch (IOException) { /* a file in use or gone; skip it */ }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* in use, gone or unreadable: skip it */ }
         }
     }
 

@@ -25,7 +25,8 @@
 
     <section class="card">
         <h3>Daily copies</h3>
-        <label class="option-row"><span class="grow-text">Make a copy every day<small>@(_b.LastBackup is { } last ? $"Last copy {last:MMM d, h:mm tt}" : "No copy yet")</small></span>
+        <label class="option-row"><span class="grow-text">Make a copy every day<small>@(_b.LastBackup is { } last ? $"Last copy {last:MMM d, h:mm tt}" : "No copy yet")</small>
+                @if (_b.LastError is not null) { <small class="tiny-error">Last attempt failed: @_b.LastError</small> }</span>
             <input type="checkbox" class="switch" role="switch" checked="@_b.Daily" @onchange="e => Change(b => b.Daily = (bool)e.Value!)" /></label>
         <label>Folder (point it at iCloud Drive, Dropbox or a NAS folder for copies off this computer)
             <input @bind="_folder" @bind:after="SaveFolder" placeholder="@Backups.DefaultFolder" /></label>
