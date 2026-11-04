@@ -5,123 +5,144 @@
 @inject ApprovalCenter Approvals
 @inject ConversationStore Conversations
 @inject McpManager Mcp
+@inject HeartbeatRunner Heartbeat
+@inject SettingsStore Settings
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
-    <h2 class="topbar-title">Today</h2>
-    <span class="spacer"></span>
+    <h2 class="topbar-title">Inbox</h2>
     <span class="muted small">@DateTime.Now.ToString("dddd, MMMM d")</span>
 </header>
 
-<div class="settings">
-    <div class="stat-row">
-        <div class="stat"><b>@Approvals.Pending.Count</b><span>waiting on you</span></div>
-        <div class="stat"><b>@_routineRuns</b><span>routine runs</span></div>
-        <div class="stat"><b>@_botReplies</b><span>bot replies</span></div>
-        <div class="stat @(ProblemCount > 0 ? "bad" : "")"><b>@ProblemCount</b><span>problems</span></div>
+<div class="settings inbox">
+    <div class="inbox-grid">
+        <div class="inbox-main">
+            <section class="card">
+                <h3 class="section-title">Needs you @if (NeedsYouCount > 0) { <span class="count-badge">@NeedsYouCount</span> }</h3>
+
+                @foreach (var p in Approvals.Pending)
+                {
+                    var pending = p;
+                    var bot = State.BotById(pending.BotId);
+                    <div class="needs-row">
+                        <span class="needs-icon warn"><Icon Name="shield" Size="16" /></span>
+                        <span class="grow">
+                            <span>@if (bot is not null) { <b>@bot.Name</b> } else { <b>Locus</b> } wants to run <b>@ToolCallView.LabelFor(pending.ToolName)</b></span>
+                            <span class="muted small"> · @Ago(pending.Since) · <a href="c/@pending.ConversationId">@pending.ConversationTitle</a></span>
+                            <code class="args">@Clip(pending.ArgumentsJson, 220)</code>
+                            @if (pending.Reason is not null) { <span class="reason"><Icon Name="circle-alert" Size="14" /> @pending.Reason</span> }
+                        </span>
+                        <span class="needs-actions">
+                            <button class="btn ghost small" @onclick="() => Approvals.Decide(pending.Id, false)">Deny</button>
+                            <button class="btn primary small" @onclick="() => Approvals.Decide(pending.Id, true)">Allow</button>
+                        </span>
+                    </div>
+                }
+
+                @if (State.ModelError is not null)
+                {
+                    <div class="needs-row problem">
+                        <span class="needs-icon bad"><Icon Name="circle-alert" Size="16" /></span>
+                        <span class="grow"><b>No model available</b><br /><span class="muted small">@State.ModelError</span></span>
+                        <a class="btn ghost small" href="settings">Fix</a>
+                    </div>
+                }
+                @if (State.FallbackNotice is not null)
+                {
+                    <div class="needs-row problem">
+                        <span class="needs-icon bad"><Icon Name="server" Size="16" /></span>
+                        <span class="grow"><b>Main model server is down</b><br /><span class="muted small">@State.FallbackNotice</span></span>
+                        <a class="btn ghost small" href="settings">Check</a>
+                    </div>
+                }
+                @foreach (var (title, detail, link) in _problems)
+                {
+                    <div class="needs-row problem">
+                        <span class="needs-icon bad"><Icon Name="circle-alert" Size="16" /></span>
+                        <span class="grow"><b>@title</b>@if (detail is not null) { <br /><span class="muted small">@Clip(detail, 200)</span> }</span>
+                        @if (link is not null) { <a class="btn ghost small" href="@link">Fix</a> }
+                    </div>
+                }
+
+                @foreach (var c in _unread)
+                {
+                    <a class="needs-row unread" href="c/@c.Id">
+                        <span class="needs-icon"><Icon Name="message-circle" Size="16" /></span>
+                        <span class="grow"><b>@c.Title</b><br /><span class="muted small">New reply · @Ago(c.UpdatedAt)</span></span>
+                        <AvatarStack Bots="c.BotIds.Select(State.BotById).OfType<Bot>()" />
+                    </a>
+                }
+
+                @if (NeedsYouCount == 0)
+                {
+                    <div class="all-clear"><Icon Name="check" Size="18" /> All clear. Nothing needs you right now.</div>
+                }
+            </section>
+
+            <section class="card">
+                <h3 class="section-title">Today <span class="muted small">@_routineRuns routine runs · @_botReplies replies</span></h3>
+                <div class="timeline">
+                    @foreach (var a in _activity.Take(60))
+                    {
+                        <div class="timeline-row @(a.Ok ? "" : "bad")">
+                            <span class="when">@a.Time.ToString("h:mm tt")</span>
+                            <span class="timeline-dot"><Icon Name="@KindIcon(a.Kind)" Size="14" /></span>
+                            <span class="grow">
+                                @if (a.ConversationId is not null) { <a href="c/@a.ConversationId">@a.Title</a> } else { @a.Title }
+                                @if (a.Detail is not null) { <span class="muted small"> — @Clip(a.Detail, 160)</span> }
+                            </span>
+                        </div>
+                    }
+                    @if (_activity.Count == 0) { <p class="muted small">Quiet so far. Routines, triggers, bot-to-bot messages, approvals and chats from your phone show up here.</p> }
+                </div>
+            </section>
+        </div>
+
+        <aside class="inbox-side">
+            <section class="card">
+                <div class="row">
+                    <h3 class="grow section-title"><Icon Name="heart-pulse" Size="17" /> Heartbeat</h3>
+                    <span class="status-chip @(_hb.Enabled ? "on" : "")">@(_hb.Enabled ? $"Every {Interval(_hb.IntervalMinutes)}" : "Off")</span>
+                </div>
+                <p class="muted small">
+                    @if (_hbState.LastRun is { } last) { <text>Last check-in @last.ToString("h:mm tt"): @_hbState.LastResult</text> }
+                    else { <text>Checks your list on a schedule and messages you only when something needs you.</text> }
+                </p>
+                <div class="row">
+                    <button class="btn ghost small" @onclick="() => _heartbeatOpen = true"><Icon Name="sliders-horizontal" Size="15" /> Settings</button>
+                    @if (_hbState.ConversationId is { } hc && _hbState.Alerts > 0) { <a class="btn ghost small" href="c/@hc">Messages (@_hbState.Alerts)</a> }
+                </div>
+            </section>
+
+            <section class="card">
+                <h3 class="section-title">Your bots</h3>
+                @foreach (var b in State.Bots)
+                {
+                    var next = b.Routines.Select(r => (r, at: r.NextRun(DateTimeOffset.Now))).Where(x => x.at is not null).OrderBy(x => x.at).FirstOrDefault();
+                    <a class="bot-today" href="bot/@b.Id">
+                        <BotAvatar Bot="b" Size="sm" />
+                        <span class="grow"><b>@b.Name</b><br />
+                            <span class="muted small">@_repliesByBot.GetValueOrDefault(b.Id) replies today@(next.r is not null ? $" · next: {next.r.Name} {(next.at!.Value.Date == DateTime.Today ? next.at.Value.ToString("h:mm tt") : next.at.Value.ToString("ddd h:mm tt"))}" : "")</span>
+                        </span>
+                    </a>
+                }
+                @if (State.Bots.Count == 0) { <p class="muted small">No bots yet. <a href="bots">Create one</a>.</p> }
+            </section>
+        </aside>
     </div>
-
-    <section class="card">
-        <h3>⏳ Waiting on you</h3>
-        @foreach (var p in Approvals.Pending)
-        {
-            var pending = p;
-            var bot = State.BotById(pending.BotId);
-            <div class="approval-row">
-                <span class="grow">
-                    @if (bot is not null) { <BotAvatar Bot="bot" Size="sm" /> <b>@bot.Name</b> }
-                    wants to run <b>@pending.ToolName</b>
-                    <span class="muted small"> · @Ago(pending.Since) · <a href="c/@pending.ConversationId">@pending.ConversationTitle</a></span>
-                    <code class="args">@Clip(pending.ArgumentsJson, 220)</code>
-                    @if (pending.Reason is not null) { <span class="tiny-error">⚠ @pending.Reason</span> }
-                </span>
-                <button class="btn ghost small" @onclick="() => Approvals.Decide(pending.Id, false)">Deny</button>
-                <button class="btn primary small" @onclick="() => Approvals.Decide(pending.Id, true)">Allow</button>
-            </div>
-        }
-        @if (Approvals.Pending.Count == 0) { <p class="muted">Nothing needs your OK right now.</p> }
-    </section>
-
-    <HeartbeatCard />
-
-    @if (ProblemCount > 0)
-    {
-        <section class="card">
-            <h3>⚠️ Problems</h3>
-            @if (State.ModelError is not null)
-            {
-                <div class="memory-row">
-                    <span class="grow"><b>No model available</b> <span class="muted small">@State.ModelError</span></span>
-                    <a class="small" href="settings">Fix</a>
-                </div>
-            }
-            @if (State.FallbackNotice is not null)
-            {
-                <div class="memory-row">
-                    <span class="grow"><b>Main model server is down</b> <span class="muted small">@State.FallbackNotice</span></span>
-                    <a class="small" href="settings">Check</a>
-                </div>
-            }
-            @foreach (var (title, detail, link) in _problems)
-            {
-                <div class="memory-row">
-                    <span class="grow"><b>@title</b> <span class="muted small">@detail</span></span>
-                    @if (link is not null) { <a class="small" href="@link">Fix</a> }
-                </div>
-            }
-        </section>
-    }
-
-    @if (_unread.Count > 0)
-    {
-        <section class="card">
-            <h3>📬 Unread</h3>
-            @foreach (var c in _unread)
-            {
-                <a class="memory-row bot-mem-link" href="c/@c.Id">
-                    <AvatarStack Bots="c.BotIds.Select(State.BotById).OfType<Bot>()" />
-                    <span class="grow">@c.Title</span>
-                    <span class="muted small">@Ago(c.UpdatedAt)</span>
-                </a>
-            }
-        </section>
-    }
-
-    <section class="card">
-        <h3>🤖 Bots</h3>
-        @foreach (var b in State.Bots)
-        {
-            var next = b.Routines.Select(r => (r, at: r.NextRun(DateTimeOffset.Now))).Where(x => x.at is not null).OrderBy(x => x.at).FirstOrDefault();
-            var events = b.Routines.Count(r => r.Enabled && r.Trigger != TriggerKind.Schedule);
-            <a class="memory-row bot-mem-link" href="bot/@b.Id">
-                <BotAvatar Bot="b" Size="sm" />
-                <span class="grow"><b>@b.Name</b> <span class="muted small">@_repliesByBot.GetValueOrDefault(b.Id) replies today</span></span>
-                <span class="muted small">
-                    @if (next.r is not null) { <text>⏰ @next.r.Name @(next.at!.Value.Date == DateTime.Today ? next.at.Value.ToString("h:mm tt") : next.at.Value.ToString("ddd h:mm tt"))</text> }
-                    @if (events > 0) { <text> · ⚡ @events trigger@(events == 1 ? "" : "s")</text> }
-                </span>
-            </a>
-        }
-        @if (State.Bots.Count == 0) { <p class="muted">No bots yet — <a href="bots">create one</a>.</p> }
-    </section>
-
-    <section class="card">
-        <h3>🕒 Activity</h3>
-        @foreach (var a in _activity.Take(60))
-        {
-            var bot = State.BotById(a.BotId);
-            <div class="activity @(a.Ok ? "" : "bad")">
-                <span class="when">@a.Time.ToString("h:mm tt")</span>
-                <span class="kind">@KindIcon(a.Kind)</span>
-                <span class="grow">
-                    @if (a.ConversationId is not null) { <a href="c/@a.ConversationId">@a.Title</a> } else { @a.Title }
-                    @if (a.Detail is not null) { <span class="muted small"> — @Clip(a.Detail, 160)</span> }
-                </span>
-            </div>
-        }
-        @if (_activity.Count == 0) { <p class="muted">Nothing yet today. Routines, triggers, bot-to-bot messages, approvals and Telegram/Discord chats show up here.</p> }
-    </section>
 </div>
+
+@if (_heartbeatOpen)
+{
+    <div class="drawer-scrim" @onclick="CloseHeartbeat"></div>
+    <aside class="drawer" role="dialog" aria-label="Heartbeat settings">
+        <div class="drawer-head">
+            <b>Heartbeat settings</b>
+            <button class="icon-btn" aria-label="Close" @onclick="CloseHeartbeat"><Icon Name="x" /></button>
+        </div>
+        <HeartbeatCard />
+    </aside>
+}
 
 @code {
     private List<Activity> _activity = [];
@@ -161,6 +182,8 @@
             }
         }
 
+        _hb = (await Settings.GetAsync()).Heartbeat;
+        _hbState = await Heartbeat.StateAsync();
         _problems = _activity.Where(a => !a.Ok && a.Kind != ActivityKind.Approval)
             .GroupBy(a => a.Title).Select(g => (g.Key, g.First().Detail, (string?)(g.First().BotId is { } id ? $"bots/{id}" : null))).ToList();
         foreach (var m in Mcp.Status(State.Settings).Where(m => m.Error is not null))
@@ -173,9 +196,23 @@
 
     private static string KindIcon(ActivityKind k) => k switch
     {
-        ActivityKind.Routine => "⏰", ActivityKind.Trigger => "⚡", ActivityKind.Message => "💬",
-        ActivityKind.Approval => "✅", ActivityKind.Channel => "📱", _ => "⚠️",
+        ActivityKind.Routine => "clock", ActivityKind.Trigger => "zap", ActivityKind.Message => "message-circle",
+        ActivityKind.Approval => "check", ActivityKind.Channel => "send", ActivityKind.Task => "target", _ => "circle-alert",
     };
+
+    private HeartbeatSettings _hb = new();
+    private HeartbeatState _hbState = new();
+    private bool _heartbeatOpen;
+    private int NeedsYouCount => Approvals.Pending.Count + ProblemCount + _unread.Count;
+
+    private static string Interval(int m) => m < 60 ? $"{m} min" : $"{m / 60} h";
+
+    private async Task CloseHeartbeat()
+    {
+        _heartbeatOpen = false;
+        _hb = (await Settings.GetAsync()).Heartbeat;
+        _hbState = await Heartbeat.StateAsync();
+    }
 
     private static string Ago(DateTimeOffset t)
     {

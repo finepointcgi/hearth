@@ -89,24 +89,76 @@ public sealed class ChannelHub
     }
 
     /// <summary>(Re)connects a channel with its saved token; stops it when there's none.</summary>
-    public async Task RestartAsync(string channel)
+    private readonly Dictionary<string, string> _startErrors = [];
+    private readonly Dictionary<string, (CancellationTokenSource cts, int attempt)> _retries = [];
+
+    /// <summary>Why a channel isn't connected (it keeps retrying in the background), or null.</summary>
+    public string? StartError(string channel)
     {
+        lock (_startErrors) return _startErrors.GetValueOrDefault(channel);
+    }
+
+    /// <summary>(Re)connects a channel with its saved token; stops it when there's none. Failures retry with backoff.</summary>
+    public Task RestartAsync(string channel) => RestartAsync(channel, attempt: 0);
+
+    private async Task RestartAsync(string channel, int attempt)
+    {
+        lock (_retries)
+            if (_retries.Remove(channel, out var pending) && attempt == 0) pending.cts.Cancel(); // a manual restart replaces the schedule
         var adapter = _adapters[channel];
         await adapter.StopAsync();
         var cfg = await _store.GetAsync();
         var token = _store.Token(channel);
-        if (token is null) { Changed?.Invoke(); return; }
+        if (token is null)
+        {
+            lock (_startErrors) _startErrors.Remove(channel);
+            Changed?.Invoke();
+            return;
+        }
         try
         {
             await adapter.StartAsync(token, channel switch { "telegram" => cfg.TelegramApiBase, "slack" => cfg.SlackApiBase, _ => cfg.DiscordApiBase },
                 m => HandleMessageAsync(adapter, m), (chatId, data) => ButtonAsync(adapter, chatId, data), CancellationToken.None);
+            bool wasFailing;
+            lock (_startErrors) wasFailing = _startErrors.Remove(channel);
+            if (wasFailing)
+                await _activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Channel, $"{Title(channel)} reconnected"));
         }
         catch (Exception ex)
         {
-            await _activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Error, $"{Title(channel)} couldn't connect", ex.Message, Ok: false));
-            throw;
+            var message = ex is OperationCanceledException ? $"Couldn't reach {Title(channel)} (timed out)." : ex.Message;
+            bool firstFailure;
+            lock (_startErrors)
+            {
+                firstFailure = !_startErrors.ContainsKey(channel);
+                _startErrors[channel] = message;
+            }
+            if (firstFailure) // one entry per outage, not one per retry
+                await _activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Error, $"{Title(channel)} couldn't connect",
+                    message + " Retrying automatically.", Ok: false));
+            ScheduleRetry(channel, attempt + 1);
+            if (attempt == 0) throw;
         }
         finally { Changed?.Invoke(); }
+    }
+
+    private void ScheduleRetry(string channel, int attempt)
+    {
+        var delay = TimeSpan.FromSeconds(Math.Min(300, 15 * Math.Pow(2, Math.Min(attempt - 1, 5))));
+        var cts = new CancellationTokenSource();
+        lock (_retries)
+        {
+            if (_retries.Remove(channel, out var old)) old.cts.Cancel();
+            _retries[channel] = (cts, attempt);
+        }
+        _ = Task.Delay(delay, cts.Token).ContinueWith(async t =>
+        {
+            if (t.IsCanceled) return;
+            lock (_retries)
+                if (!_retries.TryGetValue(channel, out var current) || current.cts != cts) return;
+                else _retries.Remove(channel);
+            try { await RestartAsync(channel, attempt); } catch { /* scheduled again inside */ }
+        }, TaskScheduler.Default);
     }
 
     public static string Title(string channel) => channel switch

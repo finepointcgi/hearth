@@ -77,7 +77,7 @@
 
         case "inbox":
             <nav class="side-nav" aria-label="Inbox">
-                <a class="@(Here("dashboard") ? "active" : "")" href="dashboard" @onclick="Close"><Icon Name="layout-dashboard" /> Today
+                <a class="@(Here("dashboard") ? "active" : "")" href="dashboard" @onclick="Close"><Icon Name="layout-dashboard" /> Overview
                     @if (Approvals.Pending.Count > 0) { <span class="count-badge" title="Waiting on you">@Approvals.Pending.Count</span> }</a>
                 <a class="@(Here("tasks") ? "active" : "")" href="tasks" @onclick="Close"><Icon Name="target" /> Tasks</a>
                 @if (_heartbeatChat is not null)

@@ -302,6 +302,7 @@ public sealed class ChatService(
 
         // Helpers count too: delegated bots often do the real multi-step work.
         var reflect = reply.Error is null && reply.Content.Length > 0 && settings.SkillLearning.Enabled
+                      && lastUser.RoutineName != "Heartbeat" // routine check-ins aren't methods worth keeping
                       && (bot is null || bot.Abilities.Skills) && reply.SkillNotes.Count == 0
                       && reply.ToolCalls.Count(t => t.Status == ToolCallStatus.Done) >= Math.Max(2, settings.SkillLearning.MinToolCalls);
         if (reflect)

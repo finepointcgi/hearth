@@ -17,7 +17,7 @@
             @foreach (var doc in _docs)
             {
                 <div class="file-chip removable" title="@(doc.Indexed ? "Large file: added to your document library" : "Included in the message")">
-                    📄 @doc.Name @(doc.Indexed ? "· library" : "")
+                    <Icon Name="file-text" Size="14" /> @doc.Name @(doc.Indexed ? "· library" : "")
                     <button title="Remove" @onclick="() => _docs.Remove(doc)">✕</button>
                 </div>
             }
@@ -35,7 +35,7 @@
                 var bot = b;
                 <button class="mention" title="Ask @bot.Name directly" @onclick="() => Mention(bot.Name)"><BotAvatar Bot="bot" Size="sm" /> @@@bot.Name</button>
             }
-            <button class="mention" title="Everyone replies" @onclick='() => Mention("everyone")'>👥 @@everyone</button>
+            <button class="mention" title="Everyone replies" @onclick='() => Mention("everyone")'><Icon Name="users" Size="15" /> @@everyone</button>
         </div>
     }
     @if (SlashMatches.Count > 0)
@@ -56,20 +56,38 @@
                 <Icon Name="paperclip" Size="16" />
                 <InputFile OnChange="OnFiles" accept="image/*,.pdf,.txt,.md,.csv,.json,.html,.htm,.xml,.yaml,.yml,.cs,.js,.ts,.py,.java,.go,.rs,.cpp,.c,.h,.sql,.log" multiple class="hidden-file" />
             </label>
-            <button class="chip @(State.UseTools ? "on" : "")" title="@ToolsTitle" @onclick="ToggleTools"><Icon Name="wrench" Size="15" /><span class="lbl"> Tools</span></button>
-            <button class="chip @(State.Think ? "on" : "")" title="Ask reasoning models to think first" @onclick="ToggleThink"><Icon Name="lightbulb" Size="15" /><span class="lbl"> Think</span></button>
-            <button class="chip @(State.DeepSearch ? "on" : "")" disabled="@(!State.CanSearch)"
-                    title="@(State.CanSearch ? "Research the web in depth before answering" : "Set a SearXNG URL in Settings to enable")"
-                    @onclick="ToggleSearch"><Icon Name="globe" Size="15" /><span class="lbl"> DeepSearch</span></button>
-            @if (Members.Count == 0)
-            {
-                <select class="chip select" @bind="State.PersonaId" title="Personality">
-                    @foreach (var p in Personas.All)
-                    {
-                        <option value="@p.Id">@p.Emoji @p.Name</option>
-                    }
-                </select>
-            }
+            <div class="options-wrap">
+                <button class="chip options-btn @(_optionsOpen ? "on" : "")" title="Options" aria-haspopup="menu" aria-expanded="@_optionsOpen" @onclick="() => _optionsOpen = !_optionsOpen">
+                    <Icon Name="sliders-horizontal" Size="15" /><span class="lbl"> @OptionsSummary</span>
+                </button>
+                @if (_optionsOpen)
+                {
+                    <div class="menu-backdrop" @onclick="() => _optionsOpen = false"></div>
+                    <div class="options-menu" role="menu">
+                        <label class="option-row" title="@ToolsTitle">
+                            <Icon Name="wrench" Size="16" /><span class="grow-text">Tools<small>Search, files, memory, skills, MCP…</small></span>
+                            <input type="checkbox" class="switch" role="switch" checked="@State.UseTools" @onchange="ToggleTools" />
+                        </label>
+                        <label class="option-row">
+                            <Icon Name="lightbulb" Size="16" /><span class="grow-text">Think first<small>For reasoning models</small></span>
+                            <input type="checkbox" class="switch" role="switch" checked="@State.Think" @onchange="ToggleThink" />
+                        </label>
+                        <label class="option-row @(State.CanSearch ? "" : "unavailable")" title="@(State.CanSearch ? "" : "Set a SearXNG URL in Settings to enable")">
+                            <Icon Name="globe" Size="16" /><span class="grow-text">DeepSearch<small>@(State.CanSearch ? "Research the web before answering" : "Needs a SearXNG URL in Settings")</small></span>
+                            <input type="checkbox" class="switch" role="switch" checked="@State.DeepSearch" disabled="@(!State.CanSearch)" @onchange="ToggleSearch" />
+                        </label>
+                        @if (Members.Count == 0)
+                        {
+                            <label class="option-row">
+                                <Icon Name="sparkles" Size="16" /><span class="grow-text">Personality</span>
+                                <select @bind="State.PersonaId">
+                                    @foreach (var p in Personas.All) { <option value="@p.Id">@p.Name</option> }
+                                </select>
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
             <span class="spacer"></span>
             @if (_error is not null)
             {
@@ -98,6 +116,22 @@
     [Parameter] public EventCallback OnStop { get; set; }
     [Parameter] public EventCallback OnTalk { get; set; }
     [Parameter] public bool Talking { get; set; }
+
+    private bool _optionsOpen;
+
+    /// <summary>What's switched on, e.g. "Tools · Think" (or "Options" when nothing is).</summary>
+    private string OptionsSummary
+    {
+        get
+        {
+            var on = new List<string>();
+            if (State.UseTools) on.Add("Tools");
+            if (State.Think) on.Add("Think");
+            if (State.DeepSearch && State.CanSearch) on.Add("DeepSearch");
+            if (Members.Count == 0 && State.PersonaId != Personas.All[0].Id) on.Add(Personas.Get(State.PersonaId).Name);
+            return on.Count == 0 ? "Options" : string.Join(" · ", on);
+        }
+    }
     /// <summary>Bots in this chat (empty for a plain chat).</summary>
     [Parameter] public IReadOnlyList<Bot> Members { get; set; } = [];
 

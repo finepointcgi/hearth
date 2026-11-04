@@ -90,6 +90,10 @@
     else
     {
         @if (Adapter.Error is not null) { <div class="error-box">@Adapter.Error</div> }
+        else if (!Adapter.Running && Hub.StartError(Channel) is { } startError)
+        {
+            <div class="error-box">@startError Locus keeps retrying in the background, or click Reconnect.</div>
+        }
         <div class="row">
             <button class="btn primary" @onclick="Pair" disabled="@(!Adapter.Running)">Get pairing code</button>
             <button class="btn ghost" @onclick="Reconnect" disabled="@_busy">Reconnect</button>

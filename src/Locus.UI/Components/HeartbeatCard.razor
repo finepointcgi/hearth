@@ -5,7 +5,7 @@
 
 <section class="card">
     <div class="row">
-        <h3 class="grow">💓 Heartbeat</h3>
+        <h3 class="grow">Heartbeat</h3>
         <label class="check"><input type="checkbox" checked="@_s.Enabled" @onchange="e => Change(s => s.Enabled = (bool)e.Value!)" /> On</label>
     </div>
     <p class="muted small">
@@ -17,8 +17,7 @@
             @if (_state.ConversationId is { } id && _state.Alerts > 0) { <a href="c/@id">· see messages (@_state.Alerts)</a> }
         </p>
     }
-    <details class="steps" open="@(!_s.Enabled)">
-        <summary>Settings</summary>
+    <div class="steps">
         <label>What to keep an eye on (one per line)
             <textarea rows="5" value="@_s.Checklist" @onchange="e => Change(s => s.Checklist = e.Value?.ToString() ?? s.Checklist)"></textarea>
         </label>
@@ -38,7 +37,7 @@
             <label>until <input type="time" value="@_s.QuietUntil" @onchange="e => Change(s => s.QuietUntil = e.Value?.ToString() ?? s.QuietUntil)" /></label>
         </div>
         <span class="muted small">Each check-in is a short model call; with a cloud model that adds up, so pick a longer interval there.</span>
-    </details>
+    </div>
     <div class="row end">
         <button class="btn ghost" @onclick="RunNow" disabled="@_busy">@(_busy ? "Checking…" : "Check in now")</button>
     </div>
