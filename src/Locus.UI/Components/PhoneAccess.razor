@@ -39,16 +39,22 @@
         @if (networkOn)
         {
             <div class="qr-grid">
+                @{ var best = _urls[0]; var appLink = $"locus://connect?url={Uri.EscapeDataString(best.url)}"; }
+                <div class="qr">
+                    @((MarkupString)Qr(appLink))
+                    <b>In the Locus app</b>
+                    <span class="muted small">@best.label</span>
+                </div>
                 @foreach (var (label, url) in _urls)
                 {
                     <div class="qr">
                         @((MarkupString)Qr(url))
-                        <b>@label</b>
+                        <b>In the browser · @label</b>
                         <a href="@url" target="_blank" rel="noopener" class="small">@url</a>
                     </div>
                 }
             </div>
-            <p class="muted small">Scan with your phone's camera, sign in, then <b>Share → Add to Home Screen</b> (iPhone) or <b>⋮ → Install app</b> (Android).</p>
+            <p class="muted small">Have the Locus app? Scan <b>In the Locus app</b> with your phone's camera and it opens connected. Otherwise scan a browser code, sign in, then <b>Share → Add to Home Screen</b> (iPhone) or <b>⋮ → Install app</b> (Android).</p>
         }
 
         <details class="steps" open="@(_https is null && _tailscale is not null)">

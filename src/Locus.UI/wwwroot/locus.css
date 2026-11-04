@@ -564,3 +564,5 @@ a.needs-row:hover .grow b { color: var(--brand); }
 .option-row.unavailable { opacity: .6; cursor: default; }
 .option-row select { max-width: 8.5rem; padding: .3rem .4rem; font-size: .85rem; }
 .mention .icon { color: var(--muted); }
+.only-in-app { display: none !important; }
+.in-app .only-in-app { display: flex !important; }

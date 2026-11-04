@@ -3,6 +3,7 @@ using Locus.Core.Services;
 using Locus.UI;
 using Locus.UI.State;
 using Microsoft.Extensions.Logging;
+using Microsoft.Maui.LifecycleEvents;
 
 namespace Locus.App;
 
@@ -13,7 +14,18 @@ public static class MauiProgram
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()
-            .ConfigureFonts(fonts => fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular"));
+            .ConfigureFonts(fonts => fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular"))
+            .ConfigureLifecycleEvents(events =>
+            {
+                // locus://connect?url=… links (the QR code on your computer's Phone card) open the app connected.
+#if IOS || MACCATALYST
+                events.AddiOS(ios => ios.OpenUrl((app, url, options) => ServerConnection.TryHandleLink(url.AbsoluteString)));
+#elif ANDROID
+                events.AddAndroid(android => android
+                    .OnCreate((activity, _) => ServerConnection.TryHandleLink(activity.Intent?.DataString))
+                    .OnNewIntent((activity, intent) => ServerConnection.TryHandleLink(intent?.DataString)));
+#endif
+            });
 
         builder.Services.AddMauiBlazorWebView();
 

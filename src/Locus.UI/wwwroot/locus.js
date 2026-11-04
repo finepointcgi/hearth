@@ -1,3 +1,6 @@
+// Inside the Locus phone app (its web view adds "LocusApp" to the user agent).
+if (navigator.userAgent.includes("LocusApp")) document.documentElement.classList.add("in-app");
+
 // Theme: "system" (default), "light" or "dark", remembered per device.
 (function () {
   try {

@@ -101,6 +101,7 @@
                 <a class="@(Here("connections") ? "active" : "")" href="connections" @onclick="Close"><Icon Name="link" /> Connections</a>
                 <a class="@(Here("permissions") ? "active" : "")" href="permissions" @onclick="Close"><Icon Name="shield" /> Permissions</a>
                 <a class="@(Here("tools") ? "active" : "")" href="tools" @onclick="Close"><Icon Name="plug" /> Tools and MCP</a>
+                <a class="only-in-app" href="locus-app://switch-server"><Icon Name="server" /> Switch server</a>
                 <a class="@(Here("computer") ? "active" : "")" href="computer" @onclick="Close"><Icon Name="monitor" /> Computer
                     @if (Computer.Status.Running) { <span class="live-dot" title="Browser running"></span> }</a>
             </nav>
