@@ -161,9 +161,19 @@ public sealed class ConversationStore(IAppPaths paths)
         foreach (var file in Directory.EnumerateFiles(Dir, "*.json"))
         {
             var c = await Json.ReadAsync<Conversation>(file);
-            if (c is not null) list.Add(new(c.Id, c.Title, c.UpdatedAt, c.Pinned, c.BotIds, c.Unread));
+            if (c is not null) list.Add(new(c.Id, DisplayTitle(c), c.UpdatedAt, c.Pinned, c.BotIds, c.Unread));
         }
         return list.OrderByDescending(c => c.Pinned).ThenByDescending(c => c.UpdatedAt).ToList();
+    }
+
+    /// <summary>Untitled chats show their first message instead of "New chat".</summary>
+    public static string DisplayTitle(Conversation c)
+    {
+        if (c.Title != "New chat") return c.Title;
+        var first = c.Messages.FirstOrDefault(m => m.Role == ChatRole.User && m.Content.Trim().Length > 0)?.Content.Trim();
+        if (first is null) return c.Title;
+        first = first.ReplaceLineEndings(" ");
+        return first.Length > 48 ? first[..48].TrimEnd() + "…" : first;
     }
 
     public Task<Conversation?> GetAsync(string id) => Json.ReadAsync<Conversation>(FileFor(id));

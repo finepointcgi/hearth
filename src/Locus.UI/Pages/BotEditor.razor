@@ -14,7 +14,7 @@
 @inject Locus.Core.Services.Google.GoogleAuth GoogleAuth
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
     @if (_bot is not null) { <BotAvatar Bot="_bot" /> }
     <h2 class="topbar-title">@(_isNew ? "New bot" : _bot?.Name)</h2>
     <span class="spacer"></span>

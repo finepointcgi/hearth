@@ -11,7 +11,7 @@
 @inject LiveVoice Live
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
     <div class="model-picker">
         @if (State.LoadingModels)
         {
@@ -30,7 +30,7 @@
         {
             <span class="muted">No model</span>
         }
-        <button class="icon-btn" title="Refresh models" @onclick="State.RefreshModelsAsync">↻</button>
+        <button class="icon-btn" title="Refresh models" aria-label="Refresh models" @onclick="State.RefreshModelsAsync"><Icon Name="refresh-cw" Size="16" /></button>
         @if (State.Capabilities is { } caps)
         {
             <span class="caps">
@@ -50,9 +50,9 @@
     }
     @if (_conv is { Messages.Count: > 0 })
     {
-        <button class="icon-btn" title="Copy chat as Markdown" @onclick="ExportMarkdown">⇩</button>
+        <button class="icon-btn" title="Copy chat as Markdown" aria-label="Copy chat as Markdown" @onclick="ExportMarkdown"><Icon Name="download" /></button>
     }
-    <button class="icon-btn" title="New chat" @onclick="NewChat">✎</button>
+    <button class="icon-btn" title="New chat" aria-label="New chat" @onclick="NewChat"><Icon Name="message-square-plus" /></button>
 </header>
 
 <section class="chat" @ref="_scroller">
@@ -75,7 +75,7 @@
     else if (_conv is null || _conv.Messages.Count == 0)
     {
         <div class="welcome">
-            <div class="welcome-logo">◎</div>
+            <div class="welcome-logo">L</div>
             <h1>@Greeting</h1>
             @if (State.FallbackNotice is not null)
             {

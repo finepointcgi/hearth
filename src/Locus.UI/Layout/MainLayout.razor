@@ -3,6 +3,7 @@
 @inject AppState State
 
 <div class="shell @(State.SidebarOpen ? "sidebar-open" : "")">
+    <NavRail />
     <Sidebar />
     <div class="scrim" @onclick="CloseSidebar"></div>
     <main class="main">

@@ -6,7 +6,7 @@
 @inject ApprovalCenter Approvals
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
     <a class="icon-btn" href="tasks" title="All tasks">←</a>
     <h2 class="topbar-title ellipsis">@(_task?.Title ?? "Task")</h2>
 </header>

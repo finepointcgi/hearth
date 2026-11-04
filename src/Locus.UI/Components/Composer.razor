@@ -53,14 +53,14 @@
                   placeholder="@Placeholder" disabled="@(State.SelectedModel is null && !State.CanImagine)"></textarea>
         <div class="composer-bar">
             <label class="chip" title="Attach images or documents (PDF, text, code)">
-                📎
+                <Icon Name="paperclip" Size="16" />
                 <InputFile OnChange="OnFiles" accept="image/*,.pdf,.txt,.md,.csv,.json,.html,.htm,.xml,.yaml,.yml,.cs,.js,.ts,.py,.java,.go,.rs,.cpp,.c,.h,.sql,.log" multiple class="hidden-file" />
             </label>
-            <button class="chip @(State.UseTools ? "on" : "")" title="@ToolsTitle" @onclick="ToggleTools">🛠<span class="lbl"> Tools</span></button>
-            <button class="chip @(State.Think ? "on" : "")" title="Ask reasoning models to think first" @onclick="ToggleThink">💡<span class="lbl"> Think</span></button>
+            <button class="chip @(State.UseTools ? "on" : "")" title="@ToolsTitle" @onclick="ToggleTools"><Icon Name="wrench" Size="15" /><span class="lbl"> Tools</span></button>
+            <button class="chip @(State.Think ? "on" : "")" title="Ask reasoning models to think first" @onclick="ToggleThink"><Icon Name="lightbulb" Size="15" /><span class="lbl"> Think</span></button>
             <button class="chip @(State.DeepSearch ? "on" : "")" disabled="@(!State.CanSearch)"
                     title="@(State.CanSearch ? "Research the web in depth before answering" : "Set a SearXNG URL in Settings to enable")"
-                    @onclick="ToggleSearch">🔎<span class="lbl"> DeepSearch</span></button>
+                    @onclick="ToggleSearch"><Icon Name="globe" Size="15" /><span class="lbl"> DeepSearch</span></button>
             @if (Members.Count == 0)
             {
                 <select class="chip select" @bind="State.PersonaId" title="Personality">
@@ -75,18 +75,18 @@
             {
                 <span class="tiny-error" title="@_error">@_error</span>
             }
-            <button class="mic @(_listening ? "on" : "")" title="@(_listening ? "Stop dictation" : "Dictate")" @onclick="ToggleVoice">🎙</button>
+            <button class="mic @(_listening ? "on" : "")" title="@(_listening ? "Stop dictation" : "Dictate")" @onclick="ToggleVoice" aria-label="Dictate"><Icon Name="mic" Size="17" /></button>
             @if (OnTalk.HasDelegate)
             {
-                <button class="mic @(Talking ? "on" : "")" title="@(Talking ? "End conversation" : "Talk hands-free")" @onclick="OnTalk">🎧</button>
+                <button class="mic @(Talking ? "on" : "")" title="@(Talking ? "End conversation" : "Talk hands-free")" @onclick="OnTalk" aria-label="Talk hands-free"><Icon Name="headphones" Size="17" /></button>
             }
             @if (Busy)
             {
-                <button class="send stop" title="Stop" @onclick="OnStop">■</button>
+                <button class="send stop" title="Stop" aria-label="Stop" @onclick="OnStop"><Icon Name="square" Size="13" Stroke="2.5" /></button>
             }
             else
             {
-                <button class="send" title="Send" disabled="@(!CanSend)" @onclick="Submit">↑</button>
+                <button class="send" title="Send" disabled="@(!CanSend)" @onclick="Submit" aria-label="Send"><Icon Name="arrow-up" Size="18" Stroke="2.25" /></button>
             }
         </div>
     </div>

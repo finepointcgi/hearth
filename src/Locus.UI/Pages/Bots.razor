@@ -5,7 +5,7 @@
 @inject NavigationManager Nav
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
     <h2 class="topbar-title">Bots</h2>
     <span class="spacer"></span>
     <span class="muted small">@State.Bots.Count / @Bot.MaxBots</span>

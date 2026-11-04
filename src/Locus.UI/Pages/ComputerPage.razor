@@ -8,8 +8,8 @@
 @inject LoginVault Vault
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
-    <h2 class="topbar-title">🖥 Bot computer</h2>
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <h2 class="topbar-title">Bot computer</h2>
     <span class="spacer"></span>
     @if (_status.Running) { <span class="live-pill">● live</span> }
 </header>

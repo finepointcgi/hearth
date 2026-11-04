@@ -1,5 +1,21 @@
+// Theme: "system" (default), "light" or "dark", remembered per device.
+(function () {
+  try {
+    const t = localStorage.getItem("locus-theme");
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  } catch { /* storage blocked: follow the system */ }
+})();
+
 // Small JS helpers shared by every host (MAUI WebView, Photino, browser).
 window.locus = {
+  getTheme() {
+    try { return localStorage.getItem("locus-theme") || "system"; } catch { return "system"; }
+  },
+  setTheme(t) {
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    else delete document.documentElement.dataset.theme;
+    try { localStorage.setItem("locus-theme", t); } catch { /* per-session only */ }
+  },
   initComposer(textarea, dotnet) {
     const resize = () => {
       textarea.style.height = "auto";

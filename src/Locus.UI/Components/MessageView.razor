@@ -66,14 +66,14 @@
                 </details>
             }
             <div class="msg-tools">
-                <button title="Copy" @onclick="Copy">⧉</button>
+                <button title="Copy" aria-label="Copy" @onclick="Copy"><Icon Name="copy" Size="15" /></button>
                 @if (!Busy)
                 {
-                    <button title="Edit" @onclick="StartEdit">✎</button>
+                    <button title="Edit" aria-label="Edit" @onclick="StartEdit"><Icon Name="pencil" Size="15" /></button>
                 }
                 @if (Message.FromBotId is null && Message.Content.Length > 20 && Skill.Match(Message.Content, State.Skills) is null)
                 {
-                    <a class="tool-link" title="Save this prompt as a reusable skill" href="@($"skills?from={Uri.EscapeDataString(Message.Content[..Math.Min(Message.Content.Length, 1500)])}")">⚡</a>
+                    <a class="tool-link" title="Save this prompt as a reusable skill" href="@($"skills?from={Uri.EscapeDataString(Message.Content[..Math.Min(Message.Content.Length, 1500)])}")" aria-label="Save as skill"><Icon Name="zap" Size="15" /></a>
                 }
             </div>
         }
@@ -155,11 +155,11 @@
         @if (!Message.IsStreaming)
         {
             <div class="msg-tools">
-                <button title="Copy" @onclick="Copy">⧉</button>
-                <button title="@(_speaking ? "Stop reading" : "Read aloud")" @onclick="ToggleSpeak">@(_speaking ? "■" : "🔊")</button>
+                <button title="Copy" aria-label="Copy" @onclick="Copy"><Icon Name="copy" Size="15" /></button>
+                <button title="@(_speaking ? "Stop reading" : "Read aloud")" @onclick="ToggleSpeak"><Icon Name="@(_speaking ? "square" : "volume-2")" Size="15" /></button>
                 @if (IsLast && !Busy)
                 {
-                    <button title="Regenerate" @onclick="OnRegenerate">↻</button>
+                    <button title="Regenerate" aria-label="Regenerate" @onclick="OnRegenerate"><Icon Name="refresh-cw" Size="15" /></button>
                 }
                 <span class="meta">
                     @Message.Model

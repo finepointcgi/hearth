@@ -1,0 +1,10 @@
+@* Usage: <Icon Name="bot" />  — inherits colour; Size in px. *@
+<svg class="icon @Class" width="@Size" height="@Size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="@Stroke"
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">@((MarkupString)(Icons.Paths.TryGetValue(Name, out var p) ? p : Icons.Paths["circle-alert"]))</svg>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+    [Parameter] public int Size { get; set; } = 18;
+    [Parameter] public string Stroke { get; set; } = "1.75";
+    [Parameter] public string? Class { get; set; }
+}
