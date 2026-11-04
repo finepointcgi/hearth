@@ -1,7 +1,7 @@
 
 <details class="tool @StatusClass" open="@(Call.Status == ToolCallStatus.AwaitingApproval)">
     <summary>
-        <span class="tool-icon">@Icon</span>
+        <span class="tool-icon"><Icon Name="@IconFor(Call.Name)" Size="15" /></span>
         <span class="tool-name">@Label</span>
         <span class="tool-arg">@Preview</span>
         <span class="tool-status">@StatusText</span>
@@ -22,7 +22,7 @@
     @if (Call.Status == ToolCallStatus.AwaitingApproval)
     {
         <div class="approval">
-            <span>⚠ @(Call.ApprovalReason ?? "This tool can make changes or run code.") Allow it?</span>
+            <span><Icon Name="circle-alert" Size="16" /> @(Call.ApprovalReason ?? "This tool can make changes or run code.") Allow it?</span>
             <button class="btn ghost" @onclick="() => Decide(false)">Deny</button>
             <button class="btn primary" @onclick="() => Decide(true)">Allow</button>
         </div>
@@ -31,6 +31,33 @@
 
 @code {
     [Parameter, EditorRequired] public ToolCall Call { get; set; } = default!;
+
+    /// <summary>An icon for a tool, by what kind of thing it touches.</summary>
+    public static string IconFor(string tool) => tool switch
+    {
+        "web_search" => "search",
+        "fetch_url" => "globe",
+        _ when tool.StartsWith("browser_") => "globe",
+        _ when tool.StartsWith("desktop_") => "monitor",
+        _ when tool.StartsWith("sheets_") => "sheet",
+        _ when tool.StartsWith("gmail_") => "mail",
+        _ when tool.StartsWith("calendar_") => "calendar",
+        "save_memory" or "delete_memory" or "recall_memory" => "brain",
+        "search_past_chats" or "read_past_chat" => "message-circle",
+        "message_bot" => "users",
+        "use_skill" or "save_skill" or "improve_skill" => "zap",
+        "run_python" or "run_command" or "run_remote" => "terminal",
+        "list_files" or "read_file" or "write_file" => "folder",
+        "generate_image" => "image",
+        "search_documents" => "file-text",
+        "get_current_datetime" => "clock",
+        "calculate" or "convert_units" => "calculator",
+        _ when tool.StartsWith("task_") => "list-checks",
+        _ => "wrench",
+    };
+
+    /// <summary>Human label for a tool.</summary>
+    public static string LabelFor(string tool) => Known.TryGetValue(tool, out var k) ? k.label : tool.Replace('_', ' ');
 
     private static readonly Dictionary<string, (string icon, string label)> Known = new()
     {

@@ -18,7 +18,7 @@
     @if (_bot is not null) { <BotAvatar Bot="_bot" /> }
     <h2 class="topbar-title">@(_isNew ? "New bot" : _bot?.Name)</h2>
     <span class="spacer"></span>
-    @if (_saved) { <span class="ok-text">Saved ✓</span> }
+    @if (_saved) { <span class="ok-text"><Icon Name="check" Size="16" /> Saved</span> }
     @if (!_isNew) { <a class="btn ghost" href="bot/@Id">Chat</a> }
     <button class="btn primary" @onclick="Save">Save</button>
 </header>
@@ -27,6 +27,18 @@
 {
 <div class="settings">
     @if (_error is not null) { <div class="error-box">@_error</div> }
+    <div class="tabs" role="tablist" aria-label="Bot settings">
+        @foreach (var (id, label, icon, badge) in Tabs())
+        {
+            var tab = id;
+            <button role="tab" aria-selected="@(_tab == tab)" class="tab @(_tab == tab ? "on" : "")" @onclick="() => _tab = tab">
+                <Icon Name="@icon" Size="16" /> @label @if (badge is not null) { <span class="tab-badge">@badge</span> }
+            </button>
+        }
+    </div>
+
+    @if (_tab == "profile")
+    {
     <section class="card">
         <h3>Identity</h3>
         <div class="row">
@@ -42,23 +54,88 @@
     </section>
 
     <section class="card">
+        <h3>Model</h3>
+        @if (State.Settings.Providers.Count > 1)
+        {
+            <label>Model server
+                <select value="@(_bot.ProviderId ?? "")" @onchange="e => SetProvider(e.Value?.ToString())">
+                    <option value="">Same as the app (@State.Settings.ActiveProvider.Name)</option>
+                    @foreach (var p in State.Settings.Providers.Where(p => p.Id != State.Settings.ActiveProvider.Id))
+                    {
+                        <option value="@p.Id">@p.Name</option>
+                    }
+                </select>
+            </label>
+        }
+        <label>Model
+            <select @bind="_bot.Model">
+                <option value="">@(OwnServer ? $"{OwnProvider!.Name}'s default model" : "Use the model selected in the chat")</option>
+                @foreach (var m in BotModels) { <option value="@m.Id">@m.Id</option> }
+                @if (!string.IsNullOrEmpty(_bot.Model) && BotModels.All(m => m.Id != _bot.Model)) { <option value="@_bot.Model">@_bot.Model (not available)</option> }
+            </select>
+        </label>
+        @if (_serverError is not null) { <span class="tiny-error">@_serverError</span> }
+        @if (OwnServer) { <span class="muted small">If @OwnProvider!.Name can't be reached, this bot falls back to @State.Settings.ActiveProvider.Name.</span> }
+        <details class="advanced">
+            <summary>Advanced: limit to specific tools</summary>
+            <label>Tool access
+                <select @bind="_bot.ToolMode">
+                    <option value="@BotToolMode.All">Use the bot's abilities (Abilities tab)</option>
+                    <option value="@BotToolMode.Selected">Only the tools picked below (ignores abilities)</option>
+                    <option value="@BotToolMode.None">No tools at all</option>
+                </select>
+            </label>
+            @if (_bot.ToolMode == BotToolMode.Selected)
+            {
+                <div class="tool-pick">
+                    @foreach (var (tool, reason) in _catalog)
+                    {
+                        var t = tool;
+                        <label class="check"><input type="checkbox" checked="@_bot.AllowedTools.Contains(t.Name)" @onchange="e => ToggleTool(t.Name, (bool)e.Value!)" /> @t.Icon @t.DisplayName @if (reason is not null) { <span class="muted small">(@reason)</span> }</label>
+                    }
+                </div>
+            }
+        </details>
+    </section>
+
+    @if (!_isNew)
+    {
+        <section class="card danger">
+            @if (_confirmDelete)
+            {
+                <div class="row">
+                    <span>Delete @_bot.Name? Its chats stay, but it won't reply in them.</span>
+                    <button class="btn danger" @onclick="Delete">Delete</button>
+                    <button class="btn ghost" @onclick="() => _confirmDelete = false">Cancel</button>
+                </div>
+            }
+            else
+            {
+                <button class="btn danger" @onclick="() => _confirmDelete = true">Delete bot</button>
+            }
+        </section>
+    }
+    }
+    @if (_tab == "abilities")
+    {
+    <section class="card">
         <h3>Abilities</h3>
         <p class="muted">Switch on what @(string.IsNullOrWhiteSpace(_bot.Name) ? "this bot" : _bot.Name) may do. Things that also need setting up elsewhere say so.</p>
-        <div class="ability-grid">
+        <div class="ability-list">
             @foreach (var a in AbilityList())
             {
                 var ability = a;
-                <label class="ability @(ability.Get() ? "on" : "") @(ability.Hint is not null ? "needs-setup" : "")">
-                    <input type="checkbox" checked="@ability.Get()" @onchange="e => ability.Set((bool)e.Value!)" />
-                    <span class="ability-icon">@ability.Icon</span>
+                <label class="ability-row @(ability.Get() ? "on" : "")">
+                    <span class="ability-icon"><Icon Name="@ability.Icon" Size="18" /></span>
                     <span class="ability-text">
                         <b>@ability.Name</b>
                         <span class="muted small">@ability.Description</span>
-                        @if (ability.Hint is not null && ability.Get())
-                        {
-                            <a class="hint" href="@ability.HintLink">⚠ @ability.Hint</a>
-                        }
                     </span>
+                    @if (ability.Hint is not null && ability.Get())
+                    {
+                        <a class="chip-warn" href="@ability.HintLink" title="@ability.Hint">Needs setup</a>
+                    }
+                    <input type="checkbox" class="switch" role="switch" checked="@ability.Get()" @onchange="e => ability.Set((bool)e.Value!)" aria-label="@ability.Name" />
                 </label>
             }
         </div>
@@ -67,7 +144,7 @@
     @if (_bot.Abilities.Browser)
     {
         <section class="card">
-            <h3>🧭 Browser</h3>
+            <h3>Browser</h3>
             <div class="seg">
                 <button class="@(_bot.Abilities.BrowserProfile == BrowserProfile.Own ? "on" : "")" @onclick="() => _bot.Abilities.BrowserProfile = BrowserProfile.Own">
                     <b>Its own browser</b><span class="muted small">Separate cookies and sign-ins, just for @(string.IsNullOrWhiteSpace(_bot.Name) ? "this bot" : _bot.Name)</span>
@@ -97,7 +174,7 @@
     @if (_bot.Abilities.ComputerUse)
     {
         <section class="card">
-            <h3>🖱️ Computer use</h3>
+            <h3>Computer use</h3>
             <div class="seg">
                 <button class="@(_bot.Abilities.Desktop == DesktopTarget.Sandbox ? "on" : "")" @onclick="() => _bot.Abilities.Desktop = DesktopTarget.Sandbox">
                     <b>Its own sandbox</b><span class="muted small">A private Linux desktop in Docker. Can't see your screen or files, so it works without asking.</span>
@@ -114,8 +191,11 @@
         </section>
     }
 
+    }
+    @if (_tab == "memory")
+    {
     <section class="card">
-        <h3>🧠 Memory</h3>
+        <h3>Memory</h3>
         <label class="check"><input type="checkbox" @bind="_bot.Memory.Enabled" /> <span><b>Remember things</b> — keeps its own memory across all its chats</span></label>
         @if (_bot.Memory.Enabled)
         {
@@ -158,53 +238,11 @@
         }
     </section>
 
+    }
+    @if (_tab == "routines")
+    {
     <section class="card">
-        <h3>Model</h3>
-        @if (State.Settings.Providers.Count > 1)
-        {
-            <label>Model server
-                <select value="@(_bot.ProviderId ?? "")" @onchange="e => SetProvider(e.Value?.ToString())">
-                    <option value="">Same as the app (@State.Settings.ActiveProvider.Name)</option>
-                    @foreach (var p in State.Settings.Providers.Where(p => p.Id != State.Settings.ActiveProvider.Id))
-                    {
-                        <option value="@p.Id">@p.Name</option>
-                    }
-                </select>
-            </label>
-        }
-        <label>Model
-            <select @bind="_bot.Model">
-                <option value="">@(OwnServer ? $"{OwnProvider!.Name}'s default model" : "Use the model selected in the chat")</option>
-                @foreach (var m in BotModels) { <option value="@m.Id">@m.Id</option> }
-                @if (!string.IsNullOrEmpty(_bot.Model) && BotModels.All(m => m.Id != _bot.Model)) { <option value="@_bot.Model">@_bot.Model (not available)</option> }
-            </select>
-        </label>
-        @if (_serverError is not null) { <span class="tiny-error">@_serverError</span> }
-        @if (OwnServer) { <span class="muted small">If @OwnProvider!.Name can't be reached, this bot falls back to @State.Settings.ActiveProvider.Name.</span> }
-        <details class="advanced">
-            <summary>Advanced: limit to specific tools</summary>
-            <label>Tool access
-                <select @bind="_bot.ToolMode">
-                    <option value="@BotToolMode.All">Use the abilities above</option>
-                    <option value="@BotToolMode.Selected">Only the tools picked below (ignores abilities)</option>
-                    <option value="@BotToolMode.None">No tools at all</option>
-                </select>
-            </label>
-            @if (_bot.ToolMode == BotToolMode.Selected)
-            {
-                <div class="tool-pick">
-                    @foreach (var (tool, reason) in _catalog)
-                    {
-                        var t = tool;
-                        <label class="check"><input type="checkbox" checked="@_bot.AllowedTools.Contains(t.Name)" @onchange="e => ToggleTool(t.Name, (bool)e.Value!)" /> @t.Icon @t.DisplayName @if (reason is not null) { <span class="muted small">(@reason)</span> }</label>
-                    }
-                </div>
-            }
-        </details>
-    </section>
-
-    <section class="card">
-        <h3>Routines & triggers</h3>
+        <h3>Routines and triggers</h3>
         <p class="muted">
             Prompts this bot runs on its own: on a schedule, or when something happens. Results show up in its chat,
             marked unread. Start a prompt with <code>/skill-name</code> to reuse a skill. Tools that need approval are skipped.
@@ -338,30 +376,26 @@
                 @if (_runResult.TryGetValue(routine.Id, out var rr)) { <span class="muted small">@rr</span> }
             </div>
         }
-        <button class="btn ghost" @onclick="() => _bot.Routines.Add(new Routine())">＋ Add routine</button>
+        <button class="btn ghost" @onclick="() => _bot.Routines.Add(new Routine())"><Icon Name="plus" Size="16" /> Add routine</button>
     </section>
 
-    @if (!_isNew)
-    {
-        <section class="card danger">
-            @if (_confirmDelete)
-            {
-                <div class="row">
-                    <span>Delete @_bot.Name? Its chats stay, but it won't reply in them.</span>
-                    <button class="btn danger" @onclick="Delete">Delete</button>
-                    <button class="btn ghost" @onclick="() => _confirmDelete = false">Cancel</button>
-                </div>
-            }
-            else
-            {
-                <button class="btn danger" @onclick="() => _confirmDelete = true">Delete bot</button>
-            }
-        </section>
     }
 </div>
 }
 
 @code {
+    private string _tab = "profile";
+
+    private IEnumerable<(string id, string label, string icon, string? badge)> Tabs()
+    {
+        yield return ("profile", "Profile", "user", null);
+        var on = _bot is null ? 0 : AbilityList().Count(a => a.Get());
+        yield return ("abilities", "Abilities", "wrench", on.ToString());
+        yield return ("memory", "Memory", "brain", null);
+        var routines = _bot?.Routines.Count ?? 0;
+        yield return ("routines", "Routines", "clock", routines > 0 ? routines.ToString() : null);
+    }
+
     [Parameter] public string Id { get; set; } = "";
 
     private Bot? _bot;
@@ -505,27 +539,27 @@
     {
         var a = _bot!.Abilities;
         var s = State.Settings;
-        yield return new("🔎", "Web search", "Search the web and read pages",
+        yield return new("search", "Web search", "Search the web and read pages",
             () => a.WebSearch, v => a.WebSearch = v, string.IsNullOrWhiteSpace(s.SearxngUrl) ? "Search needs a SearXNG URL (reading pages works)" : null, "settings");
-        yield return new("🧭", "Browser", "Use a real browser: sign in, click, fill forms",
+        yield return new("globe", "Browser", "Use a real browser: sign in, click, fill forms",
             () => a.Browser, v => a.Browser = v, !Computer.Status.Available ? "Not available here" : !s.Computer.Enabled ? "Turned off on the Computer page" : null);
-        yield return new("🖱️", "Computer use", "See your screen and use mouse & keyboard",
+        yield return new("mouse-pointer-click", "Computer use", "See your screen and use mouse & keyboard",
             () => a.ComputerUse, v => a.ComputerUse = v, a.Desktop == DesktopTarget.ThisComputer && !s.Computer.DesktopControl ? "Switch on Computer use on the Computer page, or give it its own sandbox below" : null);
-        yield return new("🗂️", "Files", "Read and write files in the workspace", () => a.Files, v => a.Files = v);
-        yield return new("🐍", "Code", "Run Python and shell commands (asks first)",
+        yield return new("folder", "Files", "Read and write files in the workspace", () => a.Files, v => a.Files = v);
+        yield return new("code", "Code", "Run Python and shell commands (asks first)",
             () => a.Code, v => a.Code = v, !s.Tools.PythonEnabled && !s.Computer.AllowCommands ? "Allow Python or commands under Tools / Computer" : null, "tools");
-        yield return new("🎨", "Images", "Generate pictures",
+        yield return new("image", "Images", "Generate pictures",
             () => a.Images, v => a.Images = v, s.ImageGen.Backend == ImageBackend.None ? "Pick an image server in Settings" : null, "settings");
-        yield return new("📚", "Documents", "Search your document library", () => a.Documents, v => a.Documents = v);
-        yield return new("⚡", "Skills", "Use your saved skills", () => a.Skills, v => a.Skills = v);
-        yield return new("💬", "Teamwork", "Message other bots and hand off work", () => a.MessageBots, v => a.MessageBots = v);
-        yield return new("📊", "Google Sheets", "Find, read and update spreadsheets", () => a.GoogleSheets, v => a.GoogleSheets = v,
+        yield return new("file-text", "Documents", "Search your document library", () => a.Documents, v => a.Documents = v);
+        yield return new("zap", "Skills", "Use your saved skills", () => a.Skills, v => a.Skills = v);
+        yield return new("users", "Teamwork", "Message other bots and hand off work", () => a.MessageBots, v => a.MessageBots = v);
+        yield return new("sheet", "Google Sheets", "Find, read and update spreadsheets", () => a.GoogleSheets, v => a.GoogleSheets = v,
             _googleConnected ? null : "Connect Google on the Connections page", "connections");
-        yield return new("📧", "Gmail", "Search, read, draft and send your email", () => a.Gmail, v => a.Gmail = v,
+        yield return new("mail", "Gmail", "Search, read, draft and send your email", () => a.Gmail, v => a.Gmail = v,
             !_googleConnected ? "Connect Google on the Connections page" : !s.Google.GmailEnabled ? "Turn on Gmail on the Connections page" : null, "connections");
-        yield return new("📅", "Calendar", "Check your schedule and add events", () => a.Calendar, v => a.Calendar = v,
+        yield return new("calendar", "Calendar", "Check your schedule and add events", () => a.Calendar, v => a.Calendar = v,
             !_googleConnected ? "Connect Google on the Connections page" : !s.Google.CalendarEnabled ? "Turn on Calendar on the Connections page" : null, "connections");
-        yield return new("🔌", "MCP tools", "Tools from your MCP servers", () => a.Mcp, v => a.Mcp = v,
+        yield return new("plug", "MCP tools", "Tools from your MCP servers", () => a.Mcp, v => a.Mcp = v,
             s.McpServers.Count == 0 ? "No MCP servers added yet" : null, "tools");
     }
 

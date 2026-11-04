@@ -1,0 +1,34 @@
+@* Several tool calls in one reply: one summary line when they're finished, the full list while they run. *@
+@if (Calls.Count == 1 || Live)
+{
+    <div class="tools">
+        @foreach (var tc in Calls) { <ToolCallView @key="tc.Id" Call="tc" /> }
+    </div>
+}
+else
+{
+    <details class="steps-summary @(Errors > 0 ? "has-errors" : "")">
+        <summary>
+            <Icon Name="@(Errors > 0 ? "circle-x" : "check")" Size="15" Class="steps-status" />
+            <span class="steps-count">@Calls.Count steps</span>
+            <span class="steps-what">@Summary</span>
+            <Icon Name="chevron-down" Size="15" Class="steps-chevron" />
+        </summary>
+        <div class="tools">
+            @foreach (var tc in Calls) { <ToolCallView @key="tc.Id" Call="tc" /> }
+        </div>
+    </details>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ToolCall> Calls { get; set; } = [];
+
+    private bool Live => Calls.Any(c => c.Status is ToolCallStatus.Running or ToolCallStatus.AwaitingApproval or ToolCallStatus.Pending);
+    private int Errors => Calls.Count(c => c.Status is ToolCallStatus.Error or ToolCallStatus.Denied);
+
+    /// <summary>"Calculator ×8 · Read past chat ×2" (the three most used tools).</summary>
+    private string Summary =>
+        string.Join(" · ", Calls.GroupBy(c => ToolCallView.LabelFor(c.Name)).OrderByDescending(g => g.Count()).Take(3)
+            .Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key))
+        + (Errors > 0 ? $" · {Errors} didn't run" : "");
+}

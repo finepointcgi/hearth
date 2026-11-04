@@ -93,12 +93,7 @@
         }
         @if (Message.ToolCalls.Count > 0)
         {
-            <div class="tools">
-                @foreach (var tc in Message.ToolCalls)
-                {
-                    <ToolCallView @key="tc.Id" Call="tc" />
-                }
-            </div>
+            <ToolSteps Calls="Message.ToolCalls" />
         }
         @if (Message.Sources.Count > 0)
         {
