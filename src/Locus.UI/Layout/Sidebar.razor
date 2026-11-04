@@ -1,0 +1,162 @@
+@inherits StatefulComponent
+@inject IBotComputer Computer
+@inject ApprovalCenter Approvals
+@inject ConversationStore Store
+@inject NavigationManager Nav
+
+<aside class="sidebar">
+    <div class="sidebar-head">
+        <a class="brand" href="" @onclick="Close"><span class="logo">◎</span> Locus</a>
+        <button class="icon-btn only-mobile" title="Close" @onclick="Close">✕</button>
+    </div>
+
+    <button class="new-chat" @onclick="NewChat">＋ New chat</button>
+
+    <div class="bot-roster">
+        <div class="conv-group row"><span class="grow">Bots</span><a href="bots" class="tiny-link" @onclick="Close">Manage</a></div>
+        @foreach (var b in State.Bots.Take(8))
+        {
+            <a class="bot-link" href="bot/@b.Id" @onclick="Close" title="@b.Title">
+                <BotAvatar Bot="b" Size="sm" /> <span class="grow ellipsis">@b.Name</span>
+                @if (b.Routines.Any(r => r.Enabled)) { <span class="muted small" title="Has routines or triggers">@(b.Routines.Any(r => r.Enabled && r.Trigger != TriggerKind.Schedule) ? "⚡" : "⏰")</span> }
+            </a>
+        }
+        @if (State.Bots.Count == 0)
+        {
+            <a class="bot-link muted" href="bots" @onclick="Close">＋ Create your first bot</a>
+        }
+        else if (State.Bots.Count > 8)
+        {
+            <a class="bot-link muted" href="bots" @onclick="Close">All @State.Bots.Count bots…</a>
+        }
+    </div>
+
+    <input class="search" placeholder="Search chats" @bind="_filter" @bind:event="oninput" />
+
+    <nav class="conv-list">
+        @foreach (var group in Grouped())
+        {
+            <div class="conv-group">@group.Key</div>
+            @foreach (var c in group)
+            {
+                <div class="conv @(IsActive(c.Id) ? "active" : "")">
+                    @if (_renaming == c.Id)
+                    {
+                        <input class="rename" @bind="_renameText" @onkeydown="e => RenameKey(e, c.Id)" @onblur="() => CommitRename(c.Id)" autofocus />
+                    }
+                    else
+                    {
+                        <a href="c/@c.Id" @onclick="Close" title="@c.Title" class="@(c.Unread ? "unread" : "")">
+                            @if (c.BotIds.Count > 0)
+                            {
+                                <AvatarStack Bots="c.BotIds.Select(State.BotById).OfType<Bot>()" />
+                            }
+                            @(c.Pinned ? "📌 " : "")@c.Title
+                            @if (c.Unread) { <span class="unread-dot"></span> }
+                        </a>
+                        <div class="conv-actions">
+                            <button title="Pin" @onclick="() => TogglePin(c.Id)">📌</button>
+                            <button title="Rename" @onclick="() => StartRename(c)">✎</button>
+                            <button title="Delete" @onclick="() => Delete(c.Id)">🗑</button>
+                        </div>
+                    }
+                </div>
+            }
+        }
+        @if (State.Conversations.Count == 0)
+        {
+            <div class="muted pad">No chats yet.</div>
+        }
+    </nav>
+
+    <nav class="side-links">
+        <a href="tasks" @onclick="Close">🎯 Tasks</a>
+        <a href="dashboard" @onclick="Close">📊 Today @if (Approvals.Pending.Count > 0) { <span class="count-badge" title="Waiting on you">@Approvals.Pending.Count</span> }</a>
+        <a href="documents" @onclick="Close">📚 Documents</a>
+        <a href="skills" @onclick="Close">⚡ Skills</a>
+        <a href="computer" @onclick="Close">🖥 Computer @if (Computer.Status.Running) { <span class="live-dot" title="Browser running"></span> }</a>
+        <a href="memory" @onclick="Close">🧠 Memory</a>
+        <a href="connections" @onclick="Close">🔗 Connections</a>
+        <a href="permissions" @onclick="Close">🛡 Permissions</a>
+        <a href="tools" @onclick="Close">🛠 Tools & MCP</a>
+    </nav>
+
+    <div class="sidebar-foot">
+        <a href="settings" class="foot-link" @onclick="Close">⚙ Settings</a>
+        <span class="provider-pill" title="@State.Settings.ActiveProvider.BaseUrl">
+            <span class="dot @(State.ModelError is null && State.Models.Count > 0 ? "ok" : "bad")"></span>
+            @State.Settings.ActiveProvider.Name
+        </span>
+    </div>
+</aside>
+
+@code {
+    private string _filter = "";
+    private string? _renaming;
+    private string _renameText = "";
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Nav.LocationChanged += OnLocation;
+        Computer.Changed += OnComputer;
+        Approvals.Requested += OnApproval;
+        Approvals.Resolved += OnApprovalResolved;
+    }
+
+    private void OnApproval(PendingApproval _) => InvokeAsync(StateHasChanged);
+    private void OnApprovalResolved(PendingApproval _, bool __) => InvokeAsync(StateHasChanged);
+
+    private void OnComputer() => InvokeAsync(StateHasChanged);
+    private void OnLocation(object? s, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
+    public override void Dispose() { Nav.LocationChanged -= OnLocation; Computer.Changed -= OnComputer; Approvals.Requested -= OnApproval; Approvals.Resolved -= OnApprovalResolved; base.Dispose(); }
+
+    private bool IsActive(string id) => Nav.Uri.EndsWith("/c/" + id, StringComparison.Ordinal);
+
+    private IEnumerable<IGrouping<string, ConversationSummary>> Grouped()
+    {
+        var today = DateTimeOffset.Now.Date;
+        return State.Conversations
+            .Where(c => _filter.Length == 0 || c.Title.Contains(_filter, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(c => c.Pinned ? "Pinned"
+                : c.UpdatedAt.Date == today ? "Today"
+                : c.UpdatedAt.Date == today.AddDays(-1) ? "Yesterday"
+                : c.UpdatedAt.Date > today.AddDays(-7) ? "Previous 7 days"
+                : "Older");
+    }
+
+    private void Close() { State.SidebarOpen = false; State.NotifyChanged(); }
+    private void NewChat() { Close(); Nav.NavigateTo("", forceLoad: false); }
+
+    private async Task Delete(string id)
+    {
+        await Store.DeleteAsync(id);
+        if (IsActive(id)) Nav.NavigateTo("");
+    }
+
+    private async Task TogglePin(string id)
+    {
+        var c = await Store.GetAsync(id);
+        if (c is null) return;
+        c.Pinned = !c.Pinned;
+        await Store.SaveAsync(c);
+    }
+
+    private void StartRename(ConversationSummary c) { _renaming = c.Id; _renameText = c.Title; }
+
+    private async Task RenameKey(KeyboardEventArgs e, string id)
+    {
+        if (e.Key == "Enter") await CommitRename(id);
+        else if (e.Key == "Escape") _renaming = null;
+    }
+
+    private async Task CommitRename(string id)
+    {
+        if (_renaming != id) return;
+        _renaming = null;
+        var c = await Store.GetAsync(id);
+        if (c is null || string.IsNullOrWhiteSpace(_renameText)) return;
+        c.Title = _renameText.Trim();
+        await Store.SaveAsync(c);
+    }
+}

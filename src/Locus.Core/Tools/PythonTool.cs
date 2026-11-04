@@ -1,0 +1,88 @@
+using System.Diagnostics;
+using System.Text;
+using System.Text.Json.Nodes;
+
+namespace Locus.Core.Tools;
+
+/// <summary>
+/// Runs Python on the user's machine (desktop only, always asks first). This is NOT a security sandbox:
+/// it runs in a throwaway temp folder with isolated mode (-I) and a timeout, with the user's permissions.
+/// </summary>
+public sealed class PythonTool : ITool
+{
+    public string Name => "run_python";
+    public string DisplayName => "Run Python";
+    public string Icon => "🐍";
+    public string Description =>
+        "Execute a Python 3 script on the user's computer and return stdout/stderr. Use for data analysis, " +
+        "precise computation, parsing or simulations. Print results explicitly. No input() is available. Time limit 60s.";
+    public JsonObject Parameters => Schema.Object(("code", "string", "Complete Python 3 source code", true));
+    public bool RequiresApproval => true;
+
+    public static string? FindPython(string? configured)
+    {
+        if (!string.IsNullOrWhiteSpace(configured)) return File.Exists(configured) ? configured : null;
+        var names = OperatingSystem.IsWindows() ? new[] { "python.exe", "py.exe", "python3.exe" } : ["python3", "python"];
+        var dirs = (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator)
+            .Concat(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]);
+        foreach (var dir in dirs)
+            foreach (var n in names)
+            {
+                var p = Path.Combine(dir, n);
+                if (File.Exists(p)) return p;
+            }
+        return null;
+    }
+
+    public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct)
+    {
+        var code = args.Str("code");
+        if (string.IsNullOrWhiteSpace(code)) return ToolResult.Error("code is required");
+        var python = FindPython(ctx.Settings.Tools.PythonPath);
+        if (python is null) return ToolResult.Error("Python was not found on this computer.");
+
+        var dir = Directory.CreateTempSubdirectory("locus-py-");
+        try
+        {
+            var file = Path.Combine(dir.FullName, "main.py");
+            await File.WriteAllTextAsync(file, code, ct);
+            var psi = new ProcessStartInfo(python)
+            {
+                WorkingDirectory = dir.FullName,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add("-I");
+            psi.ArgumentList.Add(file);
+            psi.Environment["PYTHONIOENCODING"] = "utf-8";
+
+            using var proc = Process.Start(psi)!;
+            proc.StandardInput.Close();
+            var stdout = proc.StandardOutput.ReadToEndAsync(ct);
+            var stderr = proc.StandardError.ReadToEndAsync(ct);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(60));
+            try { await proc.WaitForExitAsync(timeout.Token); }
+            catch (OperationCanceledException)
+            {
+                proc.Kill(entireProcessTree: true);
+                return ToolResult.Error(ct.IsCancellationRequested ? "Cancelled." : "Timed out after 60 seconds.");
+            }
+
+            var sb = new StringBuilder();
+            var o = await stdout;
+            var e = await stderr;
+            if (o.Length > 0) sb.AppendLine(Schema.Truncate(o, 10000));
+            if (e.Length > 0) sb.AppendLine("stderr:\n" + Schema.Truncate(e, 4000));
+            sb.Append($"(exit code {proc.ExitCode})");
+            return new ToolResult(sb.ToString(), IsError: proc.ExitCode != 0);
+        }
+        finally
+        {
+            try { dir.Delete(recursive: true); } catch (IOException) { }
+        }
+    }
+}

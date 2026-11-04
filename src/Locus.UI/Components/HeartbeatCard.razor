@@ -1,0 +1,79 @@
+@implements IDisposable
+@inject HeartbeatRunner Heartbeat
+@inject SettingsStore Settings
+@inject AppState State
+
+<section class="card">
+    <div class="row">
+        <h3 class="grow">💓 Heartbeat</h3>
+        <label class="check"><input type="checkbox" checked="@_s.Enabled" @onchange="e => Change(s => s.Enabled = (bool)e.Value!)" /> On</label>
+    </div>
+    <p class="muted small">
+        Every @_s.IntervalMinutes minutes, @(Who) goes through your checklist and messages you — here and on Telegram/Slack/Discord — only when something needs your attention.
+    </p>
+    @if (_state.LastRun is { } last)
+    {
+        <p class="small">Last check-in @last.ToString("h:mm tt"): <b>@_state.LastResult</b>
+            @if (_state.ConversationId is { } id && _state.Alerts > 0) { <a href="c/@id">· see messages (@_state.Alerts)</a> }
+        </p>
+    }
+    <details class="steps" open="@(!_s.Enabled)">
+        <summary>Settings</summary>
+        <label>What to keep an eye on (one per line)
+            <textarea rows="5" value="@_s.Checklist" @onchange="e => Change(s => s.Checklist = e.Value?.ToString() ?? s.Checklist)"></textarea>
+        </label>
+        <div class="row">
+            <label>Who checks in
+                <select value="@(_s.BotId ?? "")" @onchange="e => Change(s => s.BotId = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString())">
+                    <option value="">💬 Locus</option>
+                    @foreach (var b in State.Bots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
+                </select>
+            </label>
+            <label>Every
+                <select value="@_s.IntervalMinutes" @onchange="e => Change(s => s.IntervalMinutes = int.Parse(e.Value!.ToString()!))">
+                    @foreach (var m in new[] { 15, 30, 60, 120, 240 }) { <option value="@m">@(m < 60 ? $"{m} min" : $"{m / 60} h")</option> }
+                </select>
+            </label>
+            <label>Quiet from <input type="time" value="@_s.QuietFrom" @onchange="e => Change(s => s.QuietFrom = e.Value?.ToString() ?? s.QuietFrom)" /></label>
+            <label>until <input type="time" value="@_s.QuietUntil" @onchange="e => Change(s => s.QuietUntil = e.Value?.ToString() ?? s.QuietUntil)" /></label>
+        </div>
+        <span class="muted small">Each check-in is a short model call; with a cloud model that adds up, so pick a longer interval there.</span>
+    </details>
+    <div class="row end">
+        <button class="btn ghost" @onclick="RunNow" disabled="@_busy">@(_busy ? "Checking…" : "Check in now")</button>
+    </div>
+</section>
+
+@code {
+    private HeartbeatSettings _s = new();
+    private HeartbeatState _state = new();
+    private bool _busy;
+
+    private string Who => _s.BotId is { } id && State.BotById(id) is { } b ? b.Name : "Locus";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Heartbeat.Changed += OnChanged;
+        _s = (await Settings.GetAsync()).Heartbeat;
+        _state = await Heartbeat.StateAsync();
+    }
+
+    private void OnChanged() => InvokeAsync(async () => { _state = await Heartbeat.StateAsync(); StateHasChanged(); });
+
+    private async Task Change(Action<HeartbeatSettings> change)
+    {
+        var settings = await Settings.GetAsync();
+        change(settings.Heartbeat);
+        await Settings.SaveAsync(settings);
+        _s = settings.Heartbeat;
+    }
+
+    private async Task RunNow()
+    {
+        _busy = true;
+        try { await Heartbeat.RunNowAsync(); }
+        finally { _busy = false; _state = await Heartbeat.StateAsync(); }
+    }
+
+    public void Dispose() => Heartbeat.Changed -= OnChanged;
+}

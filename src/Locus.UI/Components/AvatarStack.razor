@@ -1,0 +1,11 @@
+<span class="avatar-stack">
+    @foreach (var b in Bots.Take(4))
+    {
+        <BotAvatar Bot="b" Size="@Size" />
+    }
+</span>
+
+@code {
+    [Parameter] public IEnumerable<Bot> Bots { get; set; } = [];
+    [Parameter] public string Size { get; set; } = "sm";
+}

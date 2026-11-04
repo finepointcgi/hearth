@@ -1,0 +1,67 @@
+using Locus.Core.Llm;
+using Locus.Core.Models;
+using Locus.Core.Services;
+using Locus.Core.Tools;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
+namespace Locus.Core;
+
+public static class ServiceCollectionExtensions
+{
+    /// <summary>Registers Locus core services. Hosts may register their own <see cref="IAppPaths"/> first.</summary>
+    public static IServiceCollection AddLocusCore(this IServiceCollection services, PlatformInfo platform)
+    {
+        services.TryAddSingleton<IAppPaths, DefaultAppPaths>();
+        services.AddSingleton(platform);
+        // No overall timeout (replies stream for minutes), but give up connecting to a dead machine after 10s.
+        services.AddHttpClient(LlmClientFactory.HttpClientName, c => c.Timeout = Timeout.InfiniteTimeSpan)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(10) });
+        services.AddHttpClient("mcp", c => c.Timeout = Timeout.InfiniteTimeSpan);
+        services.AddSingleton<ILlmClientFactory, LlmClientFactory>();
+        services.AddSingleton<SettingsStore>();
+        services.AddSingleton<ConversationStore>();
+        services.TryAddSingleton<ServerEmbedder>();
+        services.TryAddSingleton<IEmbedder>(sp => sp.GetRequiredService<ServerEmbedder>());
+        services.TryAddSingleton<IMemoryProvider>(sp => new SqliteMemoryProvider(
+            sp.GetRequiredService<IAppPaths>(), sp.GetRequiredService<IEmbedder>(), sp.GetRequiredService<SettingsStore>()));
+        services.AddSingleton(sp => new MemoryStore(sp.GetRequiredService<IMemoryProvider>()));
+        services.AddSingleton<BotStore>();
+        services.AddSingleton<SkillStore>();
+        services.AddSingleton<LoginVault>();
+        services.AddSingleton<ActivityLog>();
+        services.AddSingleton<ApprovalCenter>();
+        services.AddSingleton<ModelPicker>();
+        services.AddSingleton<HealthMonitor>();
+        services.AddSingleton<TaskStore>();
+        services.AddSingleton<TaskRunner>();
+        services.AddSingleton<BotInbox>();
+        services.AddSingleton<ChatHistoryIndex>();
+        services.AddSingleton<HeartbeatRunner>();
+        services.AddSingleton<SkillPorter>();
+        services.AddSingleton<MemoryCurator>();
+        services.AddSingleton<SkillTeacher>();
+        services.AddSingleton<Services.Channels.ChannelStore>();
+        services.AddSingleton<Services.Channels.ChannelHub>();
+        services.AddSingleton<Services.Google.GoogleAuth>();
+        services.AddSingleton<Services.Google.SheetsClient>();
+        services.AddSingleton<IToolProvider, SheetsToolProvider>();
+        services.AddSingleton<Services.Google.WorkspaceClient>();
+        services.AddSingleton<IToolProvider, GoogleWorkspaceToolProvider>();
+        services.AddSingleton<TriggerStateStore>();
+        services.AddSingleton<RoutineRunner>();
+        services.AddSingleton<WebhookListener>();
+        services.AddSingleton<DocumentStore>();
+        services.AddSingleton<WebSearchService>();
+        services.AddSingleton<ImageGenService>();
+        services.AddSingleton<SpeechService>();
+        services.AddSingleton<BuiltInToolProvider>();
+        services.AddSingleton<McpManager>();
+        services.AddSingleton<ToolRegistry>();
+        services.AddSingleton<ChatService>();
+        services.TryAddSingleton<IBotComputer, NoBotComputer>();
+        services.TryAddSingleton<IDesktopControl, NoDesktopControl>();
+        services.TryAddSingleton<ISandboxDesktops, NoSandboxDesktops>();
+        return services;
+    }
+}

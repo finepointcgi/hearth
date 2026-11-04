@@ -1,0 +1,109 @@
+@implements IDisposable
+@inject IBotComputer Computer
+@inject SkillTeacher Teacher
+@inject AppState State
+
+<section class="card">
+    <h3>🎬 Teach by showing</h3>
+    @if (!Computer.Status.Available)
+    {
+        <p class="muted">@Computer.Status.UnavailableReason</p>
+    }
+    else if (!Computer.IsRecording && _steps is null)
+    {
+        <p class="muted">
+            Do a task once in the bot browser while Locus watches — searching a site, filling a form, downloading a report —
+            and it becomes a skill your bots can repeat. Typed passwords are never recorded.
+        </p>
+        <div class="row">
+            <select @bind="_profile" title="Which browser to record in (uses its sign-ins)">
+                <option value="shared">Shared browser</option>
+                @foreach (var b in State.Bots.Where(b => b.Abilities.BrowserProfile == BrowserProfile.Own))
+                {
+                    <option value="@b.Id">@b.Emoji @b.Name's browser</option>
+                }
+            </select>
+            <input class="grow" @bind="_startUrl" placeholder="Start page, e.g. https://news.ycombinator.com (optional)" />
+            <button class="btn primary" @onclick="Start" disabled="@_busy">● Start recording</button>
+        </div>
+    }
+    else if (Computer.IsRecording)
+    {
+        <div class="recording">
+            <span class="rec-dot"></span> Recording in the browser window on this computer — do the task, then come back and click Stop.
+        </div>
+        <ol class="steps-live">
+            @foreach (var s in Computer.RecordedSteps) { <li>@s.Describe()</li> }
+        </ol>
+        @if (Computer.RecordedSteps.Count == 0) { <p class="muted small">Waiting for your first click…</p> }
+        <button class="btn danger" @onclick="Stop">■ Stop recording</button>
+    }
+    else if (_steps is not null)
+    {
+        <p class="muted">Remove any steps that were mistakes, then name the skill.</p>
+        <ol class="steps-live">
+            @foreach (var s in _steps.ToList())
+            {
+                var step = s;
+                <li>@step.Describe() <button class="icon-btn small" title="Remove step" @onclick="() => _steps.Remove(step)">✕</button></li>
+            }
+        </ol>
+        <div class="row">
+            <input class="grow" @bind="_name" placeholder="Skill name, e.g. check-flight-prices" />
+        </div>
+        <input @bind="_description" placeholder="What it's for (bots read this), e.g. Look up the cheapest flight on Google Flights for given cities and dates" />
+        <div class="row end">
+            <button class="btn ghost" @onclick="() => _steps = null">Discard</button>
+            <button class="btn primary" @onclick="Create" disabled="@(_busy || _steps.Count == 0 || string.IsNullOrWhiteSpace(_name))">
+                @(_busy ? "Writing the skill…" : "Create skill")
+            </button>
+        </div>
+    }
+    @if (_error is not null) { <div class="error-box">@_error</div> }
+    @if (_message is not null) { <div class="ok-text">@_message</div> }
+</section>
+
+@code {
+    private string _profile = "shared";
+    private string _startUrl = "";
+    private string _name = "";
+    private string _description = "";
+    private List<RecordedStep>? _steps;
+    private bool _busy;
+    private string? _error;
+    private string? _message;
+
+    protected override void OnInitialized() => Computer.Changed += OnChanged;
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task Start()
+    {
+        _error = _message = null;
+        _busy = true;
+        try { await Computer.StartRecordingAsync(_profile, _startUrl); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task Stop()
+    {
+        _steps = await Computer.StopRecordingAsync();
+    }
+
+    private async Task Create()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var skill = await Teacher.CreateAsync(_name, _description, _steps!);
+            _message = $"Created /{skill.Name}. Bots can use it now — or type /{skill.Name} in a chat.";
+            _steps = null;
+            _name = _description = "";
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    public void Dispose() => Computer.Changed -= OnChanged;
+}

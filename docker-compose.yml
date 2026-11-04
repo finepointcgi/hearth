@@ -1,0 +1,50 @@
+# Always-on Locus. Start: `LOCUS_PASSWORD=pick-something docker compose up -d`, then open http://<this machine>:8080
+services:
+  locus:
+    build: .
+    image: locus:latest
+    container_name: locus
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - locus-data:/data            # chats, bots, memory, settings, browser sign-ins
+    environment:
+      # Strongly recommended: the container is reachable from your network.
+      Locus__Password: "${LOCUS_PASSWORD:-}"
+      TZ: "${TZ:-UTC}"           # e.g. TZ=Europe/London; routine times use this
+    extra_hosts:
+      # Lets Locus reach model servers on the Docker host, e.g. http://host.docker.internal:11434 (Ollama)
+      - "host.docker.internal:host-gateway"
+    shm_size: "1gb"                  # Chromium needs more than Docker's default 64 MB
+
+  # Optional local voices for live conversation mode: `docker compose --profile voice up -d`,
+  # then in Locus → Settings → Voice set speech-to-text to http://speaches:8000 and text-to-speech to http://kokoro:8880.
+  speaches:
+    profiles: [voice]
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    restart: unless-stopped
+    volumes:
+      - speech-models:/home/ubuntu/.cache/huggingface
+  kokoro:
+    profiles: [voice]
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    restart: unless-stopped
+
+  # Optional Signal bridge: `docker compose --profile signal up -d`, link it at
+  # http://localhost:8081/v1/qrcodelink?device_name=locus, then in Locus use http://signal:8080 (or http://localhost:8081 outside Docker).
+  signal:
+    profiles: [signal]
+    image: bbernhard/signal-cli-rest-api:latest
+    restart: unless-stopped
+    environment:
+      MODE: normal
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - signal-data:/home/.local/share/signal-cli
+
+volumes:
+  locus-data:
+  signal-data:
+  speech-models:

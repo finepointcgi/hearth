@@ -1,0 +1,78 @@
+@page "/tasks"
+@inherits StatefulComponent
+@implements IAsyncDisposable
+@inject TaskStore Store
+@inject TaskRunner Runner
+@inject NavigationManager Nav
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <h2 class="topbar-title">🎯 Tasks</h2>
+</header>
+
+<div class="settings">
+    <section class="card">
+        <p class="muted">Give a bot a goal that takes real work — research, planning, filling in a sheet, sorting your inbox. It makes a plan, works through it in the background (even if you close Locus, it picks up again), asks you only when it needs a decision, and reports back here and on Telegram.</p>
+        <textarea rows="3" @bind="_goal" placeholder="e.g. Research the 5 best standing desks under $600, compare them in a Google Sheet, and recommend one"></textarea>
+        <div class="row">
+            <select @bind="_botId">
+                <option value="">💬 Locus</option>
+                @foreach (var b in State.Bots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
+            </select>
+            <span class="spacer"></span>
+            <button class="btn primary" @onclick="Start" disabled="@string.IsNullOrWhiteSpace(_goal)">Start task</button>
+        </div>
+    </section>
+
+    @foreach (var group in _tasks.GroupBy(t => t.State is TaskState.Running or TaskState.WaitingForYou or TaskState.Paused).OrderByDescending(g => g.Key))
+    {
+        <section class="card">
+            <h3>@(group.Key ? "Active" : "Finished")</h3>
+            @foreach (var t in group)
+            {
+                var bot = State.BotById(t.BotId);
+                <a class="task-row" href="tasks/@t.Id">
+                    <span class="task-state @t.State.ToString().ToLowerInvariant()">@Icon(t)</span>
+                    <span class="grow">
+                        <b>@t.Title</b>
+                        <span class="muted small">
+                            @(bot is null ? "Locus" : $"{bot.Emoji} {bot.Name}") · @t.DoneSteps/@t.Plan.Count steps · updated @t.UpdatedAt.ToString("MMM d h:mm tt")
+                        </span>
+                        @if (t.State == TaskState.WaitingForYou) { <span class="task-q">❓ @t.Question</span> }
+                    </span>
+                    @if (t.Plan.Count > 0) { <span class="progress"><span style="width:@(100 * t.DoneSteps / t.Plan.Count)%"></span></span> }
+                </a>
+            }
+        </section>
+    }
+    @if (_tasks.Count == 0) { <section class="card"><p class="muted">No tasks yet.</p></section> }
+</div>
+
+@code {
+    private List<AgentTask> _tasks = [];
+    private string _goal = "";
+    private string _botId = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Store.Saved += OnSaved;
+        _tasks = await Store.ListAsync();
+    }
+
+    private void OnSaved(AgentTask _) => InvokeAsync(async () => { _tasks = await Store.ListAsync(); StateHasChanged(); });
+
+    private async Task Start()
+    {
+        var t = await Runner.StartAsync(_goal, string.IsNullOrEmpty(_botId) ? null : _botId);
+        Nav.NavigateTo($"tasks/{t.Id}");
+    }
+
+    public static string Icon(AgentTask t) => t.State switch
+    {
+        TaskState.Running => "⏳", TaskState.WaitingForYou => "❓", TaskState.Paused => "⏸", TaskState.Done => "✅", TaskState.Failed => "❌", _ => "✖",
+    };
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    public ValueTask DisposeAsync() { Store.Saved -= OnSaved; base.Dispose(); return ValueTask.CompletedTask; }
+}

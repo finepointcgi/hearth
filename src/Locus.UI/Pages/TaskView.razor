@@ -1,0 +1,133 @@
+@page "/tasks/{Id}"
+@inherits StatefulComponent
+@implements IAsyncDisposable
+@inject TaskStore Store
+@inject TaskRunner Runner
+@inject ApprovalCenter Approvals
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <a class="icon-btn" href="tasks" title="All tasks">←</a>
+    <h2 class="topbar-title ellipsis">@(_task?.Title ?? "Task")</h2>
+</header>
+
+@if (_task is not null)
+{
+    var bot = State.BotById(_task.BotId);
+    var pending = Approvals.Pending.Where(p => p.ConversationId == _task.ConversationId).ToList();
+    <div class="settings">
+        <section class="card">
+            <div class="row">
+                <span class="task-state big @_task.State.ToString().ToLowerInvariant()">@Tasks.Icon(_task)</span>
+                <span class="grow">
+                    <b>@StateText(_task)</b><br />
+                    <span class="muted small">@(bot is null ? "Locus" : $"{bot.Emoji} {bot.Name}") · @_task.Cycles work cycles · started @_task.CreatedAt.ToString("MMM d h:mm tt")</span>
+                </span>
+                @if (_task.State is TaskState.Running or TaskState.WaitingForYou) { <button class="btn ghost small" @onclick="() => Runner.SetStateAsync(_task.Id, TaskState.Paused)">⏸ Pause</button> }
+                @if (_task.State is TaskState.Paused or TaskState.Failed) { <button class="btn ghost small" @onclick="() => Runner.SetStateAsync(_task.Id, TaskState.Running)">▶ Resume</button> }
+                @if (_task.State is not (TaskState.Done or TaskState.Cancelled)) { <button class="btn danger small" @onclick="() => Runner.SetStateAsync(_task.Id, TaskState.Cancelled)">Cancel</button> }
+                <a class="btn ghost small" href="c/@_task.ConversationId">Open work chat</a>
+            </div>
+            <p class="goal">@_task.Goal</p>
+        </section>
+
+        @foreach (var p in pending)
+        {
+            var approval = p;
+            <section class="card attention">
+                <div class="row">
+                    <span class="grow">🔐 Wants to run <b>@approval.ToolName</b> <code class="audit">@approval.ArgumentsJson</code></span>
+                    <button class="btn ghost small" @onclick="() => Approvals.Decide(approval.Id, false)">Deny</button>
+                    <button class="btn primary small" @onclick="() => Approvals.Decide(approval.Id, true)">Allow</button>
+                </div>
+            </section>
+        }
+
+        @if (_task.State == TaskState.WaitingForYou)
+        {
+            <section class="card attention">
+                <b>❓ @_task.Question</b>
+                <textarea rows="2" @bind="_answer" placeholder="Your answer"></textarea>
+                <div class="row end"><button class="btn primary" @onclick="Answer" disabled="@string.IsNullOrWhiteSpace(_answer)">Send answer & continue</button></div>
+            </section>
+        }
+
+        @if (_task.Result is not null)
+        {
+            <section class="card">
+                <h3>🏁 Result</h3>
+                <div class="md"><Markdown Text="@_task.Result" /></div>
+            </section>
+        }
+
+        <section class="card">
+            <h3>Plan @if (_task.Plan.Count > 0) { <span class="muted small">@_task.DoneSteps/@_task.Plan.Count done</span> }</h3>
+            @if (_task.Plan.Count == 0) { <p class="muted">Making a plan…</p> }
+            <ol class="plan">
+                @foreach (var s in _task.Plan)
+                {
+                    <li class="@s.Status"><span class="step-mark">@Mark(s.Status)</span> @s.Text @if (s.Note is not null) { <span class="muted small"> — @s.Note</span> }</li>
+                }
+            </ol>
+        </section>
+
+        <section class="card">
+            <h3>Log</h3>
+            @foreach (var e in Enumerable.Reverse(_task.Log).Take(80))
+            {
+                <div class="activity"><span class="when">@e.Time.ToString("h:mm tt")</span><span class="grow">@e.Text</span></div>
+            }
+        </section>
+    </div>
+}
+else
+{
+    <div class="empty muted">Task not found.</div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+    private AgentTask? _task;
+    private string _answer = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Store.Saved -= OnSaved;
+        Store.Saved += OnSaved;
+        Approvals.Requested += OnApproval;
+        Approvals.Resolved += OnResolved;
+        _task = await Store.GetAsync(Id);
+    }
+
+    private void OnSaved(AgentTask t) { if (t.Id == Id) InvokeAsync(() => { _task = t; StateHasChanged(); }); }
+    private void OnApproval(PendingApproval _) => InvokeAsync(StateHasChanged);
+    private void OnResolved(PendingApproval _, bool __) => InvokeAsync(StateHasChanged);
+
+    private async Task Answer()
+    {
+        await Runner.AnswerAsync(Id, _answer);
+        _answer = "";
+    }
+
+    private static string StateText(AgentTask t) => t.State switch
+    {
+        TaskState.Running => "Working on it", TaskState.WaitingForYou => "Waiting for you", TaskState.Paused => "Paused",
+        TaskState.Done => "Done", TaskState.Failed => "Stopped with a problem", _ => "Cancelled",
+    };
+
+    private static string Mark(string status) => status switch
+    {
+        "done" => "✅", "working" => "⏳", "skipped" => "⤼", "failed" => "❌", _ => "○",
+    };
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    public ValueTask DisposeAsync()
+    {
+        Store.Saved -= OnSaved;
+        Approvals.Requested -= OnApproval;
+        Approvals.Resolved -= OnResolved;
+        base.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

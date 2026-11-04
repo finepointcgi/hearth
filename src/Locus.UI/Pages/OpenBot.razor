@@ -1,0 +1,18 @@
+@page "/bot/{BotId}"
+@inject BotStore Bots
+@inject ConversationStore Conversations
+@inject NavigationManager Nav
+
+<div class="empty muted">Opening…</div>
+
+@code {
+    [Parameter] public string BotId { get; set; } = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var bot = await Bots.GetAsync(BotId);
+        if (bot is null) { Nav.NavigateTo("bots", replace: true); return; }
+        var conv = await Conversations.GetOrCreateDirectAsync(bot);
+        Nav.NavigateTo($"c/{conv.Id}", replace: true);
+    }
+}

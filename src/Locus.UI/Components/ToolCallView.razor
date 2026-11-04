@@ -1,0 +1,109 @@
+
+<details class="tool @StatusClass" open="@(Call.Status == ToolCallStatus.AwaitingApproval)">
+    <summary>
+        <span class="tool-icon">@Icon</span>
+        <span class="tool-name">@Label</span>
+        <span class="tool-arg">@Preview</span>
+        <span class="tool-status">@StatusText</span>
+    </summary>
+    <div class="tool-body">
+        <div class="tool-label">Input</div>
+        <pre>@PrettyArgs</pre>
+        @if (Call.Result is not null)
+        {
+            <div class="tool-label">Result</div>
+            <pre>@Call.Result</pre>
+        }
+        @if (Call.Image is not null)
+        {
+            <img class="tool-shot" src="@Call.Image.DataUrl" alt="@Call.Image.FileName" />
+        }
+    </div>
+    @if (Call.Status == ToolCallStatus.AwaitingApproval)
+    {
+        <div class="approval">
+            <span>⚠ This tool can make changes or run code. Allow it?</span>
+            <button class="btn ghost" @onclick="() => Decide(false)">Deny</button>
+            <button class="btn primary" @onclick="() => Decide(true)">Allow</button>
+        </div>
+    }
+</details>
+
+@code {
+    [Parameter, EditorRequired] public ToolCall Call { get; set; } = default!;
+
+    private static readonly Dictionary<string, (string icon, string label)> Known = new()
+    {
+        ["calculate"] = ("🧮", "Calculator"), ["get_current_datetime"] = ("🕒", "Date & time"),
+        ["convert_units"] = ("📏", "Unit converter"), ["web_search"] = ("🔎", "Web search"),
+        ["fetch_url"] = ("🌐", "Read page"), ["search_documents"] = ("📚", "Documents"),
+        ["save_memory"] = ("🧠", "Remembered"), ["delete_memory"] = ("🧽", "Forgot"),
+        ["generate_image"] = ("🎨", "Image"), ["run_python"] = ("🐍", "Python"),
+        ["message_bot"] = ("💬", "Message bot"), ["use_skill"] = ("⚡", "Skill"),
+        ["save_skill"] = ("📒", "Save skill"), ["improve_skill"] = ("🛠️", "Improve skill"),
+        ["search_past_chats"] = ("🗂️", "Search past chats"), ["read_past_chat"] = ("📜", "Read past chat"),
+        ["run_remote"] = ("🛰️", "Remote computer"),
+        ["browser_open"] = ("🧭", "Browser: open"), ["browser_snapshot"] = ("👀", "Browser: look"),
+        ["browser_click"] = ("🖱️", "Browser: click"), ["browser_type"] = ("⌨️", "Browser: type"),
+        ["browser_scroll"] = ("↕️", "Browser: scroll"), ["browser_back"] = ("↩️", "Browser: back"),
+        ["browser_screenshot"] = ("📸", "Screenshot"), ["list_files"] = ("🗂️", "Files"),
+        ["read_file"] = ("📖", "Read file"), ["write_file"] = ("💾", "Write file"), ["run_command"] = ("⌨️", "Command"),
+        ["browser_fill_login"] = ("🔑", "Browser: sign in"),
+        ["sheets_find"] = ("📊", "Sheets: find"), ["sheets_info"] = ("📋", "Sheets: info"), ["sheets_read"] = ("📖", "Sheets: read"),
+        ["sheets_write"] = ("✏️", "Sheets: write"), ["sheets_append"] = ("➕", "Sheets: add rows"),
+        ["sheets_create"] = ("🆕", "Sheets: create"), ["sheets_add_tab"] = ("🗂️", "Sheets: add tab"), ["sheets_clear"] = ("🧹", "Sheets: clear"),
+        ["gmail_search"] = ("📧", "Gmail: search"), ["gmail_read"] = ("📨", "Gmail: read"), ["gmail_draft"] = ("📝", "Gmail: draft"),
+        ["gmail_send"] = ("📤", "Gmail: send"), ["gmail_organize"] = ("🗂️", "Gmail: organize"),
+        ["calendar_events"] = ("📅", "Calendar"), ["calendar_create"] = ("🗓️", "Calendar: add"), ["calendar_delete"] = ("🗑️", "Calendar: delete"),
+        ["desktop_screenshot"] = ("🖥️", "Screen"), ["desktop_click"] = ("🖱️", "Desktop: click"),
+        ["desktop_type"] = ("⌨️", "Desktop: type"), ["desktop_key"] = ("⌘", "Desktop: keys"),
+        ["desktop_scroll"] = ("↕️", "Desktop: scroll"), ["desktop_drag"] = ("✋", "Desktop: drag"),
+        ["desktop_open"] = ("🚀", "Desktop: open"), ["desktop_type_login"] = ("🔑", "Desktop: login"),
+    };
+
+    private string Icon => Known.TryGetValue(Call.Name, out var k) ? k.icon : "🔌";
+    private string Label => Known.TryGetValue(Call.Name, out var k) ? k.label : Call.Name;
+
+    private string Preview
+    {
+        get
+        {
+            try
+            {
+                var o = System.Text.Json.Nodes.JsonNode.Parse(Call.ArgumentsJson) as System.Text.Json.Nodes.JsonObject;
+                var first = o?.FirstOrDefault().Value?.ToString() ?? "";
+                first = first.Replace('\n', ' ');
+                return first.Length > 70 ? first[..70] + "…" : first;
+            }
+            catch { return ""; }
+        }
+    }
+
+    private string PrettyArgs
+    {
+        get
+        {
+            try
+            {
+                var node = System.Text.Json.Nodes.JsonNode.Parse(Call.ArgumentsJson);
+                if (node is System.Text.Json.Nodes.JsonObject o && o.Count == 1 && o["code"] is { } code) return code.ToString();
+                return node?.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) ?? Call.ArgumentsJson;
+            }
+            catch { return Call.ArgumentsJson; }
+        }
+    }
+
+    private string StatusClass => Call.Status.ToString().ToLowerInvariant();
+
+    private string StatusText => Call.Status switch
+    {
+        ToolCallStatus.Pending => "…",
+        ToolCallStatus.AwaitingApproval => "needs approval",
+        ToolCallStatus.Running => "running…",
+        ToolCallStatus.Done => "✓",
+        ToolCallStatus.Denied => "denied",
+        _ => "failed",
+    };
+
+    private void Decide(bool allow) => Call.Approval?.TrySetResult(allow);
+}

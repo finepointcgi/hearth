@@ -1,0 +1,100 @@
+@page "/documents"
+@inherits StatefulComponent
+@inject DocumentStore Store
+@inject SettingsStore Settings
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <h2 class="topbar-title">Documents</h2>
+</header>
+
+<div class="settings">
+    <section class="card">
+        <p class="muted">
+            Add PDFs, notes and code. They're split into passages and indexed with a local embedding model, so the
+            <b>Search my documents</b> tool can find relevant parts. The files and index are stored on this device; passages the model reads are sent to whichever model provider is active.
+        </p>
+        <div class="row">
+            <label class="grow">Embedding model (on the active server)
+                <input @bind="_embedModel" placeholder="nomic-embed-text" />
+            </label>
+            <button class="btn ghost" @onclick="SaveModel">Save</button>
+        </div>
+        <p class="muted small">Ollama: <code>ollama pull nomic-embed-text</code>. Changing the model means re-adding documents.</p>
+        <label class="btn primary upload">
+            ＋ Add documents
+            <InputFile OnChange="OnFiles" multiple accept=".pdf,.txt,.md,.csv,.json,.html,.htm,.xml,.yaml,.yml,.cs,.js,.ts,.py,.java,.go,.rs,.cpp,.c,.h,.sql,.log" class="hidden-file" />
+        </label>
+        @if (_progress is not null) { <div class="muted">@_progress</div> }
+        @if (_error is not null) { <div class="error-box">@_error</div> }
+    </section>
+
+    <section class="card">
+        <h3>Library (@_docs.Count)</h3>
+        @foreach (var d in _docs)
+        {
+            var doc = d;
+            <div class="memory-row">
+                <span class="grow">📄 <b>@doc.Name</b></span>
+                <span class="muted small">@doc.Chunks passages · @(doc.Characters / 1000)k chars · @doc.EmbeddingModel</span>
+                <button class="icon-btn" title="Remove" @onclick="() => Store.DeleteAsync(doc.Id)">🗑</button>
+            </div>
+        }
+        @if (_docs.Count == 0) { <p class="muted">No documents yet.</p> }
+    </section>
+</div>
+
+@code {
+    private List<DocumentInfo> _docs = [];
+    private string? _progress;
+    private string? _error;
+    private string _embedModel = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Store.Changed += Reload;
+        _docs = await Store.ListAsync();
+        _embedModel = (await Settings.GetAsync()).Documents.EmbeddingModel;
+    }
+
+    private async void Reload()
+    {
+        _docs = await Store.ListAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SaveModel()
+    {
+        var s = SettingsCopy.Of(await Settings.GetAsync());
+        s.Documents.EmbeddingModel = _embedModel.Trim();
+        await Settings.SaveAsync(s);
+    }
+
+    private async Task OnFiles(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        foreach (var file in e.GetMultipleFiles(50))
+        {
+            try
+            {
+                _progress = $"Reading {file.Name}…";
+                StateHasChanged();
+                await using var s = file.OpenReadStream(maxAllowedSize: 60L * 1024 * 1024);
+                using var ms = new MemoryStream();
+                await s.CopyToAsync(ms);
+                var text = await Task.Run(() => TextExtractor.Extract(file.Name, ms.ToArray()));
+                var progress = new Progress<string>(m => { _progress = $"{file.Name}: {m}"; InvokeAsync(StateHasChanged); });
+                await Store.AddAsync(file.Name, text, progress);
+            }
+            catch (Exception ex)
+            {
+                _error = $"{file.Name}: {ex.Message}";
+            }
+        }
+        _progress = null;
+    }
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    public override void Dispose() { Store.Changed -= Reload; base.Dispose(); }
+}

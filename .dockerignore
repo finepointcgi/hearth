@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+tests/
+.git/
+.claude/
+**/*.user
+src/Locus.App/
+src/Locus.Desktop/

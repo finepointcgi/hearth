@@ -1,0 +1,7 @@
+<span class="avatar @Size" style="--c:@(Bot?.Color ?? "#888")" title="@(Bot is null ? "" : $"{Bot.Name} · {Bot.Title}")">@(Bot?.Emoji ?? "🤖")</span>
+
+@code {
+    [Parameter] public Bot? Bot { get; set; }
+    /// <summary>"sm", "md" or "lg".</summary>
+    [Parameter] public string Size { get; set; } = "md";
+}

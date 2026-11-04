@@ -1,0 +1,199 @@
+@page "/dashboard"
+@inherits StatefulComponent
+@implements IAsyncDisposable
+@inject ActivityLog Activity
+@inject ApprovalCenter Approvals
+@inject ConversationStore Conversations
+@inject McpManager Mcp
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <h2 class="topbar-title">📊 Today</h2>
+    <span class="spacer"></span>
+    <span class="muted small">@DateTime.Now.ToString("dddd, MMMM d")</span>
+</header>
+
+<div class="settings">
+    <div class="stat-row">
+        <div class="stat"><b>@Approvals.Pending.Count</b><span>waiting on you</span></div>
+        <div class="stat"><b>@_routineRuns</b><span>routine runs</span></div>
+        <div class="stat"><b>@_botReplies</b><span>bot replies</span></div>
+        <div class="stat @(ProblemCount > 0 ? "bad" : "")"><b>@ProblemCount</b><span>problems</span></div>
+    </div>
+
+    <section class="card">
+        <h3>⏳ Waiting on you</h3>
+        @foreach (var p in Approvals.Pending)
+        {
+            var pending = p;
+            var bot = State.BotById(pending.BotId);
+            <div class="approval-row">
+                <span class="grow">
+                    @if (bot is not null) { <BotAvatar Bot="bot" Size="sm" /> <b>@bot.Name</b> }
+                    wants to run <b>@pending.ToolName</b>
+                    <span class="muted small"> · @Ago(pending.Since) · <a href="c/@pending.ConversationId">@pending.ConversationTitle</a></span>
+                    <code class="args">@Clip(pending.ArgumentsJson, 220)</code>
+                </span>
+                <button class="btn ghost small" @onclick="() => Approvals.Decide(pending.Id, false)">Deny</button>
+                <button class="btn primary small" @onclick="() => Approvals.Decide(pending.Id, true)">Allow</button>
+            </div>
+        }
+        @if (Approvals.Pending.Count == 0) { <p class="muted">Nothing needs your OK right now.</p> }
+    </section>
+
+    <HeartbeatCard />
+
+    @if (ProblemCount > 0)
+    {
+        <section class="card">
+            <h3>⚠️ Problems</h3>
+            @if (State.ModelError is not null)
+            {
+                <div class="memory-row">
+                    <span class="grow"><b>No model available</b> <span class="muted small">@State.ModelError</span></span>
+                    <a class="small" href="settings">Fix</a>
+                </div>
+            }
+            @if (State.FallbackNotice is not null)
+            {
+                <div class="memory-row">
+                    <span class="grow"><b>Main model server is down</b> <span class="muted small">@State.FallbackNotice</span></span>
+                    <a class="small" href="settings">Check</a>
+                </div>
+            }
+            @foreach (var (title, detail, link) in _problems)
+            {
+                <div class="memory-row">
+                    <span class="grow"><b>@title</b> <span class="muted small">@detail</span></span>
+                    @if (link is not null) { <a class="small" href="@link">Fix</a> }
+                </div>
+            }
+        </section>
+    }
+
+    @if (_unread.Count > 0)
+    {
+        <section class="card">
+            <h3>📬 Unread</h3>
+            @foreach (var c in _unread)
+            {
+                <a class="memory-row bot-mem-link" href="c/@c.Id">
+                    <AvatarStack Bots="c.BotIds.Select(State.BotById).OfType<Bot>()" />
+                    <span class="grow">@c.Title</span>
+                    <span class="muted small">@Ago(c.UpdatedAt)</span>
+                </a>
+            }
+        </section>
+    }
+
+    <section class="card">
+        <h3>🤖 Bots</h3>
+        @foreach (var b in State.Bots)
+        {
+            var next = b.Routines.Select(r => (r, at: r.NextRun(DateTimeOffset.Now))).Where(x => x.at is not null).OrderBy(x => x.at).FirstOrDefault();
+            var events = b.Routines.Count(r => r.Enabled && r.Trigger != TriggerKind.Schedule);
+            <a class="memory-row bot-mem-link" href="bot/@b.Id">
+                <BotAvatar Bot="b" Size="sm" />
+                <span class="grow"><b>@b.Name</b> <span class="muted small">@_repliesByBot.GetValueOrDefault(b.Id) replies today</span></span>
+                <span class="muted small">
+                    @if (next.r is not null) { <text>⏰ @next.r.Name @(next.at!.Value.Date == DateTime.Today ? next.at.Value.ToString("h:mm tt") : next.at.Value.ToString("ddd h:mm tt"))</text> }
+                    @if (events > 0) { <text> · ⚡ @events trigger@(events == 1 ? "" : "s")</text> }
+                </span>
+            </a>
+        }
+        @if (State.Bots.Count == 0) { <p class="muted">No bots yet — <a href="bots">create one</a>.</p> }
+    </section>
+
+    <section class="card">
+        <h3>🕒 Activity</h3>
+        @foreach (var a in _activity.Take(60))
+        {
+            var bot = State.BotById(a.BotId);
+            <div class="activity @(a.Ok ? "" : "bad")">
+                <span class="when">@a.Time.ToString("h:mm tt")</span>
+                <span class="kind">@KindIcon(a.Kind)</span>
+                <span class="grow">
+                    @if (a.ConversationId is not null) { <a href="c/@a.ConversationId">@a.Title</a> } else { @a.Title }
+                    @if (a.Detail is not null) { <span class="muted small"> — @Clip(a.Detail, 160)</span> }
+                </span>
+            </div>
+        }
+        @if (_activity.Count == 0) { <p class="muted">Nothing yet today. Routines, triggers, bot-to-bot messages, approvals and Telegram/Discord chats show up here.</p> }
+    </section>
+</div>
+
+@code {
+    private List<Activity> _activity = [];
+    private List<(string title, string? detail, string? link)> _problems = [];
+    private List<ConversationSummary> _unread = [];
+    private Dictionary<string, int> _repliesByBot = [];
+    private int _routineRuns, _botReplies;
+    private int ProblemCount => _problems.Count + (State.ModelError is not null ? 1 : 0) + (State.FallbackNotice is not null ? 1 : 0);
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Approvals.Requested += OnApprovals;
+        Approvals.Resolved += OnResolved;
+        Activity.Added += OnActivity;
+        await LoadAsync();
+        _timer = new Timer(_ => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); }), null, 30000, 30000);
+    }
+
+    private async Task LoadAsync()
+    {
+        var today = new DateTimeOffset(DateTime.Today);
+        _activity = (await Activity.SinceAsync(today)).Where(a => a.Kind != ActivityKind.Tool).ToList(); // per-tool history lives on Permissions
+        _routineRuns = _activity.Count(a => a.Kind == ActivityKind.Routine);
+
+        _repliesByBot = [];
+        _botReplies = 0;
+        var convs = await Conversations.ListAsync();
+        _unread = convs.Where(c => c.Unread).Take(15).ToList();
+        foreach (var s in convs.Where(c => c.UpdatedAt >= today))
+        {
+            var conv = await Conversations.GetAsync(s.Id);
+            foreach (var m in conv?.Messages.Where(m => m.Role == ChatRole.Assistant && m.CreatedAt >= today) ?? [])
+            {
+                _botReplies++;
+                if (m.BotId is not null) _repliesByBot[m.BotId] = _repliesByBot.GetValueOrDefault(m.BotId) + 1;
+            }
+        }
+
+        _problems = _activity.Where(a => !a.Ok && a.Kind != ActivityKind.Approval)
+            .GroupBy(a => a.Title).Select(g => (g.Key, g.First().Detail, (string?)(g.First().BotId is { } id ? $"bots/{id}" : null))).ToList();
+        foreach (var m in Mcp.Status(State.Settings).Where(m => m.Error is not null))
+            _problems.Add(($"MCP server \"{m.Name}\" can't connect", m.Error, "tools"));
+    }
+
+    private void OnApprovals(PendingApproval _) => InvokeAsync(StateHasChanged);
+    private void OnResolved(PendingApproval _, bool __) => InvokeAsync(StateHasChanged);
+    private void OnActivity(Activity a) => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+
+    private static string KindIcon(ActivityKind k) => k switch
+    {
+        ActivityKind.Routine => "⏰", ActivityKind.Trigger => "⚡", ActivityKind.Message => "💬",
+        ActivityKind.Approval => "✅", ActivityKind.Channel => "📱", _ => "⚠️",
+    };
+
+    private static string Ago(DateTimeOffset t)
+    {
+        var d = DateTimeOffset.Now - t;
+        return d.TotalMinutes < 1 ? "just now" : d.TotalHours < 1 ? $"{(int)d.TotalMinutes} min ago"
+            : d.TotalDays < 1 ? $"{(int)d.TotalHours} h ago" : t.ToString("MMM d");
+    }
+
+    private static string Clip(string s, int n) => s.Length <= n ? s : s[..n] + "…";
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    public ValueTask DisposeAsync()
+    {
+        _timer?.Dispose();
+        Approvals.Requested -= OnApprovals;
+        Approvals.Resolved -= OnResolved;
+        Activity.Added -= OnActivity;
+        base.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

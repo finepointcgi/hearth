@@ -1,0 +1,22 @@
+@using Markdig
+@((MarkupString)_html)
+
+@code {
+    // Raw HTML from the model is disabled to prevent script injection.
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
+        .UseAdvancedExtensions()
+        .UseSoftlineBreakAsHardlineBreak()
+        .DisableHtml()
+        .Build();
+
+    [Parameter] public string? Text { get; set; }
+    private string _html = "";
+    private string? _last;
+
+    protected override void OnParametersSet()
+    {
+        if (Text == _last) return;
+        _last = Text;
+        _html = string.IsNullOrEmpty(Text) ? "" : Markdig.Markdown.ToHtml(Text, Pipeline);
+    }
+}

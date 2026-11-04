@@ -1,0 +1,148 @@
+@page "/bots"
+@inherits StatefulComponent
+@inject BotStore Store
+@inject ConversationStore Conversations
+@inject NavigationManager Nav
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <h2 class="topbar-title">Bots</h2>
+    <span class="spacer"></span>
+    <span class="muted small">@State.Bots.Count / @Bot.MaxBots</span>
+</header>
+
+<div class="settings">
+    <section class="card">
+        <p class="muted">
+            Bots are AI teammates with their own role, instructions, model, tools, memory and routines.
+            Chat with one, or put 2–@Bot.MaxPerGroup in a group chat: they decide who answers, hand work to each other with
+            <code>@@Name</code>, and can message each other directly.
+        </p>
+        <div class="row">
+            <a class="btn primary" href="bots/new">＋ New bot</a>
+            <button class="btn ghost" disabled="@(State.Bots.Count < 2)" @onclick="() => _picking = !_picking">👥 New group chat</button>
+            <button class="btn ghost" @onclick="AddStarterTeam" disabled="@(State.Bots.Count + Missing().Count > Bot.MaxBots || Missing().Count == 0)">✨ Add starter team</button>
+        </div>
+        @if (_error is not null) { <div class="error-box">@_error</div> }
+    </section>
+
+    @if (_picking)
+    {
+        <section class="card">
+            <h3>New group chat</h3>
+            <input @bind="_groupName" placeholder="Group name, e.g. Launch planning" />
+            <div class="bot-grid">
+                @foreach (var b in State.Bots)
+                {
+                    var bot = b;
+                    var on = _selected.Contains(bot.Id);
+                    <button class="bot-card pick @(on ? "on" : "")" @onclick="() => TogglePick(bot.Id)">
+                        <BotAvatar Bot="bot" Size="lg" />
+                        <b>@bot.Name</b>
+                        <span class="muted small">@bot.Title</span>
+                    </button>
+                }
+            </div>
+            <div class="row">
+                <span class="muted grow">@_selected.Count selected (2–@Bot.MaxPerGroup)</span>
+                <button class="btn primary" disabled="@(_selected.Count is < 2 or > Bot.MaxPerGroup)" @onclick="CreateGroup">Create group</button>
+            </div>
+        </section>
+    }
+
+    <section class="card">
+        <h3>Your bots</h3>
+        <div class="bot-grid">
+            @foreach (var b in State.Bots)
+            {
+                <div class="bot-card">
+                    <BotAvatar Bot="b" Size="lg" />
+                    <b>@b.Name</b>
+                    <span class="muted small">@b.Title</span>
+                    <span class="badges">
+                        @if (b.IsCoordinator) { <span class="badge">coordinator</span> }
+                        @if (b.Routines.Count(r => r.Enabled) is > 0 and var n) { <span class="badge">⏰ @n</span> }
+                        @if (!string.IsNullOrEmpty(b.Model)) { <span class="badge">@b.Model</span> }
+                    </span>
+                    <span class="ability-icons" title="Abilities">
+                        @if (b.Abilities.WebSearch) { <span title="Web search">🔎</span> }
+                        @if (b.Abilities.Browser) { <span title="@(b.Abilities.BrowserProfile == BrowserProfile.Own ? "Own browser" : "Shared browser")">🧭</span> }
+                        @if (b.Abilities.ComputerUse) { <span title="Computer use">🖱️</span> }
+                        @if (b.Abilities.Code) { <span title="Code">🐍</span> }
+                        @if (b.Abilities.Images) { <span title="Images">🎨</span> }
+                        @if (b.Memory.Enabled) { <span title="@(b.Memory.AutoLearn ? "Remembers and learns" : "Remembers")">🧠</span> }
+                    </span>
+                    <div class="row">
+                        <a class="btn primary small" href="bot/@b.Id">Chat</a>
+                        <a class="btn ghost small" href="bots/@b.Id">Edit</a>
+                    </div>
+                </div>
+            }
+        </div>
+        @if (State.Bots.Count == 0) { <p class="muted">No bots yet. Start from a template below or add the starter team.</p> }
+    </section>
+
+    <section class="card">
+        <h3>Templates</h3>
+        <div class="bot-grid">
+            @foreach (var t in BotTemplates.All)
+            {
+                var template = t;
+                <button class="bot-card pick" @onclick="() => FromTemplate(template)">
+                    <BotAvatar Bot="template" Size="lg" />
+                    <b>@template.Name</b>
+                    <span class="muted small">@template.Title</span>
+                </button>
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    private bool _picking;
+    private string _groupName = "";
+    private readonly HashSet<string> _selected = [];
+    private string? _error;
+
+    private void TogglePick(string id)
+    {
+        if (!_selected.Remove(id) && _selected.Count < Bot.MaxPerGroup) _selected.Add(id);
+    }
+
+    private List<Bot> Missing() =>
+        BotTemplates.All.Take(5).Where(t => State.Bots.All(b => b.Name != t.Name)).ToList();
+
+    private async Task AddStarterTeam()
+    {
+        _error = null;
+        try { foreach (var t in Missing()) await Store.SaveAsync(t); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task FromTemplate(Bot template)
+    {
+        _error = null;
+        try
+        {
+            var bot = template;
+            if (State.Bots.Any(b => b.Name.Equals(bot.Name, StringComparison.OrdinalIgnoreCase))) bot.Name += " 2";
+            await Store.SaveAsync(bot);
+            Nav.NavigateTo($"bots/{bot.Id}");
+        }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private async Task CreateGroup()
+    {
+        var members = State.Bots.Where(b => _selected.Contains(b.Id)).ToList();
+        var conv = new Conversation
+        {
+            Title = string.IsNullOrWhiteSpace(_groupName) ? string.Join(", ", members.Select(b => b.Name)) : _groupName.Trim(),
+            BotIds = members.Select(b => b.Id).ToList(),
+        };
+        await Conversations.SaveAsync(conv);
+        Nav.NavigateTo($"c/{conv.Id}");
+    }
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+}

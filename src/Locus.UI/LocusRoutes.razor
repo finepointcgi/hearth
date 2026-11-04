@@ -1,0 +1,10 @@
+<Router AppAssembly="typeof(LocusRoutes).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(MainLayout)">
+            <div class="empty"><h2>Not found</h2><a href="">Back to chat</a></div>
+        </LayoutView>
+    </NotFound>
+</Router>

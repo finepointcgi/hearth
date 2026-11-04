@@ -1,0 +1,276 @@
+@page "/memory"
+@inherits StatefulComponent
+@inject MemoryStore Store
+@inject SettingsStore Settings
+@inject MemoryCurator Curator
+@inject IJSRuntime JS
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <h2 class="topbar-title">Memory</h2>
+</header>
+
+<div class="settings">
+    <section class="card">
+        <label class="check"><input type="checkbox" checked="@State.Settings.MemoryEnabled" @onchange="ToggleEnabled" /> Let Locus remember things about me across chats</label>
+        @if (State.Settings.MemoryEnabled)
+        {
+            <label class="check"><input type="checkbox" checked="@State.Settings.MemoryAutoLearn" @onchange="ToggleAutoLearn" /> Learn automatically in regular chats (bots have their own setting)</label>
+        }
+        @if (State.Settings.MemoryEnabled)
+        {
+            <label class="check"><input type="checkbox" checked="@State.Settings.RecallByMeaning" @onchange="ToggleMeaning" />
+                <span>Recall by meaning — find memories and past chats even when the words differ ("my car" finds "the Subaru loan")</span></label>
+            @if (_stats is { } st)
+            {
+                <p class="muted small">
+                    🗄 @st.Provider · @st.Facts facts (@st.FactsEmbedded with meaning) · @st.Chats chats, @st.ChatMessages messages indexed
+                    (@st.MessagesEmbedded with meaning) · search: @st.Recall
+                    <br />Stored in <code>@st.Location</code>
+                    <button class="btn ghost small" @onclick="Export">⬇ Export (.json)</button>
+                </p>
+            }
+        }
+        <p class="muted">Memories are stored on this device and included in every chat (so they go to whichever model provider is active). With tools on, the model saves and forgets memories itself; you can also edit them here.</p>
+        <div class="row">
+            <input class="grow" @bind="_new" @onkeydown="AddOnEnter" placeholder="Add a memory, e.g. I live in Denver and use metric units" />
+            <button class="btn primary" @onclick="Add" disabled="@(string.IsNullOrWhiteSpace(_new))">Add</button>
+        </div>
+    </section>
+
+    @if (State.Settings.MemoryEnabled)
+    {
+        <section class="card">
+            <div class="row">
+                <h3 class="grow">👤 Your profile</h3>
+                <button class="btn ghost" @onclick="Tidy" disabled="@_tidying">@(_tidying ? "Thinking…" : "🧹 Tidy up now")</button>
+            </div>
+            <p class="muted small">A short summary of you that every chat starts with (bots that use shared memory too). Locus keeps it up to date from what it learns, with your OK.</p>
+            <textarea rows="4" @bind="_profile" placeholder="Nothing yet — click Tidy up now, or write a few sentences about yourself."></textarea>
+            <div class="row end"><button class="btn ghost" @onclick="SaveProfile">Save profile</button></div>
+            @if (_tidyMessage is not null) { <div class="muted small">@_tidyMessage</div> }
+        </section>
+
+        @if (_cleanup is { } c)
+        {
+            <section class="card">
+                <h3>🧹 Suggested tidy-up</h3>
+                <p class="muted small">Untick anything you want to keep as it is, then apply.</p>
+                @if (c.Profile is not null)
+                {
+                    <label class="check"><input type="checkbox" @bind="_keepProfile" /> <span><b>Update your profile to:</b><br /><span class="small">@c.Profile</span></span></label>
+                }
+                @foreach (var m in c.Merges)
+                {
+                    var merge = m;
+                    <label class="check"><input type="checkbox" checked="@(!_skipMerges.Contains(merge))" @onchange="e => Toggle(_skipMerges, merge, (bool)e.Value!)" />
+                        <span><b>Combine</b> <span class="muted small">@string.Join(" · ", merge.Ids.Select(Text))</span><br />→ @merge.Text</span></label>
+                }
+                @foreach (var d in c.Drops)
+                {
+                    var drop = d;
+                    <label class="check"><input type="checkbox" checked="@(!_skipDrops.Contains(drop))" @onchange="e => Toggle(_skipDrops, drop, (bool)e.Value!)" />
+                        <span><b>Remove</b> “@Text(drop.Id)” <span class="muted small">— @drop.Reason</span></span></label>
+                }
+                <div class="row end">
+                    <button class="btn ghost" @onclick="Discard">Discard</button>
+                    <button class="btn primary" @onclick="Apply">Apply</button>
+                </div>
+            </section>
+        }
+    }
+
+    <section class="card">
+        <h3>@_items.Count memories</h3>
+        @foreach (var m in _items)
+        {
+            var mem = m;
+            <div class="memory-row">
+                @if (_editing == mem.Id)
+                {
+                    <input class="grow" @bind="_editText" @onkeydown="e => EditKey(e, mem.Id)" />
+                    <button class="btn primary" @onclick="() => SaveEdit(mem.Id)">Save</button>
+                }
+                else
+                {
+                    <span class="grow">@mem.Text</span>
+                    <span class="muted small">@mem.CreatedAt.ToString("MMM d")</span>
+                    <button class="icon-btn" title="Edit" @onclick="() => { _editing = mem.Id; _editText = mem.Text; }">✎</button>
+                    <button class="icon-btn" title="Delete" @onclick="() => Store.DeleteAsync(mem.Id)">🗑</button>
+                }
+            </div>
+        }
+        @if (_items.Count == 0) { <p class="muted">Nothing remembered yet.</p> }
+        @if (_items.Count > 0)
+        {
+            <button class="btn danger" @onclick="() => Store.ClearAsync()">Forget everything</button>
+        }
+    </section>
+    @if (State.Bots.Count > 0)
+    {
+        <section class="card">
+            <h3>Each bot's own memory</h3>
+            <p class="muted">Bots also keep notes of their own. Open a bot to see, teach or edit what it remembers.</p>
+            @foreach (var b in State.Bots)
+            {
+                <a class="memory-row bot-mem-link" href="bots/@b.Id">
+                    <BotAvatar Bot="b" Size="sm" />
+                    <span class="grow"><b>@b.Name</b> <span class="muted small">@b.Title</span></span>
+                    <span class="muted small">@(_botCounts.GetValueOrDefault(b.Id)) memories@(b.Memory.Enabled ? (b.Memory.AutoLearn ? " · learning" : "") : " · off")</span>
+                </a>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private List<Locus.Core.Services.Memory> _items = [];
+    private string _new = "";
+    private string? _editing;
+    private string _editText = "";
+
+    private Dictionary<string, int> _botCounts = [];
+
+    private string _profile = "";
+    private MemoryStats? _stats;
+
+    private async Task LoadStatsAsync()
+    {
+        try { _stats = await Store.Provider.StatsAsync(); } catch { _stats = null; }
+    }
+
+    private async Task ToggleMeaning(ChangeEventArgs e)
+    {
+        var s = await Settings.GetAsync();
+        s.RecallByMeaning = (bool)e.Value!;
+        await Settings.SaveAsync(s);
+        await LoadStatsAsync();
+    }
+
+    private async Task Export()
+    {
+        var data = new System.Text.Json.Nodes.JsonObject
+        {
+            ["exported"] = DateTimeOffset.Now.ToString("o"),
+            ["profile"] = (await Curator.ProfileAsync()).Text,
+            ["shared"] = System.Text.Json.JsonSerializer.SerializeToNode(await Store.ListAsync()),
+        };
+        var bots = new System.Text.Json.Nodes.JsonObject();
+        foreach (var b in State.Bots) bots[b.Name] = System.Text.Json.JsonSerializer.SerializeToNode(await Store.ListAsync(b.Id));
+        data["bots"] = bots;
+        var bytes = System.Text.Encoding.UTF8.GetBytes(data.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        await JS.InvokeVoidAsync("locus.downloadImage", "data:application/json;base64," + Convert.ToBase64String(bytes), "locus-memory.json");
+    }
+    private MemoryCleanup? _cleanup;
+    private bool _tidying, _keepProfile = true;
+    private string? _tidyMessage;
+    private readonly HashSet<MemoryMerge> _skipMerges = [];
+    private readonly HashSet<MemoryDrop> _skipDrops = [];
+
+    private string Text(string id) => _items.FirstOrDefault(m => m.Id == id)?.Text ?? id;
+
+    private static void Toggle<T>(HashSet<T> skip, T item, bool keep) { if (keep) skip.Remove(item); else skip.Add(item); }
+
+    private async Task LoadCurationAsync()
+    {
+        _profile = (await Curator.ProfileAsync()).Text;
+        _cleanup = await Curator.PendingAsync();
+        _skipMerges.Clear();
+        _skipDrops.Clear();
+        _keepProfile = true;
+    }
+
+    private async Task SaveProfile()
+    {
+        await Curator.SaveProfileAsync(_profile);
+        _tidyMessage = "Profile saved.";
+    }
+
+    private async Task Tidy()
+    {
+        _tidying = true;
+        _tidyMessage = null;
+        try
+        {
+            var c = await Curator.ProposeAsync();
+            await LoadCurationAsync();
+            if (c is null) _tidyMessage = "Everything already looks tidy.";
+        }
+        catch (Exception ex) { _tidyMessage = ex.Message; }
+        finally { _tidying = false; }
+    }
+
+    private async Task Apply()
+    {
+        if (_cleanup is null) return;
+        await Curator.ApplyAsync(new MemoryCleanup
+        {
+            Profile = _keepProfile ? _cleanup.Profile : null,
+            Merges = _cleanup.Merges.Where(m => !_skipMerges.Contains(m)).ToList(),
+            Drops = _cleanup.Drops.Where(d => !_skipDrops.Contains(d)).ToList(),
+        });
+        _items = await Store.ListAsync();
+        await LoadCurationAsync();
+        _tidyMessage = "Applied.";
+    }
+
+    private async Task Discard()
+    {
+        await Curator.DiscardAsync();
+        await LoadCurationAsync();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurationAsync();
+        await LoadStatsAsync();
+        foreach (var b in State.Bots) _botCounts[b.Id] = (await Store.ListAsync(b.Id)).Count;
+        Store.Changed += Reload;
+        _items = await Store.ListAsync();
+    }
+
+    private async void Reload()
+    {
+        _items = await Store.ListAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Add()
+    {
+        if (string.IsNullOrWhiteSpace(_new)) return;
+        await Store.AddAsync(_new);
+        _new = "";
+    }
+
+    private async Task AddOnEnter(KeyboardEventArgs e) { if (e.Key == "Enter") await Add(); }
+
+    private async Task EditKey(KeyboardEventArgs e, string id)
+    {
+        if (e.Key == "Enter") await SaveEdit(id);
+        if (e.Key == "Escape") _editing = null;
+    }
+
+    private async Task SaveEdit(string id)
+    {
+        _editing = null;
+        await Store.UpdateAsync(id, _editText);
+    }
+
+    private async Task ToggleAutoLearn(ChangeEventArgs e)
+    {
+        var s = SettingsCopy.Of(State.Settings);
+        s.MemoryAutoLearn = (bool)e.Value!;
+        await Settings.SaveAsync(s);
+    }
+
+    private async Task ToggleEnabled(ChangeEventArgs e)
+    {
+        var s = SettingsCopy.Of(State.Settings);
+        s.MemoryEnabled = (bool)e.Value!;
+        await Settings.SaveAsync(s);
+    }
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    public override void Dispose() { Store.Changed -= Reload; base.Dispose(); }
+}

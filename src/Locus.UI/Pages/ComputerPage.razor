@@ -1,0 +1,351 @@
+@page "/computer"
+@inherits StatefulComponent
+@implements IAsyncDisposable
+@inject IBotComputer Computer
+@inject SettingsStore Store
+@inject PlatformInfo Platform
+@inject IDesktopControl Desktop
+@inject LoginVault Vault
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <h2 class="topbar-title">🖥 Bot computer</h2>
+    <span class="spacer"></span>
+    @if (_status.Running) { <span class="live-pill">● live</span> }
+</header>
+
+<div class="settings">
+    <section class="card">
+        <p class="muted">
+            A browser and a workspace folder your bots share, plus (optionally) control of this computer's screen, mouse and
+            keyboard. Sign in to sites once in the bot browser and every bot can use them, or save logins below so bots can
+            sign in themselves. Clicking and typing ask you first unless you turn that off.
+        </p>
+        @if (!_status.Available)
+        {
+            <div class="notice">@_status.UnavailableReason</div>
+        }
+        else
+        {
+            <div class="row">
+                <span class="grow">
+                    @if (_status.Running)
+                    {
+                        <b>Running</b> <span class="muted">@(_status.Headless ? "in the background" : "in a window")</span>
+                        @if (State.BotById(_status.ActiveOwner) is { } b) { <span class="muted"> · last used by @b.Emoji @b.Name</span> }
+                    }
+                    else
+                    {
+                        <b>Stopped</b> <span class="muted">— starts automatically when a bot needs it</span>
+                    }
+                </span>
+                @if (_status.Running)
+                {
+                    <button class="btn ghost" @onclick="Stop" disabled="@_busy">Stop</button>
+                }
+                <select @bind="_signInProfile" title="Which browser to sign in to">
+                    <option value="shared">Shared browser (all bots)</option>
+                    @foreach (var b in State.Bots.Where(b => b.Abilities.Browser && b.Abilities.BrowserProfile == BrowserProfile.Own))
+                    {
+                        <option value="@b.Id">@b.Emoji @b.Name's own browser</option>
+                    }
+                </select>
+                <button class="btn primary" @onclick="ShowWindow" disabled="@_busy" title="Opens a visible browser window so you can sign in to sites">🔑 Show browser to sign in</button>
+            </div>
+            @if (_status.Error is not null || _message is not null)
+            {
+                <div class="@(_status.Error is not null ? "error-box" : "notice")">@(_status.Error ?? _message)</div>
+            }
+            @if (_status.Error?.Contains("Install browser") == true)
+            {
+                <button class="btn ghost" @onclick="Install" disabled="@_busy">⇩ Install browser (Chromium, ~150 MB)</button>
+            }
+        }
+    </section>
+
+    @if (_status.Running)
+    {
+        <section class="card">
+            <div class="row">
+                <span class="grow ellipsis"><b>@(_status.Title ?? "…")</b> <span class="muted small">@_status.Url</span></span>
+            </div>
+            @if (_shot is not null)
+            {
+                <img class="screen" src="@_shot" alt="Live view of the bot computer's browser" />
+            }
+            else
+            {
+                <p class="muted">No page open yet.</p>
+            }
+        </section>
+    }
+
+    @if (_s is not null && _status.Available)
+    {
+        <section class="card">
+            <h3>Settings</h3>
+            <label class="check"><input type="checkbox" @bind="_s.Computer.Enabled" /> Let bots use the computer</label>
+            <label class="check"><input type="checkbox" @bind="_s.Computer.Headless" /> Run the browser in the background (no window)</label>
+            <label>Browser
+                <select @bind="_s.Computer.Channel">
+                    <option value="">Playwright Chromium (separate from your own browser)</option>
+                    <option value="chrome">Google Chrome (installed)</option>
+                    <option value="msedge">Microsoft Edge (installed)</option>
+                </select>
+            </label>
+            <label class="check"><input type="checkbox" @bind="_s.Computer.AutoApproveActions" /> Let bots click and type without asking each time</label>
+            @if (Platform.CanRunProcesses)
+            {
+                <label class="check"><input type="checkbox" @bind="_s.Computer.AllowCommands" /> Allow shell commands in the workspace (asks every time unless tools are auto-approved)</label>
+            }
+            <label>Close the browser after <input type="number" min="0" @bind="_s.Computer.IdleMinutes" style="width:5rem" /> idle minutes (0 = never)</label>
+            <div class="row end">
+                @if (_saved) { <span class="ok-text">Saved ✓</span> }
+                <button class="btn primary" @onclick="Save">Save</button>
+            </div>
+        </section>
+    }
+
+    <section class="card">
+        <h3>🖱️ Computer use</h3>
+        <p class="muted">
+            Let bots see your screen and use the mouse and keyboard to work in any app. Each action shows up in the chat with
+            a screenshot. Needs a vision model (e.g. <code>qwen2.5vl</code>, <code>gemma3</code>, <code>llama3.2-vision</code>).
+            <b>Fail-safe:</b> push the mouse into the top-left corner of the screen and the next action is refused; the ■ stop
+            button in the chat cancels the whole run.
+        </p>
+        @if (!Desktop.Supported || !Platform.CanRunProcesses)
+        {
+            <div class="notice">@(Platform.CanRunProcesses ? Desktop.Problem : "Computer use is available in the desktop app.")</div>
+        }
+        else if (_s is not null)
+        {
+            <label class="check"><input type="checkbox" @bind="_s.Computer.DesktopControl" /> Let bots control this computer's screen, mouse and keyboard</label>
+            <label class="check"><input type="checkbox" @bind="_s.Computer.AutoApproveDesktop" /> Don't ask before each click, keypress or typing</label>
+            @if (Desktop.Problem is { } problem)
+            {
+                <div class="error-box">@problem</div>
+                <button class="btn ghost" @onclick="Desktop.RequestPermissions">Request permissions</button>
+            }
+            <div class="row">
+                <button class="btn ghost" @onclick="TestScreenshot" disabled="@_busy">📸 Test screenshot</button>
+                <span class="muted small grow">@Desktop.LastAction</span>
+                <button class="btn primary" @onclick="Save">Save</button>
+            </div>
+            @if (_desktopShot is not null)
+            {
+                <img class="screen" src="@_desktopShot" alt="What bots see" />
+            }
+        }
+    </section>
+
+    <section class="card">
+        <h3>🔑 Saved logins</h3>
+        <p class="muted">
+            Bots can sign in with these — in the bot browser (<code>browser_fill_login</code>) or any app (<code>desktop_type_login</code>) —
+            and the password is never shown to the model or written into chats. Encrypted on this device with a local key.
+        </p>
+        @if (_s is not null)
+        {
+            <label class="check"><input type="checkbox" @bind="_s.Computer.ProtectSensitiveFields" @bind:after="Save" /> Protect password and payment fields (bots can only use saved logins, not type passwords themselves)</label>
+        }
+        @foreach (var l in _logins)
+        {
+            var login = l;
+            <div class="memory-row">
+                <span class="grow"><b>@login.Name</b> <span class="muted small">@login.Site · @login.Username · ••••••</span></span>
+                <button class="icon-btn" title="Edit" @onclick="() => EditLogin(login)">✎</button>
+                <button class="icon-btn" title="Delete" @onclick="() => Vault.DeleteAsync(login.Id)">🗑</button>
+            </div>
+        }
+        @if (_editLogin is not null)
+        {
+            <div class="provider">
+                <div class="row">
+                    <input class="grow" @bind="_editLogin.Name" placeholder="Name, e.g. github" />
+                    <input class="grow" @bind="_editLogin.Site" placeholder="Site or app, e.g. github.com" />
+                </div>
+                <div class="row">
+                    <input class="grow" @bind="_editLogin.Username" placeholder="Username or email" autocomplete="off" />
+                    <input class="grow" type="password" @bind="_newPassword" placeholder="@(_isNewLogin ? "Password" : "New password (blank = keep)")" autocomplete="new-password" />
+                </div>
+                <div class="row end">
+                    <button class="btn ghost" @onclick="() => _editLogin = null">Cancel</button>
+                    <button class="btn primary" @onclick="SaveLogin">Save login</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <button class="btn ghost" @onclick="NewLogin">＋ Add login</button>
+        }
+    </section>
+
+    <section class="card">
+        <h3>Workspace files</h3>
+        <p class="muted small">@Computer.WorkspaceDirectory</p>
+        @foreach (var f in _files)
+        {
+            var file = f;
+            <div class="memory-row">
+                <span class="grow ellipsis">📄 @file.rel</span>
+                <span class="muted small">@FormatSize(file.size) · @file.modified.ToString("MMM d, HH:mm")</span>
+                <button class="icon-btn" title="Delete" @onclick="() => DeleteFile(file.full)">🗑</button>
+            </div>
+        }
+        @if (_files.Count == 0) { <p class="muted">Empty. Bots save downloads and files they write here.</p> }
+    </section>
+    <RemoteHostsCard />
+</div>
+
+@code {
+    private ComputerStatus _status = new(false, false, true, null, null, null, null, null);
+    private AppSettings? _s;
+    private string? _shot;
+    private string? _message;
+    private bool _busy;
+    private bool _saved;
+    private List<(string rel, string full, long size, DateTime modified)> _files = [];
+    private CancellationTokenSource? _loop;
+
+    private string? _desktopShot;
+    private List<SavedLogin> _logins = [];
+    private SavedLogin? _editLogin;
+    private bool _isNewLogin;
+    private string _newPassword = "";
+
+    private async Task TestScreenshot() => await Run(async () =>
+    {
+        var img = await Desktop.ScreenshotAsync();
+        _desktopShot = img.DataUrl;
+        _message = $"This is what bots see: {img.FileName}.";
+    });
+
+    private void NewLogin() { _isNewLogin = true; _newPassword = ""; _editLogin = new SavedLogin(); }
+
+    private void EditLogin(SavedLogin l)
+    {
+        _isNewLogin = false;
+        _newPassword = "";
+        _editLogin = new SavedLogin { Id = l.Id, Name = l.Name, Site = l.Site, Username = l.Username, PasswordSealed = l.PasswordSealed };
+    }
+
+    private async Task SaveLogin()
+    {
+        if (_editLogin is null || string.IsNullOrWhiteSpace(_editLogin.Name)) { _message = "Give the login a name."; return; }
+        await Vault.SaveAsync(_editLogin, _isNewLogin || _newPassword.Length > 0 ? _newPassword : null);
+        _newPassword = "";
+        _editLogin = null;
+    }
+
+    private async void OnVaultChanged()
+    {
+        _logins = await Vault.ListAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _s = SettingsCopy.Of(await Store.GetAsync());
+        _logins = await Vault.ListAsync();
+        Vault.Changed += OnVaultChanged;
+        Desktop.Changed += OnComputerChanged;
+        Computer.Changed += OnComputerChanged;
+        Refresh();
+        _loop = new CancellationTokenSource();
+        _ = LiveViewAsync(_loop.Token);
+    }
+
+    private void OnComputerChanged() => InvokeAsync(() => { Refresh(); StateHasChanged(); });
+
+    private void Refresh()
+    {
+        _status = Computer.Status;
+        try
+        {
+            var root = Computer.WorkspaceDirectory;
+            _files = Directory.Exists(root)
+                ? Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Take(300)
+                    .Select(f => new FileInfo(f))
+                    .Select(i => (Path.GetRelativePath(root, i.FullName), i.FullName, i.Length, i.LastWriteTime))
+                    .OrderByDescending(x => x.LastWriteTime).ToList()
+                : [];
+        }
+        catch (IOException) { }
+    }
+
+    /// <summary>Refreshes the screenshot every 1.5 s while the page is open.</summary>
+    private async Task LiveViewAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                if (_status.Running && await Computer.ScreenshotAsync() is { } bytes)
+                {
+                    _shot = "data:image/jpeg;base64," + Convert.ToBase64String(bytes);
+                    await InvokeAsync(StateHasChanged);
+                }
+                await Task.Delay(1500, ct);
+            }
+            catch (OperationCanceledException) { return; }
+            catch { await Task.Delay(3000, ct).ContinueWith(_ => { }); }
+        }
+    }
+
+    private async Task Run(Func<Task> work, string? done = null)
+    {
+        _busy = true;
+        _message = null;
+        try { await work(); _message = done; }
+        catch (Exception ex) { _message = ex.Message; }
+        finally { _busy = false; Refresh(); }
+    }
+
+    private string _signInProfile = "shared";
+
+    private Task ShowWindow() => Run(async () =>
+    {
+        await Computer.StartAsync(headless: false, _signInProfile);
+        _message = "A browser window opened on this computer. Sign in to the sites your bots should use, then close it or click Stop — sign-ins are kept.";
+    });
+
+    private Task Stop() => Run(Computer.StopAsync);
+
+    private Task Install() => Run(async () => _message = await Computer.InstallBrowserAsync());
+
+    private async Task Save()
+    {
+        if (_s is null) return;
+        await Store.SaveAsync(SettingsCopy.Of(_s));
+        _saved = true;
+        StateHasChanged();
+        await Task.Delay(1500);
+        _saved = false;
+    }
+
+    private void DeleteFile(string full)
+    {
+        try { File.Delete(full); } catch (IOException ex) { _message = ex.Message; }
+        Refresh();
+    }
+
+    private static string FormatSize(long b) => b switch
+    {
+        < 1024 => $"{b} B",
+        < 1024 * 1024 => $"{b / 1024.0:0.#} KB",
+        _ => $"{b / 1048576.0:0.#} MB",
+    };
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    public async ValueTask DisposeAsync()
+    {
+        _loop?.Cancel();
+        Computer.Changed -= OnComputerChanged;
+        Desktop.Changed -= OnComputerChanged;
+        Vault.Changed -= OnVaultChanged;
+        base.Dispose();
+        await Task.CompletedTask;
+    }
+}

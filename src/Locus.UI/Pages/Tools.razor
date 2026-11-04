@@ -1,0 +1,182 @@
+@page "/tools"
+@inherits StatefulComponent
+@inject SettingsStore Store
+@inject BuiltInToolProvider BuiltIns
+@inject McpManager Mcp
+@inject PlatformInfo Platform
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <h2 class="topbar-title">Tools</h2>
+    <span class="spacer"></span>
+    @if (_saved) { <span class="ok-text">Saved ✓</span> }
+    <button class="btn primary" @onclick="Save">Save</button>
+</header>
+
+@if (_s is not null)
+{
+<div class="settings">
+    <section class="card">
+        <h3>Tool calling</h3>
+        <p class="muted">Models that support tool calling (qwen3, llama3.1+, mistral-small, gpt-oss…) can use these. Small models may call tools poorly.</p>
+        <label class="check"><input type="checkbox" @bind="_s.Tools.EnabledByDefault" /> Tools on by default in new chats</label>
+        <label class="check"><input type="checkbox" @bind="_s.Tools.AutoApproveAll" /> Don't ask before running tools that can change things or run code</label>
+        <label>Max tool rounds per reply <input type="number" min="1" max="25" @bind="_s.Tools.MaxRounds" style="width:6rem" /></label>
+    </section>
+
+    <section class="card">
+        <h3>Built-in tools</h3>
+        @foreach (var (tool, reason) in _catalog)
+        {
+            var t = tool;
+            <div class="tool-row @(reason is null ? "" : "unavailable")">
+                <label class="check grow">
+                    <input type="checkbox" checked="@(!_s.Tools.DisabledTools.Contains(t.Name))" @onchange="e => Toggle(t.Name, (bool)e.Value!)" />
+                    <span class="tool-icon">@t.Icon</span> <b>@t.DisplayName</b>
+                    @if (t.RequiresApproval) { <span class="badge">asks first</span> }
+                </label>
+                <span class="muted small">@(reason ?? "Ready")</span>
+            </div>
+        }
+        @if (Platform.CanRunProcesses)
+        {
+            <div class="sub">
+                <label class="check"><input type="checkbox" @bind="_s.Tools.PythonEnabled" /> Allow the Python tool (runs code on this computer, asks every time unless auto-approve is on)</label>
+                <input placeholder="Python path (optional, auto-detected)" @bind="_s.Tools.PythonPath" />
+            </div>
+        }
+    </section>
+
+    <section class="card">
+        <h3>MCP servers</h3>
+        <p class="muted">
+            Plug in any <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">Model Context Protocol</a> server (files, GitHub, databases, Home Assistant…).
+            @if (!Platform.CanRunProcesses) { <b>This platform can only use HTTP MCP servers.</b> }
+        </p>
+
+        @foreach (var srv in _s.McpServers)
+        {
+            var server = srv;
+            var status = _status.FirstOrDefault(x => x.Id == server.Id);
+            <div class="provider">
+                <div class="row">
+                    <label class="check"><input type="checkbox" @bind="server.Enabled" /> On</label>
+                    <input class="grow" @bind="server.Name" placeholder="Name" />
+                    <select @bind="server.Transport">
+                        <option value="@McpTransport.Stdio">Local command (stdio)</option>
+                        <option value="@McpTransport.Http">HTTP</option>
+                    </select>
+                    <button class="icon-btn" title="Remove" @onclick="() => _s.McpServers.Remove(server)">🗑</button>
+                </div>
+                @if (server.Transport == McpTransport.Stdio)
+                {
+                    <div class="row">
+                        <input class="grow" @bind="server.Command" placeholder="Command, e.g. npx" />
+                        <input class="grow" @bind="server.Arguments" placeholder="Arguments, e.g. -y @@modelcontextprotocol/server-filesystem ~/Documents" />
+                    </div>
+                    <textarea rows="2" placeholder="Environment, one KEY=value per line" value="@Pairs(server.Environment)"
+                              @onchange="e => server.Environment = ParsePairs(e.Value?.ToString(), '=')"></textarea>
+                }
+                else
+                {
+                    <input @bind="server.Url" placeholder="https://host/mcp" />
+                    <textarea rows="2" placeholder="Headers, one Name: value per line (e.g. Authorization: Bearer …)" value="@Pairs(server.Headers, ": ")"
+                              @onchange="e => server.Headers = ParsePairs(e.Value?.ToString(), ':')"></textarea>
+                }
+                <div class="row">
+                    <label class="check grow"><input type="checkbox" @bind="server.AutoApprove" /> Run this server's tools without asking</label>
+                    <button class="btn ghost" @onclick="() => Connect(server)">Save & connect</button>
+                </div>
+                @if (status is not null)
+                {
+                    @if (status.Error is not null)
+                    {
+                        <div class="error-box">@status.Error</div>
+                    }
+                    else if (status.Connected)
+                    {
+                        <div class="ok-text">Connected ✓ @status.ToolCount tool(s): @string.Join(", ", status.ToolNames.Take(12))@(status.ToolCount > 12 ? "…" : "")</div>
+                    }
+                }
+            </div>
+        }
+        <div class="row">
+            <button class="btn ghost" @onclick="AddServer">＋ Add server</button>
+            <button class="btn ghost" @onclick="() => _showImport = !_showImport">Import JSON…</button>
+        </div>
+        @if (_showImport)
+        {
+            <textarea rows="7" @bind="_importJson" placeholder='Paste a Claude Desktop / Cursor style config: { "mcpServers": { "files": { "command": "npx", "args": ["-y", "@@modelcontextprotocol/server-filesystem", "/Users/me"] } } }'></textarea>
+            <div class="row">
+                <button class="btn primary" @onclick="Import">Import</button>
+                @if (_importError is not null) { <span class="tiny-error">@_importError</span> }
+            </div>
+        }
+    </section>
+</div>
+}
+
+@code {
+    private AppSettings? _s;
+    private bool _saved;
+    private bool _showImport;
+    private string _importJson = "";
+    private string? _importError;
+    private IReadOnlyList<(ITool tool, string? reason)> _catalog = [];
+    private IReadOnlyList<McpServerStatus> _status = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _s = SettingsCopy.Of(await Store.GetAsync());
+        _catalog = await BuiltIns.CatalogAsync(_s);
+        _status = Mcp.Status(_s);
+    }
+
+    private void Toggle(string name, bool on)
+    {
+        _s!.Tools.DisabledTools.Remove(name);
+        if (!on) _s.Tools.DisabledTools.Add(name);
+    }
+
+    private void AddServer() => _s!.McpServers.Add(new McpServerConfig { Name = $"server{_s.McpServers.Count + 1}", Transport = Platform.CanRunProcesses ? McpTransport.Stdio : McpTransport.Http });
+
+    private void Import()
+    {
+        _importError = null;
+        try
+        {
+            var servers = McpManager.ParseConfig(_importJson);
+            _s!.McpServers.AddRange(servers);
+            _importJson = "";
+            _showImport = false;
+        }
+        catch (Exception ex) { _importError = ex.Message; }
+    }
+
+    private async Task Connect(McpServerConfig server)
+    {
+        await Save();
+        var st = await Mcp.ReconnectAsync(server, CancellationToken.None);
+        _status = Mcp.Status(_s!).Select(x => x.Id == st.Id ? st : x).ToList();
+    }
+
+    private async Task Save()
+    {
+        if (_s is null) return;
+        await Store.SaveAsync(SettingsCopy.Of(_s));
+        _catalog = await BuiltIns.CatalogAsync(_s);
+        _saved = true;
+        StateHasChanged();
+        _ = Task.Delay(2000).ContinueWith(_ => { _saved = false; InvokeAsync(StateHasChanged); });
+    }
+
+    private static string Pairs(Dictionary<string, string> d, string sep = "=") => string.Join("\n", d.Select(kv => kv.Key + sep + kv.Value));
+
+    private static Dictionary<string, string> ParsePairs(string? text, char sep) =>
+        (text ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(l => l.Split(sep, 2))
+            .Where(p => p.Length == 2 && p[0].Trim().Length > 0)
+            .GroupBy(p => p[0].Trim()).ToDictionary(g => g.Key, g => g.Last()[1].Trim());
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+}

@@ -1,0 +1,153 @@
+@page "/permissions"
+@inherits StatefulComponent
+@inject SettingsStore Store
+@inject ActivityLog Activity
+@inject McpManager Mcp
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" @onclick="OpenSidebar">☰</button>
+    <h2 class="topbar-title">🛡 Permissions</h2>
+    <span class="spacer"></span>
+    @if (_saved) { <span class="ok-text">Saved ✓</span> }
+</header>
+
+<div class="settings">
+    <section class="card">
+        <p class="muted">
+            What every bot may do, per area. <b>Allow</b> runs without asking, <b>Ask</b> waits for your OK (here, in the chat,
+            on the Today page or in Telegram), <b>Block</b> hides it from bots entirely. <b>Default</b> keeps each feature's own
+            setting — reading runs, changes ask. Each bot's ability switches still apply on top.
+        </p>
+        <div class="perm-grid">
+            <div class="perm-head"><span></span><span>Reading</span><span>Changing things</span></div>
+            @foreach (var a in Areas())
+            {
+                var area = a;
+                <div class="perm-row">
+                    <span><span class="tool-icon">@area.Icon</span> <b>@area.Title</b></span>
+                    @foreach (var write in new[] { false, true })
+                    {
+                        var w = write;
+                        var label = w ? area.Write : area.Read;
+                        @if (label is null) { <span class="muted small">—</span> }
+                        else
+                        {
+                            <label class="perm-cell" title="@label">
+                                <select value="@Level(area.Key, w)" @onchange="e => Set(area.Key, w, e.Value?.ToString())" class="@Level(area.Key, w).ToString().ToLowerInvariant()">
+                                    <option value="Default">Default</option>
+                                    <option value="Allow">Allow</option>
+                                    <option value="Ask">Ask</option>
+                                    <option value="Block">Block</option>
+                                </select>
+                                <span class="muted small">@label</span>
+                            </label>
+                        }
+                    }
+                </div>
+            }
+        </div>
+        <div class="row">
+            <button class="btn ghost small" @onclick="Careful">Careful preset: ask before every change</button>
+            <button class="btn ghost small" @onclick="Reset">Reset all to Default</button>
+        </div>
+    </section>
+
+    <section class="card">
+        <h3>What bots did</h3>
+        <div class="row">
+            <select @bind="_botFilter">
+                <option value="">All bots</option>
+                <option value="locus">Locus (no bot)</option>
+                @foreach (var b in State.Bots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
+            </select>
+            <input class="grow" @bind="_search" @bind:event="oninput" placeholder="Search actions, e.g. gmail_send or a file name" />
+            <select @bind="_days">
+                <option value="1">Today</option>
+                <option value="7">7 days</option>
+                <option value="30">30 days</option>
+            </select>
+            <button class="btn ghost small" @onclick="LoadAsync">↻</button>
+        </div>
+        @foreach (var a in Filtered().Take(200))
+        {
+            <div class="activity @(a.Ok ? "" : "bad")">
+                <span class="when">@a.Time.ToString(_days == "1" ? "h:mm tt" : "MMM d h:mm")</span>
+                <span class="kind">@(a.Kind == ActivityKind.Approval ? "✅" : "⚙️")</span>
+                <span class="grow">
+                    @if (a.ConversationId is not null) { <a href="c/@a.ConversationId">@a.Title</a> } else { @a.Title }
+                    @if (a.Detail is not null) { <code class="audit">@a.Detail</code> }
+                </span>
+            </div>
+        }
+        @if (!Filtered().Any()) { <p class="muted">No actions in this period.</p> }
+    </section>
+</div>
+
+@code {
+    private AppSettings? _s;
+    private bool _saved;
+    private List<Activity> _log = [];
+    private string _botFilter = "";
+    private string _search = "";
+    private string _days = "7";
+
+    private IEnumerable<PermissionCatalog.Area> Areas()
+    {
+        foreach (var a in PermissionCatalog.Areas) yield return a;
+        foreach (var m in State.Settings.McpServers)
+            yield return new("mcp:" + m.Name, "🔌", "MCP · " + m.Name, "Read-only tools", "Tools that change things");
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _s = SettingsCopy.Of(await Store.GetAsync());
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var days = int.TryParse(_days, out var d) ? d : 7;
+        _log = (await Activity.SinceAsync(new DateTimeOffset(DateTime.Today.AddDays(1 - days))))
+            .Where(a => a.Kind is ActivityKind.Tool or ActivityKind.Approval).ToList();
+    }
+
+    private IEnumerable<Activity> Filtered() => _log.Where(a =>
+        (_botFilter == "" || (_botFilter == "locus" ? a.BotId is null : a.BotId == _botFilter)) &&
+        (_search == "" || a.Title.Contains(_search, StringComparison.OrdinalIgnoreCase) || (a.Detail ?? "").Contains(_search, StringComparison.OrdinalIgnoreCase)));
+
+    private PermissionLevel Level(string area, bool write) =>
+        _s!.Permissions.GetValueOrDefault(PermissionCatalog.Key(area, write), PermissionLevel.Default);
+
+    private async Task Set(string area, bool write, string? value)
+    {
+        var key = PermissionCatalog.Key(area, write);
+        var level = Enum.TryParse<PermissionLevel>(value, out var l) ? l : PermissionLevel.Default;
+        if (level == PermissionLevel.Default) _s!.Permissions.Remove(key); else _s!.Permissions[key] = level;
+        await SaveAsync();
+    }
+
+    private async Task Careful()
+    {
+        foreach (var a in Areas().Where(a => a.Write is not null)) _s!.Permissions[PermissionCatalog.Key(a.Key, true)] = PermissionLevel.Ask;
+        await SaveAsync();
+    }
+
+    private async Task Reset()
+    {
+        _s!.Permissions.Clear();
+        await SaveAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        var current = SettingsCopy.Of(await Store.GetAsync());
+        current.Permissions = new(_s!.Permissions);
+        await Store.SaveAsync(current);
+        _saved = true;
+        StateHasChanged();
+        await Task.Delay(1200);
+        _saved = false;
+    }
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+}

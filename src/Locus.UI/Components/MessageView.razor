@@ -1,0 +1,220 @@
+@inject IJSRuntime JS
+@inject AppState State
+@inject ISpeechOutput Speech
+
+<div class="msg @(Message.Role == ChatRole.User ? "user" : "assistant")">
+    @if (Message.Role == ChatRole.User)
+    {
+        @if (State.BotById(Message.FromBotId) is { } sender)
+        {
+            <div class="msg-from"><BotAvatar Bot="sender" Size="sm" /> message from <b>@sender.Name</b></div>
+        }
+        else if (Message.RoutineName == "Task")
+        {
+            <div class="msg-from">🎯 Task step</div>
+        }
+        else if (Message.RoutineName is not null)
+        {
+            <div class="msg-from">⏰ Routine: <b>@Message.RoutineName</b></div>
+        }
+        @if (Message.Images.Count > 0)
+        {
+            <div class="msg-images">
+                @foreach (var img in Message.Images)
+                {
+                    <img src="@img.DataUrl" alt="@img.FileName" />
+                }
+            </div>
+        }
+        @if (Message.AttachedFiles.Count > 0)
+        {
+            <div class="files">
+                @foreach (var f in Message.AttachedFiles)
+                {
+                    <span class="file-chip">📄 @f</span>
+                }
+            </div>
+        }
+        @if (_editing)
+        {
+            <div class="edit-box">
+                <textarea @bind="_editText" rows="3"></textarea>
+                <div class="row end">
+                    <button class="btn ghost" @onclick="() => _editing = false">Cancel</button>
+                    <button class="btn primary" @onclick="SaveEdit">Save & submit</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            @if (Message.Content.Length > 0)
+            {
+                @if (Skill.Match(Message.Content, State.Skills) is { } sk)
+                {
+                    <div class="bubble"><span class="skill-chip">@sk.skill.Icon /@sk.skill.Name</span> @sk.rest</div>
+                }
+                else
+                {
+                    <div class="bubble">@Message.Content</div>
+                }
+            }
+            @if (!string.IsNullOrEmpty(Message.EventPayload))
+            {
+                <details class="event-box">
+                    <summary>⚡ Event data</summary>
+                    <pre>@Message.EventPayload</pre>
+                </details>
+            }
+            <div class="msg-tools">
+                <button title="Copy" @onclick="Copy">⧉</button>
+                @if (!Busy)
+                {
+                    <button title="Edit" @onclick="StartEdit">✎</button>
+                }
+                @if (Message.FromBotId is null && Message.Content.Length > 20 && Skill.Match(Message.Content, State.Skills) is null)
+                {
+                    <a class="tool-link" title="Save this prompt as a reusable skill" href="@($"skills?from={Uri.EscapeDataString(Message.Content[..Math.Min(Message.Content.Length, 1500)])}")">⚡</a>
+                }
+            </div>
+        }
+    }
+    else
+    {
+        @if (State.BotById(Message.BotId) is { } author)
+        {
+            <div class="msg-author"><BotAvatar Bot="author" Size="sm" /> <b>@author.Name</b> <span class="muted small">@author.Title</span></div>
+        }
+        @if (!string.IsNullOrEmpty(Message.Thinking) && State.Settings.ShowThinking)
+        {
+            <details class="thinking" open="@(Message.IsStreaming && string.IsNullOrEmpty(Message.Content) && Message.ToolCalls.Count == 0)">
+                <summary>@(Message.IsStreaming && string.IsNullOrEmpty(Message.Content) ? "Thinking…" : "Thought process")</summary>
+                <div class="thinking-body">@Message.Thinking</div>
+            </details>
+        }
+        @if (Message.ToolCalls.Count > 0)
+        {
+            <div class="tools">
+                @foreach (var tc in Message.ToolCalls)
+                {
+                    <ToolCallView @key="tc.Id" Call="tc" />
+                }
+            </div>
+        }
+        @if (Message.Sources.Count > 0)
+        {
+            <div class="sources">
+                @for (var i = 0; i < Message.Sources.Count; i++)
+                {
+                    var s = Message.Sources[i];
+                    <a class="source" href="@SafeUrl(s.Url)" target="_blank" rel="noopener" title="@s.Snippet">
+                        <span class="num">@(i + 1)</span> @Host(s.Url)
+                    </a>
+                }
+            </div>
+        }
+        @if (Message.GeneratedImages.Count > 0)
+        {
+            <div class="gen-images">
+                @foreach (var img in Message.GeneratedImages)
+                {
+                    <figure>
+                        <img src="@img.DataUrl" alt="@img.FileName" />
+                        <button class="btn ghost small" @onclick="() => Download(img)">⇩ Save</button>
+                    </figure>
+                }
+            </div>
+        }
+        @if (Message.Notice is not null)
+        {
+            <div class="notice">ℹ @Message.Notice</div>
+        }
+
+        <div class="md">
+            <Markdown Text="@Message.Content" />
+            @if (Message.IsStreaming)
+            {
+                <span class="cursor"></span>
+            }
+        </div>
+        @if (Message.Error is not null)
+        {
+            <div class="error-box">⚠ @Message.Error</div>
+        }
+        @if (Message.SkillNotes.Count > 0 && !Message.IsStreaming)
+        {
+            <a class="learned" href="skills" title="Bots write down methods that worked so they can repeat them — review them on the Skills page">
+                📒 Skill @string.Join(" · ", Message.SkillNotes)
+            </a>
+        }
+        @if (Message.Learned.Count > 0 && !Message.IsStreaming)
+        {
+            <div class="learned" title="Saved to memory automatically — edit on the Memory page or the bot's page">
+                🧠 Remembered: @string.Join(" · ", Message.Learned)
+            </div>
+        }
+        @if (!Message.IsStreaming)
+        {
+            <div class="msg-tools">
+                <button title="Copy" @onclick="Copy">⧉</button>
+                <button title="@(_speaking ? "Stop reading" : "Read aloud")" @onclick="ToggleSpeak">@(_speaking ? "■" : "🔊")</button>
+                @if (IsLast && !Busy)
+                {
+                    <button title="Regenerate" @onclick="OnRegenerate">↻</button>
+                }
+                <span class="meta">
+                    @Message.Model
+                    @if (Message.Stats?.TokensPerSecond is { } tps)
+                    {
+                        <text> · @tps.ToString("0.0") tok/s</text>
+                    }
+                    @if (Message.Stats?.CompletionTokens is { } ct)
+                    {
+                        <text> · @ct tokens</text>
+                    }
+                </span>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ChatMessage Message { get; set; } = default!;
+    [Parameter] public bool IsLast { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback OnRegenerate { get; set; }
+    [Parameter] public EventCallback<string> OnEdit { get; set; }
+
+    private bool _editing;
+    private bool _speaking;
+    private string _editText = "";
+
+    private void StartEdit() { _editText = Message.Content; _editing = true; }
+
+    private async Task SaveEdit()
+    {
+        _editing = false;
+        if (!string.IsNullOrWhiteSpace(_editText)) await OnEdit.InvokeAsync(_editText);
+    }
+
+    private async Task Copy() => await JS.InvokeVoidAsync("locus.copy", Message.Content);
+    private async Task Download(ImageAttachment img) => await JS.InvokeVoidAsync("locus.downloadImage", img.DataUrl, img.FileName);
+
+    private async Task ToggleSpeak()
+    {
+        try
+        {
+            if (_speaking) { await Speech.StopAsync(); _speaking = false; return; }
+            _speaking = true;
+            await Speech.SpeakAsync(State.Settings, Message.Content);
+        }
+        catch (Exception ex)
+        {
+            _speaking = false;
+            Message.Notice = $"Read-aloud failed: {ex.Message}";
+        }
+    }
+
+    private static string Host(string url) => Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host.Replace("www.", "") : url;
+    private static string SafeUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == "http" || u.Scheme == "https") ? url : "#";
+}

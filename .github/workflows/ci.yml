@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      # The MAUI phone/desktop app needs extra workloads; CI covers the shared code, web host and desktop host.
+      - name: Build
+        run: |
+          dotnet build src/Locus.Web -c Release
+          dotnet build src/Locus.Desktop -c Release
+      - name: Test
+        run: dotnet test tests/Locus.Core.Tests -c Release --logger "console;verbosity=normal"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Docker image
+        run: docker build -t locus:ci .

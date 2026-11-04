@@ -1,0 +1,291 @@
+@inherits StatefulComponent
+@inject IJSRuntime JS
+@inject IVoiceInput Voice
+@inject DocumentStore Documents
+
+<div class="composer-wrap">
+    @if (_images.Count > 0 || _docs.Count > 0)
+    {
+        <div class="attachments">
+            @foreach (var img in _images)
+            {
+                <div class="thumb">
+                    <img src="@img.DataUrl" alt="@img.FileName" />
+                    <button title="Remove" @onclick="() => _images.Remove(img)">✕</button>
+                </div>
+            }
+            @foreach (var doc in _docs)
+            {
+                <div class="file-chip removable" title="@(doc.Indexed ? "Large file: added to your document library" : "Included in the message")">
+                    📄 @doc.Name @(doc.Indexed ? "· library" : "")
+                    <button title="Remove" @onclick="() => _docs.Remove(doc)">✕</button>
+                </div>
+            }
+        </div>
+    }
+    @if (_status is not null)
+    {
+        <div class="composer-status">@_status</div>
+    }
+    @if (Members.Count > 1)
+    {
+        <div class="mention-bar">
+            @foreach (var b in Members)
+            {
+                var bot = b;
+                <button class="mention" title="Ask @bot.Name directly" @onclick="() => Mention(bot.Name)"><BotAvatar Bot="bot" Size="sm" /> @@@bot.Name</button>
+            }
+            <button class="mention" title="Everyone replies" @onclick='() => Mention("everyone")'>👥 @@everyone</button>
+        </div>
+    }
+    @if (SlashMatches.Count > 0)
+    {
+        <div class="slash-menu">
+            @foreach (var (name, icon, desc) in SlashMatches)
+            {
+                var n = name;
+                <button class="slash-item" @onclick="() => PickSlash(n)"><span>@icon</span> <b>/@name</b> <span class="muted small ellipsis">@desc</span></button>
+            }
+        </div>
+    }
+    <div class="composer @(_listening ? "listening" : "")">
+        <textarea @ref="_textarea" @bind="_text" @bind:event="oninput" rows="1"
+                  placeholder="@Placeholder" disabled="@(State.SelectedModel is null && !State.CanImagine)"></textarea>
+        <div class="composer-bar">
+            <label class="chip" title="Attach images or documents (PDF, text, code)">
+                📎
+                <InputFile OnChange="OnFiles" accept="image/*,.pdf,.txt,.md,.csv,.json,.html,.htm,.xml,.yaml,.yml,.cs,.js,.ts,.py,.java,.go,.rs,.cpp,.c,.h,.sql,.log" multiple class="hidden-file" />
+            </label>
+            <button class="chip @(State.UseTools ? "on" : "")" title="@ToolsTitle" @onclick="ToggleTools">🛠<span class="lbl"> Tools</span></button>
+            <button class="chip @(State.Think ? "on" : "")" title="Ask reasoning models to think first" @onclick="ToggleThink">💡<span class="lbl"> Think</span></button>
+            <button class="chip @(State.DeepSearch ? "on" : "")" disabled="@(!State.CanSearch)"
+                    title="@(State.CanSearch ? "Research the web in depth before answering" : "Set a SearXNG URL in Settings to enable")"
+                    @onclick="ToggleSearch">🔎<span class="lbl"> DeepSearch</span></button>
+            @if (Members.Count == 0)
+            {
+                <select class="chip select" @bind="State.PersonaId" title="Personality">
+                    @foreach (var p in Personas.All)
+                    {
+                        <option value="@p.Id">@p.Emoji @p.Name</option>
+                    }
+                </select>
+            }
+            <span class="spacer"></span>
+            @if (_error is not null)
+            {
+                <span class="tiny-error" title="@_error">@_error</span>
+            }
+            <button class="mic @(_listening ? "on" : "")" title="@(_listening ? "Stop dictation" : "Dictate")" @onclick="ToggleVoice">🎙</button>
+            @if (OnTalk.HasDelegate)
+            {
+                <button class="mic @(Talking ? "on" : "")" title="@(Talking ? "End conversation" : "Talk hands-free")" @onclick="OnTalk">🎧</button>
+            }
+            @if (Busy)
+            {
+                <button class="send stop" title="Stop" @onclick="OnStop">■</button>
+            }
+            else
+            {
+                <button class="send" title="Send" disabled="@(!CanSend)" @onclick="Submit">↑</button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback<ComposerInput> OnSend { get; set; }
+    [Parameter] public EventCallback OnStop { get; set; }
+    [Parameter] public EventCallback OnTalk { get; set; }
+    [Parameter] public bool Talking { get; set; }
+    /// <summary>Bots in this chat (empty for a plain chat).</summary>
+    [Parameter] public IReadOnlyList<Bot> Members { get; set; } = [];
+
+    /// <summary>Skill (and /imagine) suggestions while typing a slash command.</summary>
+    private List<(string name, string icon, string desc)> SlashMatches
+    {
+        get
+        {
+            var t = _text.TrimStart();
+            if (!t.StartsWith('/') || t.Contains(' ') || t.Contains('\n')) return [];
+            var q = t[1..].ToLowerInvariant();
+            var list = State.Skills.Where(s => s.Name.StartsWith(q)).Select(s => (s.Name, s.Icon, s.Description)).ToList();
+            if (State.CanImagine && "imagine".StartsWith(q)) list.Add(("imagine", "🎨", "Generate an image"));
+            return list.Take(8).ToList();
+        }
+    }
+
+    private async Task PickSlash(string name)
+    {
+        _text = "/" + name + " ";
+        await JS.InvokeVoidAsync("locus.focus", _textarea);
+    }
+
+    private async Task Mention(string name)
+    {
+        var tag = "@" + name + " ";
+        if (!_text.Contains(tag.Trim(), StringComparison.OrdinalIgnoreCase)) _text = (tag + _text).TrimEnd() + " ";
+        await JS.InvokeVoidAsync("locus.focus", _textarea);
+    }
+
+    private ElementReference _textarea;
+    private string _text = "";
+    private string? _error;
+    private string? _status;
+    private bool _listening;
+    private string _beforeVoice = "";
+    private readonly List<ImageAttachment> _images = [];
+    private readonly List<AttachedDoc> _docs = [];
+    private DotNetObjectReference<Composer>? _ref;
+
+    private string Placeholder => Members.Count > 1 && State.SelectedModel is not null
+        ? "Message the group · @name to ask one bot"
+        : Members.Count == 1 && State.SelectedModel is not null ? $"Message {Members[0].Name}"
+        : State.SelectedModel is null
+        ? (State.CanImagine ? "/imagine a prompt… (connect a model in Settings to chat)" : "Connect a model in Settings to start…")
+        : State.CanImagine ? "Ask anything · /imagine to draw" : "Ask anything";
+
+    private bool CanSend => !Busy && _status is null
+        && (State.SelectedModel is not null || (State.CanImagine && _text.TrimStart().StartsWith("/imagine")))
+        && (_text.Trim().Length > 0 || _images.Count > 0 || _docs.Count > 0);
+
+    private string ToolsTitle => State.Capabilities is { Tools: false }
+        ? $"{State.SelectedModel} doesn't support tool calling — pick a model like qwen3 or llama3.1"
+        : "Let the model use tools (search, calculator, documents, memory, MCP…)";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ref = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("locus.initComposer", _textarea, _ref);
+        }
+    }
+
+    [JSInvokable]
+    public async Task SubmitFromJs(string text)
+    {
+        _text = text;
+        await Submit();
+        StateHasChanged();
+    }
+
+    public async Task SetTextAsync(string text)
+    {
+        _text = text;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("locus.focus", _textarea);
+    }
+
+    private async Task Submit()
+    {
+        if (_listening) await ToggleVoice();
+        if (!CanSend) return;
+        var input = new ComposerInput(_text.Trim(), _images.ToList(), _docs.ToList());
+        _text = "";
+        _images.Clear();
+        _docs.Clear();
+        await JS.InvokeVoidAsync("locus.resetComposer", _textarea);
+        await OnSend.InvokeAsync(input);
+    }
+
+    private void ToggleTools() => State.UseTools = !State.UseTools;
+    private void ToggleThink() => State.Think = !State.Think;
+    private void ToggleSearch() => State.DeepSearch = !State.DeepSearch;
+
+    private async Task ToggleVoice()
+    {
+        _error = null;
+        try
+        {
+            if (_listening)
+            {
+                _listening = false;
+                _status = "Transcribing…";
+                StateHasChanged();
+                var final = await Voice.StopAsync(State.Settings);
+                if (final.Length > 0) _text = (_beforeVoice + " " + final).Trim();
+            }
+            else
+            {
+                if (!await Voice.IsAvailableAsync(State.Settings))
+                {
+                    _error = "Dictation isn't available here. Set a speech-to-text server in Settings → Voice.";
+                    return;
+                }
+                _beforeVoice = _text;
+                await Voice.StartAsync(State.Settings, partial =>
+                {
+                    _text = (_beforeVoice + " " + partial).Trim();
+                    return InvokeAsync(StateHasChanged);
+                });
+                _listening = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _listening = false;
+            _error = $"Voice: {ex.Message}";
+        }
+        finally
+        {
+            _status = null;
+        }
+    }
+
+    private async Task OnFiles(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        foreach (var file in e.GetMultipleFiles(10))
+        {
+            try
+            {
+                if (file.ContentType.StartsWith("image/"))
+                {
+                    // Downscale in the browser/webview so we don't push huge images to the model.
+                    var resized = await file.RequestImageFileAsync("image/jpeg", 1536, 1536);
+                    _images.Add(new ImageAttachment(file.Name, "image/jpeg", Convert.ToBase64String(await ReadAsync(resized, 15))));
+                    continue;
+                }
+                if (!TextExtractor.IsSupported(file.Name)) { _error = $"{file.Name}: unsupported file type"; continue; }
+
+                _status = $"Reading {file.Name}…";
+                StateHasChanged();
+                var bytes = await ReadAsync(file, 40);
+                var text = await Task.Run(() => TextExtractor.Extract(file.Name, bytes));
+                if (text.Length <= State.Settings.Documents.InlineLimit)
+                {
+                    _docs.Add(new AttachedDoc(file.Name, text, Indexed: false));
+                }
+                else
+                {
+                    var progress = new Progress<string>(m => { _status = $"{file.Name}: {m}"; InvokeAsync(StateHasChanged); });
+                    await Documents.AddAsync(file.Name, text, progress);
+                    _docs.Add(new AttachedDoc(file.Name, null, Indexed: true));
+                }
+            }
+            catch (Exception ex)
+            {
+                _error = $"Couldn't attach {file.Name}: {ex.Message}";
+            }
+            finally
+            {
+                _status = null;
+            }
+        }
+    }
+
+    private static async Task<byte[]> ReadAsync(IBrowserFile file, int maxMb)
+    {
+        await using var s = file.OpenReadStream(maxAllowedSize: maxMb * 1024L * 1024);
+        using var ms = new MemoryStream();
+        await s.CopyToAsync(ms);
+        return ms.ToArray();
+    }
+
+    public override void Dispose()
+    {
+        _ref?.Dispose();
+        base.Dispose();
+    }
+}

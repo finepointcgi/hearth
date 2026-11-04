@@ -1,0 +1,23 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject AppState State
+
+<div class="shell @(State.SidebarOpen ? "sidebar-open" : "")">
+    <Sidebar />
+    <div class="scrim" @onclick="CloseSidebar"></div>
+    <main class="main">
+        @Body
+    </main>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        State.Changed += OnChanged;
+        await State.EnsureInitializedAsync();
+    }
+
+    private void CloseSidebar() { State.SidebarOpen = false; State.NotifyChanged(); }
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    public void Dispose() => State.Changed -= OnChanged;
+}
