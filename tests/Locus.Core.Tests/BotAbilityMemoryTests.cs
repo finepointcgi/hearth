@@ -63,6 +63,7 @@ public class MemorySearchTests
 
         Assert.True(await store.KnowsAsync("prefers metric units.", "bot1"));
         Assert.False(await store.KnowsAsync("prefers metric units", null));
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); // Windows keeps pooled files locked
         Directory.Delete(paths.DataDirectory, true);
     }
 }

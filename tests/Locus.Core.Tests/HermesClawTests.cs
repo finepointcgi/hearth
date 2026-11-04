@@ -318,8 +318,7 @@ public sealed class HistoryAndHeartbeatTests : IDisposable
         var a = new Bot { Name = "Alpha", Title = "A" };
         var b = new Bot { Name = "Beta", Title = "B" };
         foreach (var x in new[] { chief, a, b }) await bots.SaveAsync(x);
-        var running = 0;
-        var maxRunning = 0;
+        _team.DelayFor = bot => bot is "Alpha" or "Beta" ? TimeSpan.FromMilliseconds(400) : TimeSpan.Zero;
         _team.Script = (bot, messages, _) =>
         {
             if (bot == "Chief")
@@ -330,10 +329,6 @@ public sealed class HistoryAndHeartbeatTests : IDisposable
                         new LlmToolCall("1", "message_bot", """{"bot":"Alpha","message":"part A"}"""),
                         new LlmToolCall("2", "message_bot", """{"bot":"Beta","message":"part B"}"""),
                     ]);
-            var now = Interlocked.Increment(ref running);
-            lock (this) maxRunning = Math.Max(maxRunning, now);
-            Thread.Sleep(400); // both helpers must overlap
-            Interlocked.Decrement(ref running);
             return new LlmChunk($"{bot} finished");
         };
         var conv = new Conversation { BotIds = [chief.Id] };
@@ -342,7 +337,7 @@ public sealed class HistoryAndHeartbeatTests : IDisposable
         var reply = conv.Messages.Last();
         Assert.Contains("Alpha finished", reply.Content);
         Assert.Contains("Beta finished", reply.Content);
-        Assert.Equal(2, maxRunning);
+        Assert.Equal(2, _team.MaxRunning); // both helpers were thinking at the same time
     }
 
     public void Dispose()

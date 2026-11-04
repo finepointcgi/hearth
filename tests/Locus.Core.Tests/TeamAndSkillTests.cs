@@ -18,6 +18,9 @@ internal sealed class ScriptedTeam : ILlmClientFactory
 {
     public readonly ConcurrentQueue<(string server, string? bot, string model)> Calls = new();
     public Func<string, IReadOnlyList<LlmMessage>, LlmRequest, LlmChunk>? Script;
+    /// <summary>Simulated thinking time per bot (async, like a real model call), and how many overlapped.</summary>
+    public Func<string, TimeSpan>? DelayFor;
+    public int Running, MaxRunning;
     public readonly Dictionary<string, string[]> ModelsByServer = new();
 
     public ILlmClient Create(ProviderProfile profile) => new Client(this, profile.Name);
@@ -35,6 +38,13 @@ internal sealed class ScriptedTeam : ILlmClientFactory
             var system = request.Messages.FirstOrDefault(m => m.Role == "system")?.Content ?? "";
             var bot = system.StartsWith("You are ") ? system[8..system.IndexOf(',')] : null;
             team.Calls.Enqueue((server, bot, request.Model));
+            if (team.DelayFor?.Invoke(bot ?? "") is { } delay && delay > TimeSpan.Zero)
+            {
+                var now = Interlocked.Increment(ref team.Running);
+                lock (team) team.MaxRunning = Math.Max(team.MaxRunning, now);
+                await Task.Delay(delay, ct);
+                Interlocked.Decrement(ref team.Running);
+            }
             yield return team.Script?.Invoke(bot ?? "", request.Messages, request) ?? new LlmChunk("ok");
         }
     }
