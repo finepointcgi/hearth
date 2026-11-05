@@ -2,10 +2,11 @@
 @inject NavigationManager Nav
 @inject ApprovalCenter Approvals
 @inject IJSRuntime JS
+@inject CodeTools Code
 
 <nav class="rail" aria-label="Sections">
     <a class="rail-logo" href="" title="Locus" aria-label="Locus home">L</a>
-    @foreach (var s in ShellSections.All)
+    @foreach (var s in ShellSections.All.Where(s => s.Id != "code" || Code.Available))
     {
         var section = s;
         <a class="rail-item @(ShellSections.Current(Nav) == section.Id ? "active" : "")" href="@section.Href" title="@section.Title" aria-label="@section.Title">

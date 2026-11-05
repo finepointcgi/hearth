@@ -95,13 +95,36 @@ public sealed class Conversation
     public string? Summary { get; set; }
     /// <summary>The last message the summary covers.</summary>
     public string? SummaryThroughId { get; set; }
+    /// <summary>What the chat is about (a short label, set automatically after the first reply or by the user); used to group chats.</summary>
+    public string? Topic { get; set; }
+    /// <summary>Set when this chat is a code session working in a folder (Claude Code-style).</summary>
+    public CodeSession? Code { get; set; }
 }
+
+/// <summary>How a code session handles changes: ask for each one, apply file edits without asking, or only plan.</summary>
+public enum CodePermissionMode { Ask, AcceptEdits, Plan }
+
+/// <summary>A chat bound to a project folder: the agent explores, edits and runs commands there.</summary>
+public sealed class CodeSession
+{
+    public string Directory { get; set; } = "";
+    public CodePermissionMode Mode { get; set; } = CodePermissionMode.Ask;
+    /// <summary>The agent's own task list for the current job (todo_write).</summary>
+    public List<CodeTodo> Todos { get; set; } = [];
+
+    /// <summary>Folder name shown in the UI and used as the chat's project.</summary>
+    [JsonIgnore] public string Name => System.IO.Path.GetFileName(Directory.TrimEnd('/', '\\')) is { Length: > 0 } n ? n : Directory;
+}
+
+public enum CodeTodoStatus { Pending, InProgress, Completed }
+
+public sealed record CodeTodo(string Content, CodeTodoStatus Status);
 
 /// <summary>A reply in progress: what it was started with, so it can be resumed after a restart.</summary>
 public sealed record PendingRun(string Model, bool Think, bool DeepSearch, bool UseTools, DateTimeOffset StartedAt, int Resumes = 0);
 
 public sealed record ConversationSummary(string Id, string Title, DateTimeOffset UpdatedAt, bool Pinned,
-    IReadOnlyList<string> BotIds, bool Unread);
+    IReadOnlyList<string> BotIds, bool Unread, string? Topic = null, string? Project = null, DateTimeOffset? CreatedAt = null);
 
 public sealed record ModelCapabilities(bool Tools, bool Vision, bool Thinking, bool Embedding);
 

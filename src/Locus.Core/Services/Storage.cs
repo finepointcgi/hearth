@@ -242,7 +242,7 @@ public sealed class ConversationStore(IAppPaths paths)
     public async Task<Conversation> GetOrCreateDirectAsync(Bot bot)
     {
         var existing = (await ListAsync())
-            .Where(c => c.BotIds.Count == 1 && c.BotIds[0] == bot.Id)
+            .Where(c => c.BotIds.Count == 1 && c.BotIds[0] == bot.Id && c.Project is null) // code sessions live in the Code tab
             .OrderByDescending(c => c.UpdatedAt).FirstOrDefault();
         if (existing is not null && await GetAsync(existing.Id) is { } conv) return conv;
         conv = new Conversation { Title = bot.Name, BotIds = [bot.Id] };

@@ -4,12 +4,13 @@ namespace Locus.UI.Layout;
 
 public sealed record ShellSection(string Id, string Title, string Icon, string Href, string[] Routes);
 
-/// <summary>The app's five places, and which routes belong to each (so the rail and side panel follow the page).</summary>
+/// <summary>The app's places, and which routes belong to each (so the rail and side panel follow the page).</summary>
 public static class ShellSections
 {
     public static readonly IReadOnlyList<ShellSection> All =
     [
         new("chats", "Chats", "message-circle", "", ["", "c", "bot"]),
+        new("code", "Code", "terminal", "code", ["code"]),
         new("bots", "Bots", "bot", "bots", ["bots"]),
         new("inbox", "Inbox", "inbox", "dashboard", ["dashboard", "tasks", "usage"]),
         new("library", "Library", "library", "skills", ["skills", "documents", "memory", "files"]),

@@ -1,5 +1,6 @@
 @page "/bots/{Id}"
 @inherits StatefulComponent
+@inject CodeTools CodeTools
 @inject BotStore Store
 @inject MemoryStore Memories
 @inject BuiltInToolProvider BuiltIns
@@ -141,6 +142,28 @@
             }
         </div>
     </section>
+
+    @if (_bot.Abilities.Code && CodeTools.Available)
+    {
+        <section class="card">
+            <h3>Coding</h3>
+            <p class="muted small">Start a code session with @(string.IsNullOrWhiteSpace(_bot.Name) ? "this bot" : _bot.Name) from the Code tab. With a project folder set, it can also find, read, edit and test code there in its normal chats and when another bot hands it work (edits it isn't allowed to make without you are refused when you aren't watching).</p>
+            <label>Project folder <span class="muted small">(optional)</span>
+                <input placeholder="Full path, e.g. /Users/me/src/my-app" @bind="_bot.Abilities.ProjectFolder" />
+            </label>
+            @if (!string.IsNullOrWhiteSpace(_bot.Abilities.ProjectFolder) && !Directory.Exists(_bot.Abilities.ProjectFolder.Trim()))
+            {
+                <span class="tiny-error">That folder doesn't exist.</span>
+            }
+            <label>File edits in that folder
+                <select @bind="_bot.Abilities.CodeMode">
+                    <option value="@CodePermissionMode.Ask">Ask me each time</option>
+                    <option value="@CodePermissionMode.AcceptEdits">Allow without asking</option>
+                    <option value="@CodePermissionMode.Plan">Read only</option>
+                </select>
+            </label>
+        </section>
+    }
 
     @if (_bot.Abilities.Browser)
     {
@@ -524,6 +547,7 @@
         if (State.Bots.Any(b => b.Id != _bot.Id && b.Name.Equals(_bot.Name, StringComparison.OrdinalIgnoreCase)))
         { _error = "Another bot already has that name (names are used for @mentions)."; return; }
         if (string.IsNullOrWhiteSpace(_bot.Model)) _bot.Model = null;
+        _bot.Abilities.ProjectFolder = string.IsNullOrWhiteSpace(_bot.Abilities.ProjectFolder) ? null : _bot.Abilities.ProjectFolder.Trim();
         try
         {
             await Store.SaveAsync(_bot);
@@ -610,7 +634,7 @@
         yield return new("mouse-pointer-click", "Computer use", "See your screen and use mouse & keyboard",
             () => a.ComputerUse, v => a.ComputerUse = v, a.Desktop == DesktopTarget.ThisComputer && !s.Computer.DesktopControl ? "Switch on Computer use on the Computer page, or give it its own sandbox below" : null);
         yield return new("folder", "Files", "Read and write files in the workspace", () => a.Files, v => a.Files = v);
-        yield return new("code", "Code", "Run Python and shell commands (asks first)",
+        yield return new("code", "Code", "Run Python and shell commands, and work in project folders (asks first)",
             () => a.Code, v => a.Code = v, !s.Tools.PythonEnabled && !s.Computer.AllowCommands ? "Allow Python or commands under Tools / Computer" : null, "tools");
         yield return new("image", "Images", "Generate pictures",
             () => a.Images, v => a.Images = v, s.ImageGen.Backend == ImageBackend.None ? "Pick an image server in Settings" : null, "settings");

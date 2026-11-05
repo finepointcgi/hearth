@@ -58,6 +58,10 @@
         "use_skill" or "save_skill" or "improve_skill" => "zap",
         "run_python" or "run_command" or "run_remote" => "terminal",
         "list_files" or "read_file" or "write_file" => "folder",
+        "glob" or "read" or "edit" or "write" or "undo_edit" => "folder",
+        "grep" => "search",
+        "bash" => "terminal",
+        "todo_write" => "check",
         "edit_project_file" or "write_project_file" or "undo_project_change" or "list_project_changes" or "read_linked_file" or "list_linked_files" => "folder",
         "run_in_project" => "terminal",
         "generate_image" => "image",
@@ -102,6 +106,8 @@
         ["run_in_project"] = ("⌨️", "Run in project"), ["undo_project_change"] = ("↩️", "Undo change"),
         ["list_project_changes"] = ("🕘", "Recent changes"), ["read_linked_file"] = ("📄", "Read file"),
         ["list_linked_files"] = ("🗂️", "List folder"), ["follow_up"] = ("⏰", "Follow up later"),
+        ["glob"] = ("🗂️", "Find files"), ["grep"] = ("🔎", "Search code"), ["read"] = ("📄", "Read"), ["edit"] = ("✏️", "Edit"),
+        ["write"] = ("💾", "Write"), ["bash"] = ("⌨️", "Bash"), ["todo_write"] = ("📋", "Update tasks"), ["undo_edit"] = ("↩️", "Undo edit"),
         ["run_tools_script"] = ("🧩", "Tools script"), ["delegate_task"] = ("👥", "Helpers"), ["start_task"] = ("🎯", "Start task"), ["propose_new_bot"] = ("🧑‍💼", "Hire a bot"), ["rename_chat"] = ("🏷️", "Name chat"),
     };
 
@@ -142,13 +148,13 @@
     {
         get
         {
-            if (Call.Name is not ("edit_project_file" or "write_project_file")) return null;
+            if (Call.Name is not ("edit_project_file" or "write_project_file" or "edit" or "write")) return null;
             try
             {
                 if (System.Text.Json.Nodes.JsonNode.Parse(Call.ArgumentsJson) is not System.Text.Json.Nodes.JsonObject o) return null;
                 var path = o["path"]?.ToString() ?? "";
                 var lines = new List<(string, string)>();
-                if (Call.Name == "edit_project_file")
+                if (Call.Name is "edit_project_file" or "edit")
                 {
                     foreach (var l in (o["old_text"]?.ToString() ?? "").Replace("\r\n", "\n").Split('\n')) lines.Add(("del", "- " + l));
                     foreach (var l in (o["new_text"]?.ToString() ?? "").Replace("\r\n", "\n").Split('\n')) lines.Add(("add", "+ " + l));

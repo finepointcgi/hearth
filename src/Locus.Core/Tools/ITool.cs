@@ -32,6 +32,8 @@ public sealed class ToolContext
     /// <summary>Set once this run has read untrusted content (web, email…); see <see cref="Models.ContentTrust"/>.</summary>
     public string? TaintedBy { get; set; }
     public bool Tainted => TaintedBy is not null;
+    /// <summary>The folder this run codes in (the chat's code session, or the replying bot's project folder).</summary>
+    public CodeSession? Code { get; init; }
     /// <summary>The tools this run may use (so a script or helper can call them).</summary>
     public IReadOnlyDictionary<string, ITool> Tools { get; init; } = new Dictionary<string, ITool>();
 }

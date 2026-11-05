@@ -314,6 +314,32 @@ skills are kept as files in the `skills` folder in Locus's data folder, where ot
 
 Small models get confused in group chats; `qwen3:8b`+ or similar works much better.
 
+## Code sessions (Claude Code-style)
+Coding is a bot ability: switch on **Code** for a bot (the starter Engineer has it). Then open the **Code** tab in the left
+rail, click **New code session**, pick the folder and the bot (or plain Locus). Each session is its own conversation, so
+several can run side by side; they're listed in the Code tab grouped by project folder, apart from your chats. The bot
+brings its own model, memory and instructions. In the session it is a coding agent for the folder: it finds files (`glob`), searches (`grep`), reads with line numbers (`read`), makes exact edits
+(`edit` / `write`, each shown as a diff and undoable with `undo_edit`), runs builds, tests and git with `bash` (in the code
+sandbox when it's on), and keeps a live task list (`todo_write`) shown above the composer. It reads the folder's CLAUDE.md /
+AGENTS.md and knows the git branch. Code sessions get up to 60 tool rounds per reply (Settings `Tools.CodeMaxRounds`).
+
+Permission modes, switchable at any time in the bar under the header:
+- **Ask before edits** — every edit and command asks first.
+- **Accept edits** — file edits apply straight away; commands still ask (unless they run in the sandbox).
+- **Plan only** — read-only; the agent investigates and proposes a plan, then **Go ahead** switches mode and starts.
+
+A coding bot can also have a **project folder** (bot page → Abilities → Coding). It then has the same tools there in its
+normal chats and when another bot hands it work with `message_bot`, using the edit setting chosen there (ask / allow /
+read only); edits that need your OK are refused when you aren't watching.
+
+Paths can't leave the folder (symbolic links included). Desktop, and the web host with `AllowLocalProcesses`, only.
+
+## Grouping chats
+The selector next to the chat search groups the sidebar **by time**, **by person** (the bot you talked to; group chats show
+under each member) or **by topic**. Code sessions are in their own Code tab. Topics are filed automatically after the
+first reply (reusing your existing topics when they fit); set or change one with the 🏷 button on a chat. Click a group
+header to collapse it.
+
 ## Tools (agent mode)
 Toggle **🛠 Tools** in the composer. The model calls tools, Locus runs them and feeds results back
 (up to 8 rounds). Each call shows as an expandable card; anything that can change things or run code

@@ -1,5 +1,7 @@
 @page "/"
 @page "/c/{Id}"
+@page "/code"
+@page "/code/{Id}"
 @inherits StatefulComponent
 @inject ChatService ChatSvc
 @inject ConversationStore Store
@@ -10,6 +12,8 @@
 @inject BotStore Bots
 @inject LiveVoice Live
 @inject ChatRuns Runs
+@inject CodeTools CodeTools
+@inject LinkedFolders Folders
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
@@ -53,11 +57,56 @@
     {
         <button class="icon-btn" title="Copy chat as Markdown" aria-label="Copy chat as Markdown" @onclick="ExportMarkdown"><Icon Name="download" /></button>
     }
-    <button class="icon-btn" title="New chat" aria-label="New chat" @onclick="NewChat"><Icon Name="message-square-plus" /></button>
+    <button class="icon-btn" title="@(IsCodeRoute ? "New code session" : "New chat")" aria-label="@(IsCodeRoute ? "New code session" : "New chat")" @onclick="NewChat"><Icon Name="@(IsCodeRoute ? "terminal" : "message-square-plus")" /></button>
 </header>
 
+@if (_conv?.Code is { } session && !_codeSetup)
+{
+    <div class="code-bar">
+        <Icon Name="terminal" Size="16" />
+        <button class="code-folder" title="@session.Directory — change folder" @onclick="ToggleCodeSetup"><b>@session.Name</b> <span class="muted small ellipsis only-desktop">@session.Directory</span></button>
+        @if (!Directory.Exists(session.Directory)) { <span class="tiny-error">Folder not found</span> }
+        <span class="spacer"></span>
+        <select class="code-mode mode-@session.Mode.ToString().ToLowerInvariant()" value="@session.Mode" @onchange="SetCodeMode" title="Permission mode" aria-label="Permission mode">
+            <option value="@CodePermissionMode.Ask">Ask before edits</option>
+            <option value="@CodePermissionMode.AcceptEdits">Accept edits</option>
+            <option value="@CodePermissionMode.Plan">Plan only</option>
+        </select>
+    </div>
+}
+@if (_codeSetup)
+{
+    <div class="code-setup">
+        <div class="grow">
+            <b>@(_conv is null ? "New code session" : "Change folder")</b>
+            <p class="muted small">Work in a project folder like a coding agent: the assistant finds, reads and edits files, runs builds and tests, and keeps a task list. Edits and commands ask first unless you choose otherwise. Uses CLAUDE.md / AGENTS.md from the folder.</p>
+            <div class="code-setup-row">
+                <input class="grow" placeholder="Full path of the project folder, e.g. /Users/me/src/my-app" list="code-folders" @bind="_codeDir" @bind:event="oninput" @onkeydown="CodeDirKey" aria-label="Project folder" autofocus />
+                <datalist id="code-folders">
+                    @foreach (var f in _recentFolders) { <option value="@f"></option> }
+                </datalist>
+                @if (_conv is null)
+                {
+                    <select value="@CodeBotId" @onchange="PickCodeBot" aria-label="Who works on it" title="Who works on it">
+                        @foreach (var b in CodeBots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
+                        <option value="">Locus (no bot)</option>
+                    </select>
+                }
+                <select @bind="_codeMode" aria-label="Permission mode">
+                    <option value="@CodePermissionMode.Ask">Ask before edits</option>
+                    <option value="@CodePermissionMode.AcceptEdits">Accept edits</option>
+                    <option value="@CodePermissionMode.Plan">Plan only</option>
+                </select>
+                <button class="btn primary" @onclick="StartCodeSession">@(_conv?.Code is null ? "Start" : "Save")</button>
+                @if (_conv is not null) { <button class="btn ghost" @onclick="() => _codeSetup = false">Cancel</button> }
+            </div>
+            @if (_codeError is not null) { <div class="tiny-error">@_codeError</div> }
+        </div>
+    </div>
+}
+
 <section class="chat" @ref="_scroller">
-    @if (_conv is { Messages.Count: 0 } && Members.Count > 0)
+    @if (_conv is { Messages.Count: 0 } && Members.Count > 0 && !IsCodeRoute)
     {
         <div class="welcome">
             <div class="welcome-avatars">
@@ -71,6 +120,24 @@
                     <button class="suggestion" @onclick="() => Send(new ComposerInput(s, [], []))">@s</button>
                 }
             </div>
+        </div>
+    }
+    else if (IsCodeRoute && (_conv is null || _conv.Messages.Count == 0))
+    {
+        <div class="welcome">
+            @if (Members.Count == 1) { <div class="welcome-avatars"><BotAvatar Bot="Members[0]" Size="lg" /></div> }
+            else { <div class="welcome-logo"><Icon Name="terminal" Size="26" /></div> }
+            <h1>@(_conv?.Code is { } c ? (Members.Count == 1 ? $"{Members[0].Name} · {c.Name}" : c.Name) : "Code")</h1>
+            <p class="muted">@(_conv is null ? "Pick a project folder above to start." : "Ask for a change, a fix or an explanation. Try Plan only first for bigger jobs.")</p>
+            @if (_conv is not null)
+            {
+                <div class="suggestions">
+                    @foreach (var s in CodeSuggestions)
+                    {
+                        <button class="suggestion" @onclick="() => Send(new ComposerInput(s, [], []))">@s</button>
+                    }
+                </div>
+            }
         </div>
     }
     else if (_conv is null || _conv.Messages.Count == 0)
@@ -135,7 +202,34 @@
         @if (Live.Active) { <button class="btn ghost" @onclick="Live.StopAsync">End</button> }
     </div>
 }
+@if (_conv?.Code is { Todos.Count: > 0 } todoCode)
+{
+    var done = todoCode.Todos.Count(t => t.Status == CodeTodoStatus.Completed);
+    <details class="code-todos" open="@(done < todoCode.Todos.Count)">
+        <summary><Icon Name="check" Size="14" /> Tasks <span class="muted small">@done/@todoCode.Todos.Count</span></summary>
+        <ul>
+            @foreach (var t in todoCode.Todos)
+            {
+                <li class="todo-@t.Status.ToString().ToLowerInvariant()">
+                    <Icon Name="@(t.Status switch { CodeTodoStatus.Completed => "check", CodeTodoStatus.InProgress => "circle-dot", _ => "circle" })" Size="14" />
+                    <span>@t.Content</span>
+                </li>
+            }
+        </ul>
+    </details>
+}
+@if (_conv?.Code is { Mode: CodePermissionMode.Plan } && !Busy && _conv.Messages.LastOrDefault() is { Role: ChatRole.Assistant, Error: null, Content.Length: > 0 })
+{
+    <div class="plan-actions">
+        <span class="muted small">Happy with the plan?</span>
+        <button class="btn ghost" @onclick="() => StartOnPlan(CodePermissionMode.Ask)">Go ahead, ask before edits</button>
+        <button class="btn primary" @onclick="() => StartOnPlan(CodePermissionMode.AcceptEdits)">Go ahead, accept edits</button>
+    </div>
+}
+@if (!(IsCodeRoute && _conv is null))
+{
 <Composer @ref="_composer" Busy="Busy" OnSend="Send" OnStop="Stop" Members="Members" OnTalk="ToggleTalk" Talking="Live.Active" />
+}
 <div class="disclaimer">@(Personas.IsLocal(State.Settings.ActiveProvider) ? "Runs on your own hardware" : "Sent to a cloud model") · @State.Settings.ActiveProvider.Name · @(Members.Count switch { 0 => Personas.Get(State.PersonaId).Name + " mode", 1 => Members[0].Name, var n => $"group of {n} bots" })</div>
 
 @code {
@@ -170,7 +264,19 @@
         Store.Saved += OnSavedElsewhere;
         Live.Changed += OnLiveChanged;
         Runs.Updated += OnRunUpdated;
+        Nav.LocationChanged += OnLocationChanged;
     }
+
+    private bool _wasCodeRoute;
+
+    /// <summary>"/" and "/code" share this page with the same (empty) parameters, so Blazor doesn't re-run
+    /// OnParametersSet when switching between them; catch that here.</summary>
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(async () =>
+    {
+        if (Id is not null || IsCodeRoute == _wasCodeRoute) return;
+        await OnParametersSetAsync();
+        StateHasChanged();
+    });
 
     /// <summary>The reply runs in the background (it carries on if this page closes); this page follows it.</summary>
     private void OnRunUpdated(string id)
@@ -210,9 +316,54 @@
         _ => "Good evening.",
     };
 
+    private bool IsCodeRoute => Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0] is var p && (p == "code" || p.StartsWith("code/"));
+
+    private static readonly string[] CodeSuggestions =
+    [
+        "Give me a quick tour of this project: what it does and how it's organised.",
+        "Run the tests and fix anything that fails.",
+        "Find likely bugs or risky code and list them.",
+    ];
+
+    private bool _codeSetup;
+    private string _codeDir = "";
+    private CodePermissionMode _codeMode = CodePermissionMode.Ask;
+    private string? _codeError;
+    private List<string> _recentFolders = [];
+    /// <summary>The bot picked for a new code session: null = not picked yet (use the default), "" = Locus.</summary>
+    private string? _codeBot;
+    private string CodeBotId => _codeBot ?? DefaultCodeBot ?? "";
+
+    /// <summary>The coding bot used most recently, else the first one that can code. Worked out on demand because
+    /// bots may still be loading when the page opens.</summary>
+    private string? DefaultCodeBot =>
+        State.Conversations.Where(c => c.Project is not null && c.BotIds.Count == 1)
+            .OrderByDescending(c => c.UpdatedAt).Select(c => c.BotIds[0]).FirstOrDefault(id => CodeBots.Any(b => b.Id == id))
+        ?? CodeBots.FirstOrDefault()?.Id;
+
+    /// <summary>Bots that can work in code sessions (the Code ability).</summary>
+    private List<Bot> CodeBots => State.Bots.Where(b => b.Abilities.Code && b.ToolMode != BotToolMode.None).ToList();
+
+    private void PickCodeBot(ChangeEventArgs e)
+    {
+        _codeBot = e.Value?.ToString() ?? "";
+        if (State.BotById(CodeBotId) is { Abilities.ProjectFolder: { Length: > 0 } folder } bot)
+        {
+            _codeDir = folder;
+            _codeMode = bot.Abilities.CodeMode;
+        }
+    }
+
     protected override async Task OnParametersSetAsync()
     {
+        _wasCodeRoute = IsCodeRoute;
+        if (Id is null)
+        {
+            if (IsCodeRoute && CodeTools.Available) { _conv = null; await OpenCodeSetup(); }
+            else _codeSetup = false;
+        }
         if (_conv is not null && _conv.Id == Id) return; // same chat (e.g. after first-message navigation)
+        if (Id is not null) _codeSetup = false;
         if (Live.Active) await Live.StopAsync();
 
         if (Id is null)
@@ -223,7 +374,9 @@
 
         // A chat that's still working: show the live one so the reply keeps streaming in.
         _conv = Runs.Live(Id) ?? await Store.GetAsync(Id);
-        if (_conv is null) { Nav.NavigateTo(""); return; }
+        if (_conv is null) { Nav.NavigateTo(IsCodeRoute ? "code" : ""); return; }
+        // Code sessions live in the Code tab, other chats in Chats.
+        if ((_conv.Code is not null) != IsCodeRoute) { Nav.NavigateTo($"{(_conv.Code is null ? "c" : "code")}/{_conv.Id}", replace: true); return; }
         if (_conv.Unread)
         {
             _conv.Unread = false;
@@ -246,6 +399,7 @@
     private async Task Send(ComposerInput input)
     {
         if (Busy) return;
+        _codeSetup = false;
         var imagine = input.Text.StartsWith("/imagine", StringComparison.OrdinalIgnoreCase) && State.CanImagine;
         if (!imagine && State.SelectedModel is null) return;
         if (_conv is null)
@@ -280,7 +434,8 @@
     {
         if (_conv is null || State.SelectedModel is null) return;
         var conv = _conv;
-        var options = new SendOptions(State.SelectedModel, State.Think, State.DeepSearch && State.CanSearch, State.UseTools);
+        // Code sessions always work with tools.
+        var options = new SendOptions(State.SelectedModel, State.Think, State.DeepSearch && State.CanSearch, State.UseTools || conv.Code is not null);
         try { await Runs.ReplyAsync(conv, options); }
         catch (InvalidOperationException) { return; } // already working (e.g. started on another device)
 
@@ -335,6 +490,7 @@
 
     private async Task NewChat()
     {
+        if (IsCodeRoute) { Nav.NavigateTo("code"); return; }
         if (_conv is { BotIds.Count: > 0 })
         {
             // New thread with the same bot(s).
@@ -344,6 +500,85 @@
             return;
         }
         Nav.NavigateTo("");
+    }
+
+    private async Task ToggleCodeSetup()
+    {
+        if (_codeSetup) { _codeSetup = false; return; }
+        await OpenCodeSetup();
+    }
+
+    /// <summary>Shows the folder picker, suggesting folders used before and editable linked folders.</summary>
+    private async Task OpenCodeSetup()
+    {
+        _codeSetup = true;
+        _codeError = null;
+        _codeDir = _conv?.Code?.Directory ?? "";
+        _codeMode = _conv?.Code?.Mode ?? CodePermissionMode.Ask;
+        var recent = new List<string>();
+        foreach (var c in State.Conversations.Where(c => c.Project is not null).OrderByDescending(c => c.UpdatedAt).Take(20))
+            if (await Store.GetAsync(c.Id) is { Code.Directory: { Length: > 0 } d } && !recent.Contains(d)) recent.Add(d);
+        try { recent.AddRange((await Folders.ListAsync()).Where(f => f.Enabled && f.Editable).Select(f => f.Path).Where(p => !recent.Contains(p))); }
+        catch { /* linked folders are optional */ }
+        _recentFolders = recent;
+        if (_conv is null)
+        {
+            _codeBot = null;
+            if (State.BotById(CodeBotId) is { Abilities.ProjectFolder: { Length: > 0 } folder } bot && _codeDir.Length == 0)
+            {
+                _codeDir = folder;
+                _codeMode = bot.Abilities.CodeMode;
+            }
+        }
+        if (_codeDir.Length == 0 && recent.Count > 0) _codeDir = recent[0];
+    }
+
+    private async Task CodeDirKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await StartCodeSession();
+        else if (e.Key == "Escape") _codeSetup = false;
+    }
+
+    private async Task StartCodeSession()
+    {
+        var dir = _codeDir.Trim().Trim('"');
+        if (dir.StartsWith('~')) dir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + dir[1..];
+        if (dir.Length == 0 || !Path.IsPathRooted(dir)) { _codeError = "Enter the folder's full path."; return; }
+        if (!Directory.Exists(dir)) { _codeError = "That folder doesn't exist."; return; }
+        dir = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (Path.GetPathRoot(dir) == dir + Path.DirectorySeparatorChar || dir == Path.GetPathRoot(dir)
+            || dir.Equals(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), StringComparison.OrdinalIgnoreCase))
+        { _codeError = "Pick a project folder, not the whole drive or your home folder."; return; }
+
+        var conv = _conv;
+        if (conv is null)
+        {
+            conv = _conv = new Conversation
+            {
+                PersonaId = State.PersonaId, Model = State.SelectedModel,
+                BotIds = State.BotById(CodeBotId) is { } bot ? [bot.Id] : [],
+            };
+        }
+        conv.Code ??= new CodeSession();
+        conv.Code.Directory = dir;
+        conv.Code.Mode = _codeMode;
+        _codeSetup = false;
+        await Store.SaveAsync(conv);
+        if (Id != conv.Id) Nav.NavigateTo($"code/{conv.Id}");
+    }
+
+    private async Task SetCodeMode(ChangeEventArgs e)
+    {
+        if (_conv?.Code is null || !Enum.TryParse<CodePermissionMode>(e.Value?.ToString(), out var mode)) return;
+        _conv.Code.Mode = mode;
+        await Store.SaveAsync(_conv);
+    }
+
+    private async Task StartOnPlan(CodePermissionMode mode)
+    {
+        if (_conv?.Code is null || Busy) return;
+        _conv.Code.Mode = mode;
+        await Send(new ComposerInput("The plan looks good. Go ahead and implement it.", [], []));
     }
 
     private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
@@ -404,6 +639,7 @@
     {
         // The reply keeps going in the background; this page just stops following it.
         Runs.Updated -= OnRunUpdated;
+        Nav.LocationChanged -= OnLocationChanged;
         Store.Saved -= OnSavedElsewhere;
         Live.Changed -= OnLiveChanged;
         _ = Live.StopAsync();

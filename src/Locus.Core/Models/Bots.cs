@@ -23,6 +23,11 @@ public sealed class BotAbilities
     public DesktopTarget Desktop { get; set; } = DesktopTarget.ThisComputer;
     public bool Files { get; set; } = true;
     public bool Code { get; set; }
+    /// <summary>With Code on: the project folder this bot works in by default (its chats and work handed to it get
+    /// the code-session tools there). Code sessions started with this bot can pick another folder.</summary>
+    public string? ProjectFolder { get; set; }
+    /// <summary>How edits in <see cref="ProjectFolder"/> are approved outside a code session.</summary>
+    public CodePermissionMode CodeMode { get; set; } = CodePermissionMode.Ask;
     public bool Images { get; set; } = true;
     public bool Documents { get; set; } = true;
     public bool Skills { get; set; } = true;
@@ -43,6 +48,7 @@ public sealed class BotAbilities
         "list_files" or "read_file" or "write_file" => nameof(Files),
         "edit_project_file" or "write_project_file" or "undo_project_change" or "list_project_changes" => nameof(Files),
         "run_in_project" or "run_tools_script" => nameof(Code),
+        "glob" or "grep" or "read" or "edit" or "write" or "bash" or "todo_write" or "undo_edit" => nameof(Code),
         "run_python" or "run_command" or "run_remote" => nameof(Code),
         "generate_image" => nameof(Images),
         "search_documents" or "read_linked_file" or "list_linked_files" => nameof(Documents),
@@ -253,8 +259,9 @@ public static class BotTemplates
                            "with [n]. Say clearly when evidence is weak or conflicting." },
         new() { Name = "Engineer", Emoji = "🛠️", Color = "#7c9cff", Title = "Software engineer",
             Abilities = new() { Code = true, Images = false },
-            Instructions = "You write and debug code. Prefer complete, runnable solutions, explain trade-offs briefly, and test " +
-                           "with run_python when it helps. Point out bugs and edge cases." },
+            Instructions = "You write and debug code. In a code session, work in the project like a careful senior engineer: read " +
+                           "before changing, make small exact edits, run the build and tests, and report what you verified. " +
+                           "Otherwise prefer complete, runnable solutions and test with run_python when it helps. Point out bugs and edge cases." },
         new() { Name = "Writer", Emoji = "✍️", Color = "#f472b6", Title = "Writing & editing",
             Abilities = new() { Browser = false },
             Instructions = "You write clear, vivid, well-structured prose in the user's voice: emails, posts, docs, stories. " +

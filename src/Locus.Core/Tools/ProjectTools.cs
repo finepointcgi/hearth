@@ -210,15 +210,26 @@ public sealed class RunInProjectTool(LinkedFolders folders, CodeSandbox sandbox)
         if (string.IsNullOrWhiteSpace(command)) return ToolResult.Error("command is required");
         var secs = (int)Math.Clamp(args.Num("timeout_seconds") ?? 180, 5, MaxSeconds);
 
-        if (sandbox.Active(ctx.Settings))
+        return await ProjectCommand.RunAsync(ctx.Settings, sandbox, folder.Path, full, command, folder.SandboxImage, secs, ct);
+    }
+}
+
+/// <summary>Runs a shell command for a project: in the code sandbox (only the project mounted) when it's on, otherwise
+/// on this computer in <c>workDir</c>.</summary>
+internal static class ProjectCommand
+{
+    public static async Task<ToolResult> RunAsync(AppSettings settings, CodeSandbox sandbox, string projectRoot, string workDir,
+        string command, string? image, int secs, CancellationToken ct)
+    {
+        if (sandbox.Active(settings))
         {
             // The whole project is mounted (so builds see everything); start in the requested sub-folder.
-            var sub = Path.GetRelativePath(folder.Path, full).Replace('\\', '/');
+            var sub = Path.GetRelativePath(projectRoot, workDir).Replace('\\', '/');
             var cd = sub == "." ? "" : $"cd '{sub.Replace("'", "'\\''")}' && ";
             try
             {
-                var r = await sandbox.RunAsync(ctx.Settings.Tools.Sandbox, LinkedFolders.Normalize(Path.Combine(Path.GetTempPath(), "locus-sandbox-empty")),
-                    cd + command, projectPath: folder.Path, image: folder.SandboxImage, timeout: TimeSpan.FromSeconds(secs), ct: ct);
+                var r = await sandbox.RunAsync(settings.Tools.Sandbox, LinkedFolders.Normalize(Path.Combine(Path.GetTempPath(), "locus-sandbox-empty")),
+                    cd + command, projectPath: projectRoot, image: image, timeout: TimeSpan.FromSeconds(secs), ct: ct);
                 return SandboxOutput.ToResult(r, secs);
             }
             catch (InvalidOperationException ex) { return ToolResult.Error(ex.Message); }
@@ -227,7 +238,7 @@ public sealed class RunInProjectTool(LinkedFolders folders, CodeSandbox sandbox)
         var psi = OperatingSystem.IsWindows()
             ? new ProcessStartInfo("cmd.exe") { ArgumentList = { "/c", command } }
             : new ProcessStartInfo("/bin/bash") { ArgumentList = { "-lc", command } };
-        psi.WorkingDirectory = full;
+        psi.WorkingDirectory = workDir;
         psi.RedirectStandardOutput = psi.RedirectStandardError = psi.RedirectStandardInput = true;
         psi.UseShellExecute = false;
         psi.CreateNoWindow = true;
@@ -243,7 +254,7 @@ public sealed class RunInProjectTool(LinkedFolders folders, CodeSandbox sandbox)
             proc.Kill(entireProcessTree: true);
             return ToolResult.Error(ct.IsCancellationRequested ? "Cancelled." : $"Timed out after {secs} seconds.");
         }
-        return SandboxOutput.ToResult(new SandboxResult(proc.ExitCode, await stdout, await stderr, false), secs) is var res
-            ? res with { Text = res.Text.Replace(", in the sandbox)", ", on this computer)") } : null!;
+        var res = SandboxOutput.ToResult(new SandboxResult(proc.ExitCode, await stdout, await stderr, false), secs);
+        return res with { Text = res.Text.Replace(", in the sandbox)", ", on this computer)") };
     }
 }

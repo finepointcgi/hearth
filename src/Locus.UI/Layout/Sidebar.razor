@@ -4,6 +4,7 @@
 @inject ConversationStore Store
 @inject NavigationManager Nav
 @inject HeartbeatRunner Heartbeat
+@inject SettingsStore SettingsStore
 
 <aside class="sidebar">
     <div class="sidebar-head">
@@ -14,22 +15,46 @@
     @switch (_section)
     {
         case "chats":
-            <button class="new-chat" @onclick="NewChat"><Icon Name="message-square-plus" /> New chat</button>
-            <label class="search-box"><Icon Name="search" Size="16" /><input placeholder="Search chats" @bind="_filter" @bind:event="oninput" aria-label="Search chats" /></label>
-            @if (State.Bots.Count > 0)
+        case "code":
+            var code = _section == "code";
+            @if (code)
             {
-                <div class="bot-strip" aria-label="Your bots">
-                    @foreach (var b in State.Bots.Take(7))
-                    {
-                        <a href="bot/@b.Id" @onclick="Close" title="Chat with @b.Name"><BotAvatar Bot="b" Size="sm" /></a>
-                    }
-                    <a class="bot-strip-more" href="bots" @onclick="Close" title="All bots" aria-label="All bots"><Icon Name="ellipsis" Size="16" /></a>
-                </div>
+                <a class="new-chat" href="code" @onclick="Close"><Icon Name="terminal" /> New code session</a>
+                <label class="search-box"><Icon Name="search" Size="16" /><input placeholder="Search sessions" @bind="_filter" @bind:event="oninput" aria-label="Search code sessions" /></label>
             }
-            <nav class="conv-list" aria-label="Chats">
-                @foreach (var group in Grouped())
+            else
+            {
+                <button class="new-chat" @onclick="NewChat"><Icon Name="message-square-plus" /> New chat</button>
+                <div class="search-row">
+                    <label class="search-box"><Icon Name="search" Size="16" /><input placeholder="Search chats" @bind="_filter" @bind:event="oninput" aria-label="Search chats" /></label>
+                    <select class="group-by" value="@GroupBy" @onchange="SetGroupBy" title="Group chats by" aria-label="Group chats by">
+                        <option value="time">By time</option>
+                        <option value="person">By person</option>
+                        <option value="topic">By topic</option>
+                    </select>
+                </div>
+                @if (State.Bots.Count > 0)
                 {
-                    <div class="conv-group">@group.Key</div>
+                    <div class="bot-strip" aria-label="Your bots">
+                        @foreach (var b in State.Bots.Take(7))
+                        {
+                            <a href="bot/@b.Id" @onclick="Close" title="Chat with @b.Name"><BotAvatar Bot="b" Size="sm" /></a>
+                        }
+                        <a class="bot-strip-more" href="bots" @onclick="Close" title="All bots" aria-label="All bots"><Icon Name="ellipsis" Size="16" /></a>
+                    </div>
+                }
+            }
+            var groups = Grouped(code).ToList();
+            var mode = code ? "project" : GroupBy;
+            <nav class="conv-list" aria-label="@(code ? "Code sessions" : "Chats")">
+                @foreach (var group in groups)
+                {
+                    var key = group.Key;
+                    var collapsed = _collapsed.Contains(mode + ":" + key);
+                    <button class="conv-group conv-group-btn" aria-expanded="@(!collapsed)" @onclick="() => ToggleGroup(mode, key)">
+                        <Icon Name="@(collapsed ? "chevron-right" : "chevron-down")" Size="12" /> @key <span class="conv-count">@group.Count()</span>
+                    </button>
+                    @if (collapsed) { continue; }
                     @foreach (var c in group)
                     {
                         <div class="conv @(IsActive(c.Id) ? "active" : "")">
@@ -37,9 +62,13 @@
                             {
                                 <input class="rename" @bind="_renameText" @onkeydown="e => RenameKey(e, c.Id)" @onblur="() => CommitRename(c.Id)" autofocus />
                             }
+                            else if (_topicFor == c.Id)
+                            {
+                                <input class="rename" placeholder="Topic (empty to clear)" list="topic-list" @bind="_topicText" @onkeydown="e => TopicKey(e, c.Id)" @onblur="() => CommitTopic(c.Id)" autofocus />
+                            }
                             else
                             {
-                                <a href="c/@c.Id" @onclick="Close" title="@c.Title" class="@(c.Unread ? "unread" : "")">
+                                <a href="@(c.Project is null ? "c" : "code")/@c.Id" @onclick="Close" title="@c.Title" class="@(c.Unread ? "unread" : "")">
                                     @if (c.BotIds.Count > 0) { <AvatarStack Bots="c.BotIds.Select(State.BotById).OfType<Bot>()" /> }
                                     <span class="conv-title">@c.Title</span>
                                     @if (State.IsWorking(c.Id)) { <span class="working-dot" title="Working on a reply" aria-label="Working on a reply"></span> }
@@ -48,15 +77,28 @@
                                 <div class="conv-actions">
                                     <button title="@(c.Pinned ? "Unpin" : "Pin")" aria-label="Pin" @onclick="() => TogglePin(c.Id)"><Icon Name="pin" Size="14" /></button>
                                     <button title="Rename" aria-label="Rename" @onclick="() => StartRename(c)"><Icon Name="pencil" Size="14" /></button>
+                                    @if (!code)
+                                    {
+                                        <button title="@(c.Topic is null ? "Set topic" : $"Topic: {c.Topic}")" aria-label="Set topic" @onclick="() => StartTopic(c)"><Icon Name="tag" Size="14" /></button>
+                                    }
                                     <button title="Delete" aria-label="Delete" @onclick="() => Delete(c.Id)"><Icon Name="trash-2" Size="14" /></button>
                                 </div>
                             }
                         </div>
                     }
                 }
-                @if (!Grouped().Any())
+                @if (groups.Count == 0)
                 {
-                    <div class="muted pad small">@(_filter.Length > 0 ? "No chats match." : "Your chats will show up here.")</div>
+                    <div class="muted pad small">@(_filter.Length > 0 ? "Nothing matches." : code ? "Your code sessions will show up here, grouped by project folder." : "Your chats will show up here.")</div>
+                }
+                @if (!code)
+                {
+                    <datalist id="topic-list">
+                        @foreach (var t in State.Conversations.Select(c => c.Topic).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).Order())
+                        {
+                            <option value="@t"></option>
+                        }
+                    </datalist>
                 }
             </nav>
             break;
@@ -153,20 +195,101 @@
         base.Dispose();
     }
 
-    private bool IsActive(string id) => Nav.Uri.EndsWith("/c/" + id, StringComparison.Ordinal);
+    private bool IsActive(string id) => Nav.Uri.EndsWith("/c/" + id, StringComparison.Ordinal) || Nav.Uri.EndsWith("/code/" + id, StringComparison.Ordinal);
     private bool Here(string path) => Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].TrimEnd('/') == path;
 
-    private IEnumerable<IGrouping<string, ConversationSummary>> Grouped()
+    private string? _topicFor;
+    private string _topicText = "";
+    private readonly HashSet<string> _collapsed = [];
+
+    private string GroupBy => State.Settings.ChatGroupBy is "person" or "topic" ? State.Settings.ChatGroupBy : "time";
+
+    private async Task SetGroupBy(ChangeEventArgs e)
+    {
+        var settings = await SettingsStore.GetAsync();
+        settings.ChatGroupBy = e.Value?.ToString() ?? "time";
+        await SettingsStore.SaveAsync(settings);
+        StateHasChanged();
+    }
+
+    private void ToggleGroup(string mode, string key)
+    {
+        if (!_collapsed.Remove(mode + ":" + key)) _collapsed.Add(mode + ":" + key);
+    }
+
+    /// <summary>Chats (grouped as chosen) or, in the Code tab, code sessions grouped by project folder.</summary>
+    private IEnumerable<IGrouping<string, ConversationSummary>> Grouped(bool code)
+    {
+        var mode = code ? "project" : GroupBy;
+        var chats = State.Conversations
+            .Where(c => c.Id != _heartbeatChat) // lives under Inbox
+            .Where(c => (c.Project is not null) == code) // code sessions live in the Code tab
+            .Where(c => _filter.Length == 0 || c.Title.Contains(_filter, StringComparison.OrdinalIgnoreCase)
+                        || c.Topic?.Contains(_filter, StringComparison.OrdinalIgnoreCase) == true
+                        || c.Project?.Contains(_filter, StringComparison.OrdinalIgnoreCase) == true)
+            .ToList();
+        var pinned = chats.Where(c => c.Pinned).ToList();
+        var rest = chats.Where(c => !c.Pinned);
+        // Each chat once, except "person": a group chat shows under each of its bots.
+        var keyed = mode switch
+        {
+            "person" => rest.SelectMany(c => People(c).Select(p => (key: p, c))),
+            "topic" => rest.Select(c => (key: c.Topic ?? "No topic", c)),
+            "project" => rest.Select(c => (key: c.Project ?? "No project", c)),
+            _ => rest.Select(c => (key: TimeGroup(c), c)),
+        };
+        var groups = keyed.GroupBy(x => x.key, x => x.c, StringComparer.OrdinalIgnoreCase);
+        // Time groups keep their natural order; the others go by most recent activity, with the catch-all last.
+        var ordered = mode == "time"
+            ? groups.OrderBy(g => TimeOrder.IndexOf(g.Key))
+            : groups.OrderBy(g => g.Key is "No topic" or "No project" ? 1 : 0).ThenByDescending(g => g.Max(c => c.UpdatedAt));
+        var result = ordered.Select(g => (IGrouping<string, ConversationSummary>)new Group(g.Key, g.OrderByDescending(c => c.UpdatedAt).ToList()));
+        return pinned.Count > 0 ? result.Prepend(new Group("Pinned", pinned)) : result;
+    }
+
+    private static readonly List<string> TimeOrder = ["Today", "Yesterday", "Previous 7 days", "Previous 30 days", "Older"];
+
+    private static string TimeGroup(ConversationSummary c)
     {
         var today = DateTimeOffset.Now.Date;
-        return State.Conversations
-            .Where(c => c.Id != _heartbeatChat) // lives under Inbox
-            .Where(c => _filter.Length == 0 || c.Title.Contains(_filter, StringComparison.OrdinalIgnoreCase))
-            .GroupBy(c => c.Pinned ? "Pinned"
-                : c.UpdatedAt.Date == today ? "Today"
-                : c.UpdatedAt.Date == today.AddDays(-1) ? "Yesterday"
-                : c.UpdatedAt.Date > today.AddDays(-7) ? "Previous 7 days"
-                : "Older");
+        var d = c.UpdatedAt.Date;
+        return d == today ? "Today" : d == today.AddDays(-1) ? "Yesterday" : d > today.AddDays(-7) ? "Previous 7 days"
+            : d > today.AddDays(-30) ? "Previous 30 days" : "Older";
+    }
+
+    /// <summary>Who the chat is with: its bots by name, or Locus for plain chats.</summary>
+    private IEnumerable<string> People(ConversationSummary c)
+    {
+        var names = c.BotIds.Select(State.BotById).OfType<Bot>().Select(b => b.Name).ToList();
+        return names.Count > 0 ? names : ["Locus"];
+    }
+
+    private sealed class Group(string key, List<ConversationSummary> items) : IGrouping<string, ConversationSummary>
+    {
+        public string Key => key;
+        public IEnumerator<ConversationSummary> GetEnumerator() => items.GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => items.GetEnumerator();
+    }
+
+    private void StartTopic(ConversationSummary c) { _topicFor = c.Id; _topicText = c.Topic ?? ""; }
+
+    private async Task TopicKey(KeyboardEventArgs e, string id)
+    {
+        if (e.Key == "Enter") await CommitTopic(id);
+        else if (e.Key == "Escape") _topicFor = null;
+    }
+
+    private async Task CommitTopic(string id)
+    {
+        if (_topicFor != id) return;
+        _topicFor = null;
+        var c = await Store.GetAsync(id);
+        if (c is null) return;
+        var text = _topicText.Trim();
+        // Match an existing topic's spelling so groups don't split on case.
+        c.Topic = text.Length == 0 ? null
+            : State.Conversations.Select(x => x.Topic).OfType<string>().FirstOrDefault(t => t.Equals(text, StringComparison.OrdinalIgnoreCase)) ?? text;
+        await Store.SaveAsync(c);
     }
 
     private void Close() { State.SidebarOpen = false; State.NotifyChanged(); }
@@ -175,7 +298,7 @@
     private async Task Delete(string id)
     {
         await Store.DeleteAsync(id);
-        if (IsActive(id)) Nav.NavigateTo("");
+        if (IsActive(id)) Nav.NavigateTo(_section == "code" ? "code" : "");
     }
 
     private async Task TogglePin(string id)

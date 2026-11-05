@@ -26,7 +26,8 @@ public sealed class ChatService(
     ApprovalCenter approvals,
     ActivityLog activity,
     MemoryCurator curator,
-    ProjectContext projectContext)
+    ProjectContext projectContext,
+    CodeTools codeTools)
 {
     private const int MaxToolResultChars = 16000;
     private const int MaxBotCallDepth = 2;
@@ -38,8 +39,15 @@ public sealed class ChatService(
         finally
         {
             // Name the chat once there's something to name it after (any kind of chat, groups included).
-            if (NeedsTitle(conv) && (await settingsStore.GetAsync()).AutoTitle)
-                _ = Task.Run(() => AutoTitleAsync(conv, onUpdate));
+            var auto = (await settingsStore.GetAsync()).AutoTitle;
+            var title = auto && NeedsTitle(conv);
+            var topic = auto && conv.Topic is null && conv.Messages.Any(m => m is { Role: ChatRole.Assistant, Notice: null, Content.Length: > 0 });
+            if (title || topic)
+                _ = Task.Run(async () =>
+                {
+                    if (title) await AutoTitleAsync(conv, onUpdate);
+                    if (topic) await AutoTopicAsync(conv, onUpdate);
+                });
         }
     }
 
@@ -251,11 +259,17 @@ public sealed class ChatService(
             // Helpers: the replying bot (or Locus) can split work across temporary helper agents. Not for helpers themselves.
             if (opts.UseTools && depth == 0 && settings.Tools.MaxHelpers > 0 && bot?.ToolMode != BotToolMode.None)
                 available.Add(new DelegateTool(this, bot, opts with { DeepSearch = false }));
+            // Coding (Claude Code-style tools scoped to one folder): the chat's code session, or — for a bot with the
+            // Code ability — its own project folder, so its chats and work other bots hand it get them too.
+            var codeSession = CodeTools.SessionFor(conv, bot);
+            if (opts.UseTools && (bot is null || bot is { ToolMode: not BotToolMode.None, Abilities.Code: true }))
+                foreach (var t in codeTools.For(codeSession))
+                    if (available.All(a => a.Name != t.Name)) available.Add(t);
             available = available.Where(t => !PermissionCatalog.IsBlocked(t, settings)).ToList();
-            if (extraTools is not null) available.AddRange(extraTools);
+            if (extraTools is not null) available.AddRange(extraTools.Where(t => available.All(a => a.Name != t.Name)));
             var byName = available.ToDictionary(t => t.Name);
 
-            var system = await BuildSystemPromptAsync(conv, bot, members, allBots, settings, byName, opts, unattended);
+            var system = await BuildSystemPromptAsync(conv, bot, members, allBots, settings, byName, opts, unattended, codeSession);
 
             if (opts.DeepSearch && !byName.ContainsKey("web_search") && !string.IsNullOrWhiteSpace(settings.SearxngUrl))
             {
@@ -301,12 +315,14 @@ public sealed class ChatService(
             var ctx = new ToolContext
             {
                 Conversation = conv, Reply = reply, Settings = settings, Client = client, Model = model,
-                Bot = bot, Depth = depth, Unattended = unattended, TaintedBy = untrustedInput, Tools = byName,
+                Bot = bot, Depth = depth, Unattended = unattended, TaintedBy = untrustedInput, Tools = byName, Code = codeSession,
             };
             var definitions = available.Select(t => new ToolDefinition(t.Name, t.Description, t.Parameters)).ToList();
             var content = new StringBuilder();
             var thinking = new StringBuilder();
-            var maxRounds = Math.Max(1, settings.Tools.MaxRounds);
+            var maxRounds = Math.Max(1, byName.ContainsKey("todo_write")
+                ? Math.Max(settings.Tools.MaxRounds, settings.Tools.CodeMaxRounds)
+                : settings.Tools.MaxRounds);
 
             for (var round = 0; round < maxRounds; round++)
             {
@@ -398,6 +414,67 @@ public sealed class ChatService(
         return reply;
     }
 
+    /// <summary>Instructions for a code session: how to work in the folder (like Claude Code), the folder's own
+    /// instruction file (CLAUDE.md / AGENTS.md…), the git state and the current task list.</summary>
+    public static async Task<string> CodeSessionGuideAsync(CodeSession code, bool botFolder = false)
+    {
+        var sb = new StringBuilder()
+            .Append(botFolder
+                ? "PROJECT FOLDER. Your project is the folder " + code.Directory + " (paths are relative to it). When a request is about that code, work as a coding agent"
+                : "CODE SESSION. You are working as a coding agent in the folder " + code.Directory + " (paths are relative to it)")
+            .Append(". Work like a careful senior engineer:\n")
+            .Append("- Explore before changing: find files with glob, search with grep, read files with read. Don't guess at code you haven't read.\n")
+            .Append("- For work with 3 or more steps, keep a task list with todo_write and update it as you go (one item in_progress at a time).\n")
+            .Append("- Make small, exact changes with edit (write only for new files or full rewrites). Follow the project's existing style and conventions.\n")
+            .Append("- Check your work: build, run the tests or the linter with bash, and fix what fails. Don't claim something works if you didn't check it.\n")
+            .Append("- Don't commit, push, delete files or install things unless the user asked for it.\n")
+            .Append("- Keep replies short: say what you changed (file paths) and what you verified, or what's left. No long recaps.");
+        sb.Append(code.Mode switch
+        {
+            CodePermissionMode.Plan => "\n\nPLAN MODE: you can only read. Investigate the code, then reply with a concise, concrete plan " +
+                                       "(which files change and how, and how you'll verify it). Don't try to change anything; the user switches " +
+                                       "modes when they approve the plan.",
+            CodePermissionMode.AcceptEdits => "\n\nThe user accepts file edits without reviewing each one; commands may still ask.",
+            _ => "\n\nThe user reviews each edit and command before it runs.",
+        });
+
+        foreach (var name in ProjectContext.ProjectFiles)
+        {
+            var path = Path.Combine(code.Directory, name);
+            if (!File.Exists(path) || new FileInfo(path).Length > 200_000) continue;
+            var text = (await File.ReadAllTextAsync(path)).Trim();
+            if (text.Length == 0) continue;
+            if (text.Length > ProjectContext.MaxCharsPerFile) text = text[..ProjectContext.MaxCharsPerFile] + "\n… (cut; read the whole file with read)";
+            sb.Append($"\n\nProject instructions ({name} — follow them):\n").Append(text);
+            break;
+        }
+
+        if (GitSummary(code.Directory) is { } git) sb.Append("\n\n").Append(git);
+
+        if (code.Todos.Count > 0)
+        {
+            sb.Append("\n\nYour task list so far:");
+            foreach (var t in code.Todos)
+                sb.Append("\n- [").Append(t.Status switch { CodeTodoStatus.Completed => "x", CodeTodoStatus.InProgress => "~", _ => " " }).Append("] ").Append(t.Content);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>The branch, from .git/HEAD (no process needed). Null when the folder isn't a git checkout.</summary>
+    private static string? GitSummary(string dir)
+    {
+        try
+        {
+            var head = Path.Combine(dir, ".git", "HEAD");
+            if (!File.Exists(head)) return Directory.Exists(Path.Combine(dir, ".git")) ? "This folder is a git repository." : null;
+            var text = File.ReadAllText(head).Trim();
+            return text.StartsWith("ref: refs/heads/")
+                ? $"This folder is a git repository on branch {text["ref: refs/heads/".Length..]} (use bash for git status/diff)."
+                : "This folder is a git repository (detached HEAD).";
+        }
+        catch (IOException) { return null; }
+    }
+
     /// <summary>How to take initiative (Settings → "Take initiative"): act on clear next steps, come back later on your
     /// own, and hand big jobs to a background task.</summary>
     public static string InitiativeGuide(IReadOnlyDictionary<string, ITool> tools, bool unattended)
@@ -423,7 +500,7 @@ public sealed class ChatService(
     }
 
     private async Task<StringBuilder> BuildSystemPromptAsync(Conversation conv, Bot? bot, List<Bot> members, List<Bot> allBots,
-        AppSettings settings, Dictionary<string, ITool> byName, SendOptions opts, bool unattended)
+        AppSettings settings, Dictionary<string, ITool> byName, SendOptions opts, bool unattended, CodeSession? codeSession = null)
     {
         // Date only: a clock time would change the prompt every minute and defeat prompt caching
         // (get_current_datetime gives the exact time).
@@ -524,6 +601,9 @@ public sealed class ChatService(
                       .Append("with edit_project_file (write_project_file only for new files), then check your work with ")
                       .Append("run_in_project (build, tests). Explain what you changed and why.");
         }
+
+        if (codeSession is not null && byName.ContainsKey("todo_write"))
+            system.AppendLine().AppendLine().Append(await CodeSessionGuideAsync(codeSession, conv.Code is null));
 
         if (settings.TakeInitiative && byName.Count > 0)
             system.AppendLine().AppendLine().Append(InitiativeGuide(byName, unattended));
@@ -1069,6 +1149,58 @@ public sealed class ChatService(
         }
         catch (Exception) when (!ct.IsCancellationRequested) { return null; } // stays "New chat"; tried again next reply
         finally { lock (_titling) _titling.Remove(conv.Id); }
+    }
+
+    /// <summary>Files the chat under a short topic (reusing an existing one when it fits), so chats can be grouped by topic.</summary>
+    public async Task<string?> AutoTopicAsync(Conversation conv, Func<Task>? onUpdate = null, CancellationToken ct = default)
+    {
+        lock (_topicking) if (!_topicking.Add(conv.Id)) return null;
+        using var usageScope = UsageScope.Begin("Titles", null, conv.Id);
+        try
+        {
+            var settings = await settingsStore.GetAsync();
+            var lastBot = conv.Messages.LastOrDefault(m => m.Role == ChatRole.Assistant && m.BotId is not null)?.BotId;
+            var client = factory.CreateForBot(settings, lastBot is null ? null : await bots.GetAsync(lastBot));
+            var model = conv.Messages.LastOrDefault(m => m is { Role: ChatRole.Assistant, Model: not null })?.Model ?? conv.Model;
+            var first = conv.Messages.FirstOrDefault(m => m.Role == ChatRole.User)?.Content;
+            if (model is null || first is null) return null;
+            var existing = (await store.ListAsync()).Select(c => c.Topic).OfType<string>()
+                .GroupBy(t => t, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()).Select(g => g.Key).Take(40).ToList();
+            var reply = conv.Messages.FirstOrDefault(m => m is { Role: ChatRole.Assistant, Notice: null } && m.Content.Length > 0)?.Content ?? "";
+            var prompt = new List<LlmMessage>
+            {
+                LlmMessage.System("You file chats under topics. Reply with ONLY a broad 1-3 word topic in Title Case " +
+                                  "(e.g. \"Job Search\", \"Cooking\", \"Home Server\", \"Health\", \"Coding\"). " +
+                                  (existing.Count > 0 ? "Reuse one of these existing topics when it fits: " + string.Join(", ", existing) + ". " : "") +
+                                  "No quotes, no emoji, no punctuation."),
+                LlmMessage.User($"Chat titled \"{conv.Title}\".\nThe user wrote:\n{Clip(first, 600)}\n\nThe assistant replied:\n{Clip(reply, 400)}\n\nTopic:"),
+            };
+            var sb = new StringBuilder();
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromMinutes(5));
+            await foreach (var c in client.StreamChatAsync(new LlmRequest(model, prompt, 0.2, 1200, 4096, false), cts.Token))
+                sb.Append(c.Content);
+            var topic = Topic(sb.ToString(), existing);
+            if (topic is null || conv.Topic is not null) return null; // set meanwhile by the user
+            conv.Topic = topic;
+            await store.SaveAsync(conv);
+            if (onUpdate is not null) await onUpdate();
+            return topic;
+        }
+        catch (Exception) when (!ct.IsCancellationRequested) { return null; }
+        finally { lock (_topicking) _topicking.Remove(conv.Id); }
+    }
+
+    private readonly HashSet<string> _topicking = [];
+
+    /// <summary>Cleans a model's topic answer, matching an existing topic's spelling; null when unusable.</summary>
+    public static string? Topic(string raw, IReadOnlyList<string> existing)
+    {
+        var line = Title(raw);
+        if (line is null) return null;
+        line = System.Text.RegularExpressions.Regex.Replace(line, @"^topic\s*:\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+        if (line.Length is 0 or > 32 || line.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length > 4) return null;
+        return existing.FirstOrDefault(e => e.Equals(line, StringComparison.OrdinalIgnoreCase)) ?? line;
     }
 
     private static async Task<string> AskForTitleAsync(ILlmClient client, string model, Conversation conv, CancellationToken ct)

@@ -6,6 +6,10 @@ internal static class Icons
     public static readonly IReadOnlyDictionary<string, string> Paths = new Dictionary<string, string>
     {
         ["archive-restore"] = "<rect width='20' height='5' x='2' y='3' rx='1' /> <path d='M4 8v11a2 2 0 0 0 2 2h2' /> <path d='M20 8v11a2 2 0 0 1-2 2h-2' /> <path d='m9 15 3-3 3 3' /> <path d='M12 12v9' />",
+        ["tag"] = "<path d='M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z' /> <circle cx='7.5' cy='7.5' r='.5' fill='currentColor' />",
+        ["circle"] = "<circle cx='12' cy='12' r='10' />",
+        ["circle-dot"] = "<circle cx='12' cy='12' r='10' /> <circle cx='12' cy='12' r='1' />",
+        ["folder-open"] = "<path d='m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2' />",
         ["arrow-up"] = "<path d='m5 12 7-7 7 7' /> <path d='M12 19V5' />",
         ["bell-ring"] = "<path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9' /> <path d='M10.3 21a1.94 1.94 0 0 0 3.4 0' /> <path d='M4 2C2.8 3.7 2 5.7 2 8' /> <path d='M22 8c0-2.3-.8-4.3-2-6' />",
         ["bell"] = "<path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9' /> <path d='M10.3 21a1.94 1.94 0 0 0 3.4 0' />",
