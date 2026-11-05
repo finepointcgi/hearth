@@ -284,7 +284,12 @@ public sealed class ChatService(
             var baseMessages = new List<LlmMessage> { LlmMessage.System(system.ToString()) };
             // Long-running tasks pass a window so their history doesn't outgrow the model's context.
             var window = historyWindow is > 0 && history.Count > historyWindow ? history.TakeLast(historyWindow.Value).ToList() : history;
-            baseMessages.AddRange(ToLlmMessages(window, bot, allBots, skills));
+            // Fit the model's context window: tool schemas and the system prompt first, then as much history as fits
+            // (summarising the oldest part of long chats).
+            var budget = ContextWindow.BudgetFor(settings.ProviderFor(bot), settings);
+            var toolTokens = available.Sum(t => ContextWindow.Tokens(t.Name + t.Description + t.Parameters.ToJsonString()) + 10);
+            var historyRoom = budget - toolTokens - ContextWindow.Tokens(system.ToString());
+            baseMessages.AddRange(await FitHistoryAsync(conv, window, bot, allBots, skills, client, model, historyRoom, reply, onUpdate, ct));
 
             var ctx = new ToolContext
             {
@@ -298,7 +303,7 @@ public sealed class ChatService(
 
             for (var round = 0; round < maxRounds; round++)
             {
-                var messages = baseMessages.Concat(ToolRounds(reply)).ToList();
+                var messages = ContextWindow.FitToolResults(baseMessages.Concat(ToolRounds(reply)).ToList(), budget - toolTokens);
                 // Last round: withhold tools so the model has to answer.
                 var offer = definitions.Count > 0 && round < maxRounds - 1 ? definitions : null;
                 var request = new LlmRequest(model, messages, settings.Temperature, settings.MaxTokens,
@@ -620,6 +625,75 @@ public sealed class ChatService(
     }
 
     /// <summary>Replays a reply's tool rounds as assistant tool_calls + tool results.</summary>
+    /// <summary>
+    /// The chat history to send, within <paramref name="room"/> tokens. Only the last two replies keep their tool
+    /// steps. When it still doesn't fit, the oldest part is summarised (saved on the chat and extended later) and
+    /// sent as a note instead of those messages.
+    /// </summary>
+    private async Task<List<LlmMessage>> FitHistoryAsync(Conversation conv, List<ChatMessage> window, Bot? bot, List<Bot> allBots,
+        IReadOnlyList<Skill> skills, ILlmClient client, string model, int room, ChatMessage reply, Func<Task> onUpdate, CancellationToken ct)
+    {
+        room = Math.Max(800, room);
+        var recentReplies = window.Where(m => m.Role == ChatRole.Assistant && m.Notice is null && (bot is null || m.BotId == bot.Id))
+            .TakeLast(2).Select(m => m.Id).ToHashSet();
+
+        int Cost(ChatMessage m) => ContextWindow.Tokens(ToLlmMessages([m], bot, allBots, skills, recentReplies));
+        List<LlmMessage> Build(IEnumerable<ChatMessage> msgs, string? summary)
+        {
+            var list = new List<LlmMessage>();
+            if (!string.IsNullOrWhiteSpace(summary))
+                list.Add(LlmMessage.User($"[Summary of the earlier part of this conversation, which isn't shown]\n{summary.Trim()}"));
+            list.AddRange(ToLlmMessages(msgs, bot, allBots, skills, recentReplies));
+            return list;
+        }
+
+        // Start after what the saved summary already covers.
+        var start = conv.SummaryThroughId is { } through && window.FindIndex(m => m.Id == through) is var at and >= 0 ? at + 1 : 0;
+        var summary = start > 0 ? conv.Summary : null;
+        var visible = window.Skip(start).ToList();
+        var built = Build(visible, summary);
+        if (ContextWindow.Tokens(built) <= room) return built;
+
+        // Too long: fold the older messages into the summary, keeping the recent ones as they are.
+        var cut = ContextWindow.RecentStart(visible, Cost, (int)(room * ContextWindow.RecentShare));
+        if (cut <= 0) return ContextWindow.FitToolResults(built, room);
+        var older = visible.Take(cut).ToList();
+        var recent = visible.Skip(cut).ToList();
+        var names = allBots.ToDictionary(b => b.Id, b => b.Name);
+        string? newSummary = null;
+        try
+        {
+            using var scope = UsageScope.Begin("Summaries", bot?.Id, conv.Id);
+            var transcript = ContextWindow.TranscriptForSummary(summary, older, id => id is not null && names.TryGetValue(id, out var n) ? n : "Assistant", (int)(room * 0.8));
+            var sb = new StringBuilder();
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromMinutes(4));
+            await foreach (var c in client.StreamChatAsync(new LlmRequest(model,
+                [LlmMessage.System(ContextWindow.SummaryInstructions), LlmMessage.User(transcript)], 0.2, 1500, 0, false), cts.Token))
+                sb.Append(c.Content);
+            newSummary = System.Text.RegularExpressions.Regex.Replace(sb.ToString(), @"<think>[\s\S]*?</think>", "").Trim();
+        }
+        catch (Exception) when (!ct.IsCancellationRequested) { /* fall back to leaving the older part out */ }
+
+        if (!string.IsNullOrWhiteSpace(newSummary))
+        {
+            conv.Summary = newSummary;
+            conv.SummaryThroughId = older[^1].Id;
+            var replyAt = conv.Messages.IndexOf(reply);
+            conv.Messages.Insert(replyAt < 0 ? conv.Messages.Count : replyAt, new ChatMessage
+            {
+                Role = ChatRole.Assistant,
+                Notice = $"This chat is long, so the earlier part ({older.Count} messages) was summarised to fit the model.",
+            });
+            await store.SaveAsync(conv);
+            await onUpdate();
+            return ContextWindow.FitToolResults(Build(recent, newSummary), room);
+        }
+        var fallback = Build(recent, summary);
+        fallback.Insert(0, LlmMessage.User($"[{older.Count} earlier messages aren't shown because the conversation is long.]"));
+        return ContextWindow.FitToolResults(fallback, room);
+    }
+
     private static IEnumerable<LlmMessage> ToolRounds(ChatMessage m)
     {
         // Only the newest screenshot is sent back to the model; older ones would just eat the context window.
@@ -646,7 +720,7 @@ public sealed class ChatService(
     /// bots' messages are "user", with other bots prefixed "[Name]: ".
     /// </summary>
     private static IEnumerable<LlmMessage> ToLlmMessages(IEnumerable<ChatMessage> history, Bot? self, List<Bot> allBots,
-        IReadOnlyList<Skill> skills)
+        IReadOnlyList<Skill> skills, ISet<string>? fullToolsFor = null)
     {
         foreach (var m in history)
         {
@@ -671,7 +745,9 @@ public sealed class ChatService(
                 var mine = self is null || m.BotId == self.Id;
                 if (mine)
                 {
-                    foreach (var r in ToolRounds(m)) yield return r;
+                    // Older replies keep their answers; their tool steps (often long results) are left out.
+                    if (fullToolsFor is null || fullToolsFor.Contains(m.Id))
+                        foreach (var r in ToolRounds(m)) yield return r;
                     if (m.Content.Length > 0) yield return new LlmMessage { Role = "assistant", Content = m.Content };
                 }
                 else if (m.Content.Length > 0)

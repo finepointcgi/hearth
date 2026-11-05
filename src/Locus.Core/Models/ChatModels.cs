@@ -89,6 +89,10 @@ public sealed class Conversation
     public bool Unread { get; set; }
     /// <summary>Set while a reply is being worked on, so a restart can pick it up again.</summary>
     public PendingRun? Running { get; set; }
+    /// <summary>Summary of the older part of a long chat (sent instead of those messages to fit the model).</summary>
+    public string? Summary { get; set; }
+    /// <summary>The last message the summary covers.</summary>
+    public string? SummaryThroughId { get; set; }
 }
 
 /// <summary>A reply in progress: what it was started with, so it can be resumed after a restart.</summary>

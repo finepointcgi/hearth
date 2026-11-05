@@ -23,6 +23,9 @@ public sealed class ProviderProfile
     /// <summary>Optional prices (USD per million tokens) for cloud servers, for cost estimates.</summary>
     public decimal? InputPricePerMillion { get; set; }
     public decimal? OutputPricePerMillion { get; set; }
+    /// <summary>The models' context window in tokens (null = a default for the kind of server); long chats are
+    /// summarised to fit.</summary>
+    public int? ContextTokens { get; set; }
 }
 
 public sealed class AppSettings

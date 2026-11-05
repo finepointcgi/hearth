@@ -58,6 +58,10 @@
                     <input class="grow" @bind="provider.DefaultModel" placeholder="Default model (optional)" />
                     <button class="btn ghost" @onclick="() => Test(provider)">Test connection</button>
                 </div>
+                <label class="small">Context window (tokens)
+                    <input type="number" min="0" step="1024" @bind="provider.ContextTokens" style="width:9rem" placeholder="@ContextWindow.WindowFor(new ProviderProfile { Kind = provider.Kind }, _s)" />
+                    <span class="muted">How much the model can read at once. Longer chats are summarised to fit. Leave empty for the default.</span>
+                </label>
                 @if (provider.Kind == ProviderKind.OpenAICompatible)
                 {
                     <details class="advanced">
