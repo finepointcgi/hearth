@@ -495,6 +495,10 @@ public sealed class ChatService(
                 .Append("search_documents for the user's own files. Don't invent tool results. After using tools, answer naturally.");
             if (byName.ContainsKey("save_memory"))
                 system.Append(" When the user shares a lasting personal fact or preference, save it with save_memory.");
+            if (byName.ContainsKey("edit_project_file"))
+                system.Append(" To change code in the user's projects: read the file with read_linked_file, make small exact edits ")
+                      .Append("with edit_project_file (write_project_file only for new files), then check your work with ")
+                      .Append("run_in_project (build, tests). Explain what you changed and why.");
         }
 
         if (settings.TakeInitiative && byName.Count > 0)

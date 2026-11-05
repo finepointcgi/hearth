@@ -7,8 +7,18 @@
         <span class="tool-status">@StatusText</span>
     </summary>
     <div class="tool-body">
-        <div class="tool-label">Input</div>
-        <pre>@PrettyArgs</pre>
+        @if (Diff is { } diff)
+        {
+            <div class="tool-label">@diff.path</div>
+            <pre class="diff">@foreach (var (kind, line) in diff.lines)
+{<span class="@kind">@line
+</span>}</pre>
+        }
+        else
+        {
+            <div class="tool-label">Input</div>
+            <pre>@PrettyArgs</pre>
+        }
         @if (Call.Result is not null)
         {
             <div class="tool-label">Result</div>
@@ -48,6 +58,8 @@
         "use_skill" or "save_skill" or "improve_skill" => "zap",
         "run_python" or "run_command" or "run_remote" => "terminal",
         "list_files" or "read_file" or "write_file" => "folder",
+        "edit_project_file" or "write_project_file" or "undo_project_change" or "list_project_changes" or "read_linked_file" or "list_linked_files" => "folder",
+        "run_in_project" => "terminal",
         "generate_image" => "image",
         "search_documents" => "file-text",
         "get_current_datetime" => "clock",
@@ -86,6 +98,11 @@
         ["desktop_type"] = ("⌨️", "Desktop: type"), ["desktop_key"] = ("⌘", "Desktop: keys"),
         ["desktop_scroll"] = ("↕️", "Desktop: scroll"), ["desktop_drag"] = ("✋", "Desktop: drag"),
         ["desktop_open"] = ("🚀", "Desktop: open"), ["desktop_type_login"] = ("🔑", "Desktop: login"),
+        ["edit_project_file"] = ("✏️", "Edit file"), ["write_project_file"] = ("💾", "Write file"),
+        ["run_in_project"] = ("⌨️", "Run in project"), ["undo_project_change"] = ("↩️", "Undo change"),
+        ["list_project_changes"] = ("🕘", "Recent changes"), ["read_linked_file"] = ("📄", "Read file"),
+        ["list_linked_files"] = ("🗂️", "List folder"), ["follow_up"] = ("⏰", "Follow up later"),
+        ["start_task"] = ("🎯", "Start task"), ["propose_new_bot"] = ("🧑‍💼", "Hire a bot"), ["rename_chat"] = ("🏷️", "Name chat"),
     };
 
     private string Icon => Known.TryGetValue(Call.Name, out var k) ? k.icon : "🔌";
@@ -117,6 +134,34 @@
                 return node?.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) ?? Call.ArgumentsJson;
             }
             catch { return Call.ArgumentsJson; }
+        }
+    }
+
+    /// <summary>File changes are shown as a diff (removed lines, added lines) so you can review them before allowing.</summary>
+    private (string path, List<(string kind, string line)> lines)? Diff
+    {
+        get
+        {
+            if (Call.Name is not ("edit_project_file" or "write_project_file")) return null;
+            try
+            {
+                if (System.Text.Json.Nodes.JsonNode.Parse(Call.ArgumentsJson) is not System.Text.Json.Nodes.JsonObject o) return null;
+                var path = o["path"]?.ToString() ?? "";
+                var lines = new List<(string, string)>();
+                if (Call.Name == "edit_project_file")
+                {
+                    foreach (var l in (o["old_text"]?.ToString() ?? "").Replace("\r\n", "\n").Split('\n')) lines.Add(("del", "- " + l));
+                    foreach (var l in (o["new_text"]?.ToString() ?? "").Replace("\r\n", "\n").Split('\n')) lines.Add(("add", "+ " + l));
+                }
+                else
+                {
+                    var all = (o["content"]?.ToString() ?? "").Replace("\r\n", "\n").Split('\n');
+                    foreach (var l in all.Take(400)) lines.Add(("add", "+ " + l));
+                    if (all.Length > 400) lines.Add(("", $"… {all.Length - 400} more lines"));
+                }
+                return (path, lines);
+            }
+            catch { return null; }
         }
     }
 

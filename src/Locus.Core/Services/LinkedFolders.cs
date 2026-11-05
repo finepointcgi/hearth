@@ -14,6 +14,10 @@ public sealed class LinkedFolder
     public int Skipped { get; set; }
     public string? Error { get; set; }
     public bool KeywordOnly { get; set; }
+    /// <summary>Bots may change files here and run commands in it (each change asks first and can be undone).</summary>
+    public bool Editable { get; set; }
+    /// <summary>Sandbox image for commands in this project (e.g. mcr.microsoft.com/dotnet/sdk:10.0); null = the default.</summary>
+    public string? SandboxImage { get; set; }
 }
 
 /// <summary>
@@ -71,6 +75,16 @@ public sealed class LinkedFolders(IAppPaths paths, DocumentStore docs) : IDispos
         return null;
     }
 
+    public Task SetEditableAsync(string id, bool editable) =>
+        SaveStateAsync(id, f => f.Editable = editable);
+
+    public Task SetSandboxImageAsync(string id, string? image) =>
+        SaveStateAsync(id, f => f.SandboxImage = string.IsNullOrWhiteSpace(image) ? null : image.Trim());
+
+    /// <summary>The editable linked folder a path is safely inside (see <see cref="FolderForAsync"/>), or null.</summary>
+    public async Task<LinkedFolder?> EditableFolderForAsync(string path) =>
+        await FolderForAsync(path) is { Editable: true } f ? f : null;
+
     public async Task RemoveAsync(string id)
     {
         await UpdateAsync(l => l.RemoveAll(f => f.Id == id));
@@ -88,7 +102,7 @@ public sealed class LinkedFolders(IAppPaths paths, DocumentStore docs) : IDispos
         var folder = (await ListAsync()).FirstOrDefault(f => f.Enabled && Inside(full, f.Path));
         if (folder is null) return null;
         var rel = System.IO.Path.GetRelativePath(folder.Path, full);
-        if (rel.Split(System.IO.Path.DirectorySeparatorChar).Any(part => part.StartsWith('.'))) return null;
+        if (rel != "." && rel.Split(System.IO.Path.DirectorySeparatorChar).Any(part => part.StartsWith('.'))) return null;
         for (var p = full; p.Length > folder.Path.Length; p = System.IO.Path.GetDirectoryName(p)!)
         {
             FileSystemInfo node = Directory.Exists(p) ? new DirectoryInfo(p) : new FileInfo(p);

@@ -92,21 +92,28 @@ public sealed class WriteFileTool(IBotComputer computer) : ITool
 }
 
 /// <summary>Shell commands in the workspace (desktop only, opt-in, always asks unless auto-approve is on).</summary>
-public sealed class RunCommandTool(IBotComputer computer) : ITool
+public sealed class RunCommandTool(IBotComputer computer, CodeSandbox? sandbox = null) : ITool, IContextualApproval
 {
     public string Name => "run_command";
     public string DisplayName => "Run command";
     public string Icon => "⌨️";
     public string Description =>
-        "Run a shell command on the user's computer, inside the shared workspace folder, and return its output. " +
-        $"Shell: {(OperatingSystem.IsWindows() ? "cmd.exe" : "bash")}. Time limit 120s. No interactive programs.";
+        "Run a shell command in the shared workspace folder and return its output (in the code sandbox — a Linux " +
+        "container where the workspace is /workspace — when it's on; otherwise on the user's computer). " +
+        "Time limit 120s. No interactive programs.";
     public JsonObject Parameters => Schema.Object(("command", "string", "The command line", true));
     public bool RequiresApproval => true;
+    public bool RequiresApprovalFor(ToolContext ctx) => !(sandbox?.Active(ctx.Settings) ?? false);
 
     public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct)
     {
         var command = args.Str("command");
         if (string.IsNullOrWhiteSpace(command)) return ToolResult.Error("command is required");
+        if (sandbox is not null && sandbox.Active(ctx.Settings))
+        {
+            try { return SandboxOutput.ToResult(await sandbox.RunAsync(ctx.Settings.Tools.Sandbox, computer.WorkspaceDirectory, command, ct: ct), 120); }
+            catch (InvalidOperationException ex) { return ToolResult.Error(ex.Message); }
+        }
         var dir = Workspace.Resolve(computer.WorkspaceDirectory, null);
         var psi = OperatingSystem.IsWindows()
             ? new ProcessStartInfo("cmd.exe") { ArgumentList = { "/c", command } }

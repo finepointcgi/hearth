@@ -241,6 +241,9 @@ code { font-family: var(--mono); font-size: .9em; background: var(--bg-3); paddi
 @keyframes pulse { 50% { opacity: .4; } }
 .tool-body { padding: 0 .75rem .6rem; }
 .tool-label { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; margin: .4rem 0 .2rem; }
+.tool-body pre.diff { max-height: 420px; white-space: pre; overflow-x: auto; }
+.tool-body pre.diff .del { display: block; background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.tool-body pre.diff .add { display: block; background: color-mix(in srgb, var(--ok) 16%, transparent); }
 .tool-body pre { margin: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .5rem .65rem; font-family: var(--mono); font-size: .78rem; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow-y: auto; }
 .approval { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; padding: .55rem .75rem; border-top: 1px solid var(--line); }
 .approval span { flex: 1; min-width: 12rem; }

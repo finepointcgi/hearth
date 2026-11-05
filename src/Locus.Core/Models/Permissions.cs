@@ -39,6 +39,7 @@ public static class PermissionCatalog
         new("images", "🎨", "Images", null, "Generate images"),
         new("inbox", "📮", "Bot inbox", null, "Reply to email sent to the bot"),
         new("hiring", "🧑‍💼", "New bots", null, "Add a bot to your team"),
+        new("projects", "🛠️", "Project folders", null, "Change files in folders you made editable"),
     ];
 
     /// <summary>Area and whether the tool changes things; null area = always allowed (calculator, clock, skills, tasks).</summary>
@@ -117,7 +118,8 @@ public static class ContentTrust
     /// <summary>Actions the guard holds for approval: anything that changes something, except harmless areas.</summary>
     public static bool IsSensitive(Tools.ITool tool, Tools.ToolContext ctx)
     {
-        if (tool is Tools.IContextualApproval c && !c.RequiresApprovalFor(ctx) && tool.Name.StartsWith("desktop_")) return false; // own sandbox
+        // Own sandbox (desktop or code container): nothing on this computer changes.
+        if (tool is Tools.IContextualApproval c && !c.RequiresApprovalFor(ctx) && (tool.Name.StartsWith("desktop_") || tool.Name is "run_python" or "run_command")) return false;
         var (area, write) = PermissionCatalog.Classify(tool);
         return write && area is not null && area is not ("images" or "teamwork");
     }

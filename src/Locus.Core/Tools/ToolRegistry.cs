@@ -15,7 +15,8 @@ public sealed class BuiltInToolProvider(
     SettingsStore settingsStore,
     ChatHistoryIndex history,
     ConversationStore conversations,
-    IBotComputer computer) : IToolProvider
+    IBotComputer computer,
+    CodeSandbox sandbox) : IToolProvider
 {
     /// <summary>Every built-in tool with whether it can run right now (for the Settings page).</summary>
     public async Task<IReadOnlyList<(ITool tool, string? unavailableReason)>> CatalogAsync(AppSettings s)
@@ -42,16 +43,16 @@ public sealed class BuiltInToolProvider(
             (new ListFilesTool(computer), s.Computer.Enabled ? null : "Computer is off"),
             (new ReadFileTool(computer), s.Computer.Enabled ? null : "Computer is off"),
             (new WriteFileTool(computer), s.Computer.Enabled ? null : "Computer is off"),
-            (new RunCommandTool(computer),
+            (new RunCommandTool(computer, sandbox),
                 !platform.CanRunProcesses ? "Not available on this platform"
                 : !s.Computer.AllowCommands ? "Turned off" : null),
             (new RunRemoteTool(s.RemoteHosts),
                 !platform.CanRunProcesses ? "Not available on this platform"
                 : s.RemoteHosts.Count == 0 ? "Add a computer on the Computer page" : null),
-            (new PythonTool(),
+            (new PythonTool(sandbox, computer),
                 !platform.CanRunProcesses ? "Not available on this platform"
                 : !s.Tools.PythonEnabled ? "Turned off"
-                : PythonTool.FindPython(s.Tools.PythonPath) is null ? "Python not found" : null),
+                : !sandbox.Active(s) && PythonTool.FindPython(s.Tools.PythonPath) is null ? "Python not found" : null),
         ];
     }
 

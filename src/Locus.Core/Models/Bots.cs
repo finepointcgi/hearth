@@ -41,6 +41,8 @@ public sealed class BotAbilities
         _ when tool.StartsWith("browser_") => nameof(Browser),
         _ when tool.StartsWith("desktop_") => nameof(ComputerUse),
         "list_files" or "read_file" or "write_file" => nameof(Files),
+        "edit_project_file" or "write_project_file" or "undo_project_change" or "list_project_changes" => nameof(Files),
+        "run_in_project" => nameof(Code),
         "run_python" or "run_command" or "run_remote" => nameof(Code),
         "generate_image" => nameof(Images),
         "search_documents" or "read_linked_file" or "list_linked_files" => nameof(Documents),

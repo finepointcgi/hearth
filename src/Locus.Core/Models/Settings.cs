@@ -96,6 +96,19 @@ public sealed class ToolSettings
     public bool PythonEnabled { get; set; }
     public string PythonPath { get; set; } = "";
     public int MaxRounds { get; set; } = 8;
+    public SandboxSettings Sandbox { get; set; } = new();
+}
+
+/// <summary>Where bots run code: a Docker container (no approval needed) instead of directly on this computer.</summary>
+public sealed class SandboxSettings
+{
+    /// <summary>Run Python and commands in a container when Docker is installed.</summary>
+    public bool Enabled { get; set; } = true;
+    /// <summary>Image for code (a project folder can use its own, e.g. mcr.microsoft.com/dotnet/sdk:10.0).</summary>
+    public string Image { get; set; } = "python:3.12-slim";
+    /// <summary>Internet access inside the sandbox (for pip/npm/nuget installs).</summary>
+    public bool Network { get; set; } = true;
+    public int MemoryMb { get; set; } = 2048;
 }
 
 public sealed class DocumentSettings

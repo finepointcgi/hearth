@@ -4,6 +4,7 @@
 @inject BuiltInToolProvider BuiltIns
 @inject McpManager Mcp
 @inject PlatformInfo Platform
+@inject CodeSandbox Sandbox
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
@@ -33,7 +34,8 @@
                 <label class="check grow">
                     <input type="checkbox" checked="@(!_s.Tools.DisabledTools.Contains(t.Name))" @onchange="e => Toggle(t.Name, (bool)e.Value!)" />
                     <span class="tool-icon">@t.Icon</span> <b>@t.DisplayName</b>
-                    @if (t.RequiresApproval) { <span class="badge">asks first</span> }
+                    @if (t.RequiresApproval && !(t.Name is "run_python" or "run_command" && Sandbox.Active(_s))) { <span class="badge">asks first</span> }
+                    else if (t.Name is "run_python" or "run_command") { <span class="badge">sandbox</span> }
                 </label>
                 <span class="muted small">@(reason ?? "Ready")</span>
             </div>
@@ -41,8 +43,20 @@
         @if (Platform.CanRunProcesses)
         {
             <div class="sub">
-                <label class="check"><input type="checkbox" @bind="_s.Tools.PythonEnabled" /> Allow the Python tool (runs code on this computer, asks every time unless auto-approve is on)</label>
-                <input placeholder="Python path (optional, auto-detected)" @bind="_s.Tools.PythonPath" />
+                <label class="check"><input type="checkbox" @bind="_s.Tools.PythonEnabled" /> Allow the Python tool</label>
+                <input placeholder="Python path (optional, auto-detected; only used without the sandbox)" @bind="_s.Tools.PythonPath" />
+            </div>
+            <div class="sub">
+                <h4>Code sandbox</h4>
+                <p class="muted small">Python, workspace commands and project commands run in a Docker container instead of on this computer, so they don't ask first. The container has no extra privileges, limited memory, and sees only Locus's workspace (or the one project folder it's working in). Without the sandbox, code runs on this computer and asks every time.</p>
+                <label class="check"><input type="checkbox" @bind="_s.Tools.Sandbox.Enabled" /> Run code in the sandbox</label>
+                <label class="check"><input type="checkbox" @bind="_s.Tools.Sandbox.Network" /> Internet access in the sandbox (for installing packages)</label>
+                <label>Image <input @bind="_s.Tools.Sandbox.Image" placeholder="python:3.12-slim" /></label>
+                <p class="muted small">
+                    @if (Sandbox.DockerPath is null) { <span>Docker isn't installed, so code runs on this computer (asking first). Install Docker Desktop to use the sandbox.</span> }
+                    else if (_sandboxProblem is not null) { <span class="tiny-error">@_sandboxProblem</span> }
+                    else { <span>Docker is ready.</span> }
+                </p>
             </div>
         }
     </section>
@@ -168,7 +182,10 @@
         _s = SettingsCopy.Of(await Store.GetAsync());
         _catalog = await BuiltIns.CatalogAsync(_s);
         _status = Mcp.Status(_s);
+        _sandboxProblem = await Sandbox.ProblemAsync();
     }
+
+    private string? _sandboxProblem;
 
     private void Toggle(string name, bool on)
     {

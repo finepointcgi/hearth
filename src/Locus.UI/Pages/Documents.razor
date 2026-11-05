@@ -3,6 +3,7 @@
 @inject DocumentStore Store
 @inject SettingsStore Settings
 @inject LinkedFolders Folders
+@inject ProjectHistory History
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
@@ -53,6 +54,29 @@
                 <button class="icon-btn" title="Unlink folder" aria-label="Unlink folder" @onclick="() => Folders.RemoveAsync(folder.Id)"><Icon Name="trash-2" Size="15" /></button>
             </div>
             @if (folder.Error is not null) { <div class="tiny-error">@folder.Error</div> }
+            <div class="sub">
+                <label class="check"><input type="checkbox" checked="@folder.Editable" @onchange="e => Folders.SetEditableAsync(folder.Id, (bool)e.Value!)" /> Bots can edit (for coding: each change shows a diff, asks first and can be undone; commands run in the code sandbox)</label>
+                @if (folder.Editable)
+                {
+                    <label>Sandbox image for this project
+                        <input value="@folder.SandboxImage" placeholder="default (Tools page), e.g. mcr.microsoft.com/dotnet/sdk:10.0 or node:22" @onchange="e => Folders.SetSandboxImageAsync(folder.Id, e.Value?.ToString())" />
+                    </label>
+                    var changes = _changes.Where(c => c.FolderId == folder.Id).OrderByDescending(c => c.At).Take(8).ToList();
+                    @if (changes.Count > 0)
+                    {
+                        <div class="muted small">Recent changes by bots</div>
+                        @foreach (var c in changes)
+                        {
+                            var change = c;
+                            <div class="memory-row">
+                                <span class="grow small">@change.Summary <span class="muted">· @change.At.ToString("MMM d h:mm tt") · @System.IO.Path.GetRelativePath(folder.Path, change.Path)</span></span>
+                                <button class="btn ghost small" @onclick="() => Undo(change.Id)">Undo</button>
+                            </div>
+                        }
+                        @if (_undoError is not null) { <div class="tiny-error">@_undoError</div> }
+                    }
+                }
+            </div>
         }
         @if (_folders.Any(f => f.KeywordOnly))
         {
@@ -82,6 +106,8 @@
     private string? _error;
     private string _embedModel = "";
     private List<LinkedFolder> _folders = [];
+    private List<ProjectChange> _changes = [];
+    private string? _undoError;
     private string _folderPath = "";
     private string? _folderError;
 
@@ -89,8 +115,10 @@
     {
         Store.Changed += Reload;
         Folders.Changed += ReloadFolders;
+        History.Changed += ReloadFolders;
         _docs = await Store.ListAsync();
         _folders = await Folders.ListAsync();
+        _changes = await History.ListAsync();
         _embedModel = (await Settings.GetAsync()).Documents.EmbeddingModel;
     }
 
@@ -103,6 +131,7 @@
     private async void ReloadFolders()
     {
         _folders = await Folders.ListAsync();
+        _changes = await History.ListAsync();
         await InvokeAsync(StateHasChanged);
     }
 
@@ -116,6 +145,8 @@
     {
         if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_folderPath)) await AddFolder();
     }
+
+    private async Task Undo(string id) => _undoError = await History.UndoAsync(id);
 
     private void SyncFolder(string id) => _ = Folders.SyncAsync(id);
 
@@ -152,5 +183,5 @@
 
     private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
 
-    public override void Dispose() { Store.Changed -= Reload; Folders.Changed -= ReloadFolders; base.Dispose(); }
+    public override void Dispose() { Store.Changed -= Reload; Folders.Changed -= ReloadFolders; History.Changed -= ReloadFolders; base.Dispose(); }
 }
