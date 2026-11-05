@@ -122,6 +122,7 @@ app.Services.GetRequiredService<BackupService>().EnsureStarted();
 // Chat replies run in the background; ones a restart interrupts resume on the next start.
 var chatRuns = app.Services.GetRequiredService<ChatRuns>();
 chatRuns.EnsureStarted();
+app.Services.GetRequiredService<FollowUpRunner>().EnsureStarted(); // bots coming back to chats on their own
 app.Lifetime.ApplicationStopping.Register(chatRuns.PrepareForShutdown);
 _ = app.Services.GetRequiredService<Locus.Core.Services.Channels.ChannelHub>().EnsureStartedAsync().ContinueWith(_ => { });
 

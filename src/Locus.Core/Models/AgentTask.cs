@@ -30,6 +30,8 @@ public sealed class AgentTask
     public int IdleCycles { get; set; }
     /// <summary>Who started it, for notifications ("app", "telegram:123"…).</summary>
     public string? Origin { get; set; }
+    /// <summary>The chat that handed this task off (start_task): its plan, questions and result are posted there.</summary>
+    public string? ReportTo { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
 

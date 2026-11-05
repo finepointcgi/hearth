@@ -21,13 +21,15 @@ public sealed class NotificationSettings
     public bool Heartbeat { get; set; } = true;
     public bool Tasks { get; set; } = true;
     public bool Routines { get; set; }
+    /// <summary>A bot came back to a chat with something new (follow_up).</summary>
+    public bool FollowUps { get; set; } = true;
     public bool Problems { get; set; } = true;
 
     public static string NewTopic() => "locus-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant();
 }
 
 public sealed class PushNotifier(SettingsStore settingsStore, IHttpClientFactory http, ApprovalCenter approvals, HeartbeatRunner heartbeat,
-    TaskRunner tasks, RoutineRunner routines, ActivityLog activity, BotStore bots)
+    TaskRunner tasks, RoutineRunner routines, ActivityLog activity, BotStore bots, FollowUpRunner followUps)
 {
     private bool _started;
     private DateTimeOffset _lastProblem;
@@ -39,6 +41,7 @@ public sealed class PushNotifier(SettingsStore settingsStore, IHttpClientFactory
         approvals.Requested += p => _ = OnApprovalAsync(p);
         heartbeat.Alert += (conv, text) => _ = SendIfAsync(s => s.Heartbeat, "Locus checked in", text, "heartbeat", conv, priority: 4);
         tasks.Milestone += (task, text) => _ = SendIfAsync(s => s.Tasks, $"Task: {task.Title}", text, "dart", task.ConversationId);
+        followUps.Posted += (conv, text) => _ = SendIfAsync(s => s.FollowUps, "A bot followed up", text, "alarm_clock", conv);
         routines.RoutineFinished += conv => _ = SendIfAsync(s => s.Routines, "Routine finished", "A routine has new results.", "alarm_clock", conv);
         activity.Added += a =>
         {

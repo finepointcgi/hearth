@@ -129,6 +129,8 @@
         </label>
         <label class="check"><input type="checkbox" @bind="_s.ShowThinking" /> Show thinking from reasoning models</label>
         <label class="check"><input type="checkbox" @bind="_s.AutoTitle" /> Auto-name chats with the model</label>
+        <label class="check"><input type="checkbox" @bind="_s.TakeInitiative" /> Bots take initiative</label>
+        <p class="muted small">Bots act on clear next steps instead of asking first, schedule their own follow-ups (they come back to the chat later with what they found) and hand big jobs to background tasks. Anything that changes things still follows your Permissions.</p>
     </section>
     }
     @if (_tab == "web")

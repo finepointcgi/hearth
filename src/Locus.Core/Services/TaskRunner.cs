@@ -10,7 +10,7 @@ namespace Locus.Core.Services;
 /// task_done. State is saved after every cycle, so tasks pick up again after a restart.
 /// </summary>
 public sealed class TaskRunner(TaskStore store, ConversationStore conversations, ChatService chat, BotStore bots,
-    ModelPicker models, ActivityLog activity)
+    ModelPicker models, ActivityLog activity, ChatRuns runs)
 {
     private const int HistoryWindow = 24;
     private readonly SemaphoreSlim _wake = new(0);
@@ -22,6 +22,32 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
 
     public string? CurrentTaskId { get; private set; }
 
+    /// <summary>Raises a milestone and, for a task a chat handed off, posts the notable ones (plan, question,
+    /// result, failure — not every step) back into that chat.</summary>
+    private void Announce(AgentTask task, string message)
+    {
+        Milestone?.Invoke(task, message);
+        if (task.ReportTo is not { } convId || message.StartsWith("📍")) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // A chat that's mid-reply is updated live (its own save would otherwise overwrite this).
+                var live = runs.Live(convId);
+                if ((live ?? await conversations.GetAsync(convId)) is not { } conv) return;
+                conv.Messages.Add(new ChatMessage
+                {
+                    Role = ChatRole.Assistant, BotId = task.BotId,
+                    Content = message + (task.State == TaskState.WaitingForYou ? $"\n\n[Answer on the task page](tasks/{task.Id})" : ""),
+                });
+                conv.Unread = true;
+                conv.UpdatedAt = DateTimeOffset.Now;
+                if (live is null) await conversations.SaveAsync(conv);
+            }
+            catch { /* best effort: the task page has everything */ }
+        });
+    }
+
     public void EnsureStarted()
     {
         if (_started) return;
@@ -29,12 +55,12 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         _ = Task.Run(LoopAsync);
     }
 
-    public async Task<AgentTask> StartAsync(string goal, string? botId, string? origin = "app")
+    public async Task<AgentTask> StartAsync(string goal, string? botId, string? origin = "app", string? reportTo = null)
     {
         var bot = botId is null ? null : await bots.GetAsync(botId);
         var conv = new Conversation { Title = "🎯 " + (goal.Length > 50 ? goal[..50] + "…" : goal), BotIds = bot is null ? [] : [bot.Id] };
         await conversations.SaveAsync(conv);
-        var task = new AgentTask { Goal = goal.Trim(), BotId = bot?.Id, ConversationId = conv.Id, Origin = origin };
+        var task = new AgentTask { Goal = goal.Trim(), BotId = bot?.Id, ConversationId = conv.Id, Origin = origin, ReportTo = reportTo };
         task.Note($"Started{(bot is null ? "" : $" by {bot.Name}")}.");
         await store.SaveAsync(task);
         await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Task, $"Task started: {task.Title}", null, bot?.Id, conv.Id));
@@ -89,7 +115,7 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
                 next.State = TaskState.Failed;
                 next.Note($"Failed: {ex.Message}");
                 await store.SaveAsync(next);
-                Milestone?.Invoke(next, $"❌ Task failed: {next.Title}\n{ex.Message}");
+                Announce(next, $"❌ Task failed: {next.Title}\n{ex.Message}");
             }
         }
     }
@@ -128,7 +154,7 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         {
             task.Note($"Problem: {reply.Error}");
             task.IdleCycles++;
-            if (task.IdleCycles >= 3) { task.State = TaskState.Failed; Milestone?.Invoke(task, $"❌ Task failed: {task.Title}\n{reply.Error}"); }
+            if (task.IdleCycles >= 3) { task.State = TaskState.Failed; Announce(task, $"❌ Task failed: {task.Title}\n{reply.Error}"); }
         }
         else if (task.State == TaskState.Running)
         {
@@ -150,15 +176,15 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
 
         // Notifications.
         if (planBefore == 0 && task.Plan.Count > 0)
-            Milestone?.Invoke(task, $"🗺️ Plan for \"{task.Title}\":\n" + string.Join("\n", task.Plan.Select((s, i) => $"{i + 1}. {s.Text}")));
+            Announce(task, $"🗺️ Plan for \"{task.Title}\":\n" + string.Join("\n", task.Plan.Select((s, i) => $"{i + 1}. {s.Text}")));
         else if (task.DoneSteps > doneBefore && task.State == TaskState.Running)
-            Milestone?.Invoke(task, $"📍 {task.Title}: {task.DoneSteps}/{task.Plan.Count} steps done — {task.Plan.LastOrDefault(s => s.Status == "done")?.Text}");
+            Announce(task, $"📍 {task.Title}: {task.DoneSteps}/{task.Plan.Count} steps done — {task.Plan.LastOrDefault(s => s.Status == "done")?.Text}");
         if (task.State == TaskState.WaitingForYou)
-            Milestone?.Invoke(task, $"❓ {task.Title}\n{task.Question}");
+            Announce(task, $"❓ {task.Title}\n{task.Question}");
         if (task.State == TaskState.Done)
         {
             await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Task, $"Task done: {task.Title}", Clip(task.Result, 200), task.BotId, task.ConversationId));
-            Milestone?.Invoke(task, $"🏁 Done: {task.Title}\n\n{task.Result}");
+            Announce(task, $"🏁 Done: {task.Title}\n\n{task.Result}");
         }
     }
 

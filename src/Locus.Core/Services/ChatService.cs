@@ -380,6 +380,27 @@ public sealed class ChatService(
         return reply;
     }
 
+    /// <summary>How to take initiative (Settings → "Take initiative"): act on clear next steps, come back later on your
+    /// own, and hand big jobs to a background task.</summary>
+    public static string InitiativeGuide(IReadOnlyDictionary<string, ITool> tools, bool unattended)
+    {
+        var sb = new StringBuilder("Take initiative. When the next step is clear and safe, do it instead of asking whether to. ");
+        sb.Append(unattended
+            ? "No one is watching right now, so don't ask questions: make sensible assumptions and note them. "
+            : "If something is unclear, make a sensible assumption, say what you assumed and keep going; ask only when a wrong guess would be costly, and then ask everything you need at once. ");
+        sb.Append("Deliver what you have rather than nothing, and end with the next step you'll take or recommend.");
+        if (tools.ContainsKey("follow_up"))
+            sb.Append(" When something should be checked again later (waiting on a reply, new postings, a price, a deadline, ")
+              .Append("a slow job), schedule it with follow_up and tell the user when you'll be back, instead of asking them to remind you.");
+        if (tools.ContainsKey("start_task") && !unattended)
+            sb.Append(" For work that needs many searches or steps (research across many sources, comparing lots of options, ")
+              .Append("a job hunt), hand it to start_task with a complete goal so it runs in the background and reports back here.");
+        if (tools.ContainsKey("propose_new_bot"))
+            sb.Append(" If a kind of work keeps coming up that no one on the team specialises in, suggest hiring a new bot for ")
+              .Append("it with propose_new_bot (the user approves it first). Don't propose one for a one-off request.");
+        return sb.ToString();
+    }
+
     private async Task<StringBuilder> BuildSystemPromptAsync(Conversation conv, Bot? bot, List<Bot> members, List<Bot> allBots,
         AppSettings settings, Dictionary<string, ITool> byName, SendOptions opts, bool unattended)
     {
@@ -469,6 +490,9 @@ public sealed class ChatService(
             if (byName.ContainsKey("save_memory"))
                 system.Append(" When the user shares a lasting personal fact or preference, save it with save_memory.");
         }
+
+        if (settings.TakeInitiative && byName.Count > 0)
+            system.AppendLine().AppendLine().Append(InitiativeGuide(byName, unattended));
 
         if (opts.DeepSearch && byName.ContainsKey("web_search"))
         {

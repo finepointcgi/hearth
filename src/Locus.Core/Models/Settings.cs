@@ -61,6 +61,8 @@ public sealed class AppSettings
     public Services.BackupSettings Backup { get; set; } = new();
     /// <summary>First-run setup finished (or skipped because Locus was already in use).</summary>
     public bool SetupDone { get; set; }
+    /// <summary>Bots act on clear next steps without asking, schedule their own follow-ups and hand big jobs to tasks.</summary>
+    public bool TakeInitiative { get; set; } = true;
     /// <summary>Other computers bots may run commands on over SSH.</summary>
     public List<Tools.RemoteHost> RemoteHosts { get; set; } = [];
     public DocumentSettings Documents { get; set; } = new();

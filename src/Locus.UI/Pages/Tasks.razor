@@ -4,6 +4,8 @@
 @inject TaskStore Store
 @inject TaskRunner Runner
 @inject NavigationManager Nav
+@inject FollowUpStore FollowUps
+@inject FollowUpRunner FollowUpRunner
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
@@ -46,20 +48,59 @@
         </section>
     }
     @if (_tasks.Count == 0) { <section class="card"><p class="muted">No tasks yet.</p></section> }
+
+    @if (_followUps.Count > 0)
+    {
+        <section class="card">
+            <h3>Follow-ups</h3>
+            <p class="muted small">Bots scheduled these to come back to a chat on their own. They post only when there's something new.</p>
+            @foreach (var f in _followUps)
+            {
+                var bot = State.BotById(f.BotId);
+                <div class="task-row">
+                    <span class="task-state"><Icon Name="timer" Size="16" /></span>
+                    <span class="grow">
+                        <b>@f.Note</b>
+                        <span class="muted small">
+                            @(bot is null ? "Locus" : bot.Name) · @FollowUpTool.Describe(f.DueAt, DateTimeOffset.Now)@(f.Repeat is null ? "" : $" · {f.Repeat}")@(f.LastResult is null ? "" : $" · last time: {f.LastResult}")
+                        </span>
+                    </span>
+                    <a class="btn ghost small" href="c/@f.ConversationId">Open chat</a>
+                    <button class="btn ghost small" @onclick="() => RunNow(f)" disabled="@_runningNow">Run now</button>
+                    <button class="icon-btn" title="Cancel follow-up" aria-label="Cancel follow-up" @onclick="() => Cancel(f.Id)"><Icon Name="trash-2" Size="15" /></button>
+                </div>
+            }
+        </section>
+    }
 </div>
 
 @code {
     private List<AgentTask> _tasks = [];
+    private List<FollowUp> _followUps = [];
+    private bool _runningNow;
     private string _goal = "";
     private string _botId = "";
 
     protected override async Task OnInitializedAsync()
     {
         Store.Saved += OnSaved;
+        FollowUps.Changed += OnFollowUpsChanged;
         _tasks = await Store.ListAsync();
+        _followUps = await FollowUps.ListAsync();
     }
 
     private void OnSaved(AgentTask _) => InvokeAsync(async () => { _tasks = await Store.ListAsync(); StateHasChanged(); });
+
+    private void OnFollowUpsChanged() => InvokeAsync(async () => { _followUps = await FollowUps.ListAsync(); StateHasChanged(); });
+
+    private async Task Cancel(string id) => await FollowUps.RemoveAsync(id);
+
+    private async Task RunNow(FollowUp f)
+    {
+        _runningNow = true;
+        try { await FollowUpRunner.RunAsync(f); }
+        finally { _runningNow = false; }
+    }
 
     private async Task Start()
     {
@@ -74,5 +115,5 @@
 
     private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
 
-    public ValueTask DisposeAsync() { Store.Saved -= OnSaved; base.Dispose(); return ValueTask.CompletedTask; }
+    public ValueTask DisposeAsync() { Store.Saved -= OnSaved; FollowUps.Changed -= OnFollowUpsChanged; base.Dispose(); return ValueTask.CompletedTask; }
 }

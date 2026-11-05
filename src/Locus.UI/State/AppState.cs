@@ -15,7 +15,7 @@ public sealed class AppState : IDisposable
     private Task? _init;
 
     public AppState(SettingsStore settings, ConversationStore conversations, ILlmClientFactory factory,
-        BotStore bots, RoutineRunner routines, SkillStore skills, Locus.Core.Services.Channels.ChannelHub channels, TaskRunner tasks, BotInbox inbox, HeartbeatRunner heartbeat, SkillPorter porter, MemoryCurator curator, ChatHistoryIndex history, PushNotifier notifier, BackupService backups, ChatRuns runs)
+        BotStore bots, RoutineRunner routines, SkillStore skills, Locus.Core.Services.Channels.ChannelHub channels, TaskRunner tasks, BotInbox inbox, HeartbeatRunner heartbeat, SkillPorter porter, MemoryCurator curator, ChatHistoryIndex history, PushNotifier notifier, BackupService backups, ChatRuns runs, FollowUpRunner followUps)
     {
         _settings = settings;
         _conversations = conversations;
@@ -36,6 +36,7 @@ public sealed class AppState : IDisposable
         _notifier = notifier;
         _backups = backups;
         _runs = runs;
+        _followUps = followUps;
         _runs.RunsChanged += NotifyChanged;
         _skills.Changed += OnSkillsChanged;
     }
@@ -51,6 +52,7 @@ public sealed class AppState : IDisposable
     private readonly PushNotifier _notifier;
     private readonly BackupService _backups;
     private readonly ChatRuns _runs;
+    private readonly FollowUpRunner _followUps;
 
     /// <summary>Chats with a reply in progress (shown in the chat list).</summary>
     public bool IsWorking(string id) => _runs.IsRunning(id);
@@ -121,6 +123,7 @@ public sealed class AppState : IDisposable
         _notifier.EnsureStarted();
         _backups.EnsureStarted();
         _runs.EnsureStarted(); // replies cut off by a restart carry on
+        _followUps.EnsureStarted();
         _ = _channels.EnsureStartedAsync().ContinueWith(_ => { }); // Telegram/Discord; errors show on Connections
         NotifyChanged();
         await RefreshModelsAsync();

@@ -38,6 +38,7 @@ public static class PermissionCatalog
         new("remote", "🛰️", "Remote computers", null, "Run commands over SSH"),
         new("images", "🎨", "Images", null, "Generate images"),
         new("inbox", "📮", "Bot inbox", null, "Reply to email sent to the bot"),
+        new("hiring", "🧑‍💼", "New bots", null, "Add a bot to your team"),
     ];
 
     /// <summary>Area and whether the tool changes things; null area = always allowed (calculator, clock, skills, tasks).</summary>

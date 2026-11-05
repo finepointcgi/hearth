@@ -65,6 +65,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ToolRegistry>();
         services.AddSingleton<ChatService>();
         services.AddSingleton<ChatRuns>();
+        services.AddSingleton<FollowUpStore>();
+        services.AddSingleton<FollowUpRunner>();
+        services.AddSingleton<IToolProvider, ProactiveToolProvider>();
         services.TryAddSingleton<IBotComputer, NoBotComputer>();
         services.TryAddSingleton<IDesktopControl, NoDesktopControl>();
         services.TryAddSingleton<ISandboxDesktops, NoSandboxDesktops>();
