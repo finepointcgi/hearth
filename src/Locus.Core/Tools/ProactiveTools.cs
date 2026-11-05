@@ -14,7 +14,7 @@ public sealed class ProactiveToolProvider(IServiceProvider services) : IToolProv
 {
     public Task<IReadOnlyList<ITool>> GetToolsAsync(AppSettings settings, CancellationToken ct)
     {
-        if (!settings.TakeInitiative) return Task.FromResult<IReadOnlyList<ITool>>([]);
+        if (!settings.TakeInitiative) return Task.FromResult<IReadOnlyList<ITool>>([new RenameChatTool(services.GetRequiredService<ConversationStore>())]);
         var followUps = services.GetRequiredService<FollowUpStore>();
         return Task.FromResult<IReadOnlyList<ITool>>(
         [
@@ -23,6 +23,7 @@ public sealed class ProactiveToolProvider(IServiceProvider services) : IToolProv
             new CancelFollowUpTool(followUps),
             new StartTaskTool(services),
             new ProposeBotTool(services.GetRequiredService<BotStore>()),
+            new RenameChatTool(services.GetRequiredService<ConversationStore>()),
         ]);
     }
 
@@ -227,5 +228,28 @@ public sealed class ProposeBotTool(BotStore bots) : ITool, IPermissionInfo
         if (node is JsonValue v && v.TryGetValue<string>(out var s) && s.TrimStart().StartsWith('[')) node = JsonNode.Parse(s);
         var list = node is JsonArray arr ? arr.Select(x => x?.ToString() ?? "") : (args.Str("abilities") ?? "").Split(',');
         return list.Select(x => x.Trim().ToLowerInvariant()).Where(AbilityNames.Contains).ToHashSet();
+    }
+}
+
+/// <summary>Lets a bot give the chat a clear name, or a better one when the topic becomes clear or changes.</summary>
+public sealed class RenameChatTool(ConversationStore store) : ITool
+{
+    public string Name => "rename_chat";
+    public string DisplayName => "Name this chat";
+    public string Icon => "🏷️";
+    public string Description =>
+        "Give this chat a short, specific name (2-6 words, Title Case) so the user can find it later. Use it when the " +
+        "chat's name is vague or wrong for what it has become, e.g. once a general question turns into a job search.";
+    public JsonObject Parameters => Schema.Object(("title", "string", "The new name, e.g. Director-Level Job Search Detroit", true));
+    public bool RequiresApproval => false;
+
+    public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct)
+    {
+        if (ChatService.Title(args.Str("title") ?? "") is not { } title) return ToolResult.Error("Give a 2-6 word title.");
+        if (ctx.Conversation.Messages.LastOrDefault(m => m.Role == ChatRole.User)?.RoutineName is "Task" or "Heartbeat")
+            return ToolResult.Error("This chat's name is set by Locus.");
+        ctx.Conversation.Title = title;
+        await store.SaveAsync(ctx.Conversation);
+        return new ToolResult($"Chat renamed to \"{title}\".");
     }
 }

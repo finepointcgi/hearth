@@ -108,7 +108,7 @@ public static class ContentTrust
         "gmail_search" or "gmail_read" => "email",
         "calendar_events" => "calendar invites",
         "sheets_read" or "sheets_find" or "sheets_info" => "a spreadsheet",
-        "read_file" or "list_files" => "a file",
+        "read_file" or "list_files" or "read_linked_file" or "list_linked_files" => "a file",
         "message_bot" => "another bot",
         _ when tool is IPermissionInfo p && p.Area.StartsWith("mcp:") => p.AreaTitle,
         _ => null,

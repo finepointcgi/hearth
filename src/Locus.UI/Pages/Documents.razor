@@ -2,6 +2,7 @@
 @inherits StatefulComponent
 @inject DocumentStore Store
 @inject SettingsStore Settings
+@inject LinkedFolders Folders
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
@@ -30,17 +31,48 @@
     </section>
 
     <section class="card">
-        <h3>Library (@_docs.Count)</h3>
-        @foreach (var d in _docs)
+        <h3>Linked folders</h3>
+        <p class="muted small">Folders on this computer that stay indexed: new and changed files are picked up within seconds, deleted ones drop out. Bots can search them and read the files (not change them). Hidden files and folders (like <code>.env</code> or <code>.git</code>), dependencies and build output are skipped.</p>
+        <div class="row">
+            <input class="grow" @bind="_folderPath" placeholder="/Users/you/Projects/notes" @onkeydown="FolderKey" />
+            <button class="btn primary" @onclick="AddFolder" disabled="@string.IsNullOrWhiteSpace(_folderPath)">Link folder</button>
+        </div>
+        @if (_folderError is not null) { <div class="error-box">@_folderError</div> }
+        @if (Folders.Status is { } status) { <div class="muted small">@status</div> }
+        @foreach (var f in _folders)
+        {
+            var folder = f;
+            <div class="memory-row">
+                <span class="grow"><Icon Name="folder" Size="16" /> <b>@folder.Path</b></span>
+                <span class="muted small">
+                    @folder.Files files@(folder.Skipped > 0 ? $" ({folder.Skipped} more not indexed)" : "")
+                    · @(folder.LastSync is { } at ? $"synced {at:MMM d h:mm tt}" : "indexing…")
+                    @(folder.KeywordOnly ? " · keyword search" : "")
+                </span>
+                <button class="btn ghost small" @onclick="() => SyncFolder(folder.Id)">Sync now</button>
+                <button class="icon-btn" title="Unlink folder" aria-label="Unlink folder" @onclick="() => Folders.RemoveAsync(folder.Id)"><Icon Name="trash-2" Size="15" /></button>
+            </div>
+            @if (folder.Error is not null) { <div class="tiny-error">@folder.Error</div> }
+        }
+        @if (_folders.Any(f => f.KeywordOnly))
+        {
+            <p class="muted small">No embedding model answered, so these are searched by keyword. For search by meaning, run <code>ollama pull nomic-embed-text</code> (or set an embedding model your server has) and press Sync now.</p>
+        }
+        <p class="muted small">On a Mac, Locus needs permission for Documents, Desktop and Downloads (System Settings → Privacy &amp; Security). Folders elsewhere, like <code>~/Projects</code>, work as is.</p>
+    </section>
+
+    <section class="card">
+        <h3>Library (@_docs.Count(d => d.FolderId is null))</h3>
+        @foreach (var d in _docs.Where(d => d.FolderId is null))
         {
             var doc = d;
             <div class="memory-row">
                 <span class="grow">📄 <b>@doc.Name</b></span>
-                <span class="muted small">@doc.Chunks passages · @(doc.Characters / 1000)k chars · @doc.EmbeddingModel</span>
+                <span class="muted small">@doc.Chunks passages · @(doc.Characters / 1000)k chars · @(doc.KeywordOnly ? "keyword search" : doc.EmbeddingModel)</span>
                 <button class="icon-btn" title="Remove" @onclick="() => Store.DeleteAsync(doc.Id)">🗑</button>
             </div>
         }
-        @if (_docs.Count == 0) { <p class="muted">No documents yet.</p> }
+        @if (!_docs.Any(d => d.FolderId is null)) { <p class="muted">No documents added one by one yet.</p> }
     </section>
 </div>
 
@@ -49,11 +81,16 @@
     private string? _progress;
     private string? _error;
     private string _embedModel = "";
+    private List<LinkedFolder> _folders = [];
+    private string _folderPath = "";
+    private string? _folderError;
 
     protected override async Task OnInitializedAsync()
     {
         Store.Changed += Reload;
+        Folders.Changed += ReloadFolders;
         _docs = await Store.ListAsync();
+        _folders = await Folders.ListAsync();
         _embedModel = (await Settings.GetAsync()).Documents.EmbeddingModel;
     }
 
@@ -62,6 +99,25 @@
         _docs = await Store.ListAsync();
         await InvokeAsync(StateHasChanged);
     }
+
+    private async void ReloadFolders()
+    {
+        _folders = await Folders.ListAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task AddFolder()
+    {
+        _folderError = await Folders.AddAsync(_folderPath);
+        if (_folderError is null) _folderPath = "";
+    }
+
+    private async Task FolderKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_folderPath)) await AddFolder();
+    }
+
+    private void SyncFolder(string id) => _ = Folders.SyncAsync(id);
 
     private async Task SaveModel()
     {
@@ -96,5 +152,5 @@
 
     private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
 
-    public override void Dispose() { Store.Changed -= Reload; base.Dispose(); }
+    public override void Dispose() { Store.Changed -= Reload; Folders.Changed -= ReloadFolders; base.Dispose(); }
 }

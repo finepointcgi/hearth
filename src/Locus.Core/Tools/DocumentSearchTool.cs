@@ -10,8 +10,9 @@ public sealed class DocumentSearchTool(DocumentStore docs) : ITool
     public string DisplayName => "Search my documents";
     public string Icon => "📚";
     public string Description =>
-        "Semantic search over the user's personal document library (PDFs, notes, code). Use whenever the question " +
-        "might be answered by their own files. Cite the document name in your answer.";
+        "Search the user's personal document library (PDFs, notes, code) and the folders they linked from their " +
+        "computer. Use whenever the question might be answered by their own files. Results from linked folders show " +
+        "the file's path (open the whole file with read_linked_file). Cite the document name in your answer.";
     public JsonObject Parameters => Schema.Object(
         ("query", "string", "What to look for, phrased as a question or keywords", true),
         ("top_k", "integer", "Number of passages (default from settings)", false));

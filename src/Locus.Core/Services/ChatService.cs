@@ -33,6 +33,17 @@ public sealed class ChatService(
     /// <summary>Entry point from the chat UI: replies to the last user message in any kind of conversation.</summary>
     public async Task GenerateAsync(Conversation conv, SendOptions opts, Func<Task> onUpdate, CancellationToken ct)
     {
+        try { await GenerateCoreAsync(conv, opts, onUpdate, ct); }
+        finally
+        {
+            // Name the chat once there's something to name it after (any kind of chat, groups included).
+            if (NeedsTitle(conv) && (await settingsStore.GetAsync()).AutoTitle)
+                _ = Task.Run(() => AutoTitleAsync(conv, onUpdate));
+        }
+    }
+
+    private async Task GenerateCoreAsync(Conversation conv, SendOptions opts, Func<Task> onUpdate, CancellationToken ct)
+    {
         var lastUser = conv.Messages.LastOrDefault(m => m.Role == ChatRole.User);
         if (lastUser is { FromBotId: null }) await JoinMentionedBotsAsync(conv, lastUser.Content, null, onUpdate);
         if (conv.BotIds.Count == 0)
@@ -372,11 +383,6 @@ public sealed class ChatService(
         if (learnMemory)
             _ = Task.Run(() => LearnAsync(conv, bot, reply, client, model, onUpdate));
 
-        if (autoTitle && settings.AutoTitle && reply.Error is null && conv.Title == "New chat"
-            && conv.Messages.Count(m => m.Role == ChatRole.Assistant) == 1)
-        {
-            _ = Task.Run(() => AutoTitleAsync(conv, client, model, onUpdate));
-        }
         return reply;
     }
 
@@ -858,34 +864,84 @@ public sealed class ChatService(
         catch { /* best effort */ }
     }
 
-    private async Task AutoTitleAsync(Conversation conv, ILlmClient client, string model, Func<Task> onUpdate)
+    private readonly HashSet<string> _titling = [];
+
+    /// <summary>Still "New chat" after a real reply (tries again on the next couple of replies if naming failed).</summary>
+    public static bool NeedsTitle(Conversation c) =>
+        c.Title == "New chat" && c.Messages.Any(m => m.Role == ChatRole.User)
+        && c.Messages.Count(m => m is { Role: ChatRole.Assistant, Notice: null, Error: null } && m.Content.Length > 0) is >= 1 and <= 3;
+
+    /// <summary>Gives a chat a short, specific name from how it started. Returns the title, or null.</summary>
+    public async Task<string?> AutoTitleAsync(Conversation conv, Func<Task>? onUpdate = null, CancellationToken ct = default)
     {
+        lock (_titling) if (!_titling.Add(conv.Id)) return null;
         using var usageScope = UsageScope.Begin("Titles", null, conv.Id);
         try
         {
-            var first = conv.Messages.First(m => m.Role == ChatRole.User).Content;
-            var prompt = new List<LlmMessage>
-            {
-                LlmMessage.System("You write short chat titles. Reply with ONLY a 2-6 word title, no quotes, no punctuation at the end."),
-                LlmMessage.User($"Title for a chat that starts with:\n\n{Clip(first, 600)}"),
-            };
-            var sb = new StringBuilder();
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            await foreach (var c in client.StreamChatAsync(new LlmRequest(model, prompt, 0.3, 32, 2048, false), cts.Token))
-                sb.Append(c.Content);
-            var title = sb.ToString().Trim().Trim('"', '\'', '.', '*', '#').Split('\n')[0].Trim();
-            if (title.Length is > 0 and < 80)
-            {
-                conv.Title = title;
-                await store.SaveAsync(conv);
-                await onUpdate();
-            }
-        }
-        catch
-        {
-            conv.Title = Clip(conv.Messages.First(m => m.Role == ChatRole.User).Content, 40);
+            var settings = await settingsStore.GetAsync();
+            var lastBot = conv.Messages.LastOrDefault(m => m.Role == ChatRole.Assistant && m.BotId is not null)?.BotId;
+            var bot = lastBot is null ? null : await bots.GetAsync(lastBot);
+            var client = factory.CreateForBot(settings, bot);
+            var model = conv.Messages.LastOrDefault(m => m is { Role: ChatRole.Assistant, Model: not null })?.Model ?? conv.Model;
+            if (model is null) return null;
+            var title = Title(await AskForTitleAsync(client, model, conv, ct));
+            if (title is null) return null;
+            if (conv.Title != "New chat") return null; // named meanwhile (by a bot or the user)
+            conv.Title = title;
             await store.SaveAsync(conv);
+            if (onUpdate is not null) await onUpdate();
+            return title;
         }
+        catch (Exception) when (!ct.IsCancellationRequested) { return null; } // stays "New chat"; tried again next reply
+        finally { lock (_titling) _titling.Remove(conv.Id); }
+    }
+
+    private static async Task<string> AskForTitleAsync(ILlmClient client, string model, Conversation conv, CancellationToken ct)
+    {
+        var first = conv.Messages.First(m => m.Role == ChatRole.User).Content;
+        var reply = conv.Messages.FirstOrDefault(m => m is { Role: ChatRole.Assistant, Notice: null } && m.Content.Length > 0)?.Content ?? "";
+        var prompt = new List<LlmMessage>
+        {
+            LlmMessage.System("You name chats. Reply with ONLY a specific 2-6 word title in Title Case that says what the chat " +
+                              "is about (e.g. \"Director-Level Job Search Detroit\", \"Fixing Blazor Login Redirect\"). No quotes, " +
+                              "no emoji, no ending punctuation, never \"New chat\"."),
+            LlmMessage.User($"The user wrote:\n{Clip(first, 700)}\n\nThe assistant replied:\n{Clip(reply, 500)}\n\nTitle:"),
+        };
+        var sb = new StringBuilder();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        // In the background, so it can wait behind other work on a busy model server.
+        cts.CancelAfter(TimeSpan.FromMinutes(5));
+        // Room for reasoning models, which think before answering even for a few words.
+        await foreach (var c in client.StreamChatAsync(new LlmRequest(model, prompt, 0.3, 1200, 4096, false), cts.Token))
+            sb.Append(c.Content);
+        return sb.ToString();
+    }
+
+    /// <summary>Cleans a model's title answer; null when there's nothing usable.</summary>
+    public static string? Title(string raw)
+    {
+        var text = System.Text.RegularExpressions.Regex.Replace(raw, @"<think>[\s\S]*?(</think>|$)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var line = text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) ?? "";
+        line = System.Text.RegularExpressions.Regex.Replace(line, @"^(title|chat title)\s*:\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        line = line.Trim().Trim('"', '\'', '`', '*', '#', '.', ' ', '“', '”');
+        if (line.Length is 0 or > 70 || line.Equals("New chat", StringComparison.OrdinalIgnoreCase)) return null;
+        return line;
+    }
+
+    /// <summary>Names chats still called "New chat" (e.g. from before naming worked with reasoning models).</summary>
+    public async Task<int> TitleUntitledAsync(int max = 30, CancellationToken ct = default)
+    {
+        var named = 0;
+        if (!(await settingsStore.GetAsync()).AutoTitle) return 0;
+        // The chat list shows untitled chats by their first message, so check the files themselves.
+        foreach (var (id, _) in store.Files().OrderByDescending(f => f.modified).Take(300))
+        {
+            if (named >= max || ct.IsCancellationRequested) break;
+            var conv = await store.GetAsync(id);
+            if (conv is null || conv.Title != "New chat" || conv.Running is not null || !conv.Messages.Any(m => m is { Role: ChatRole.Assistant, Notice: null } && m.Content.Length > 0)) continue;
+            if (await AutoTitleAsync(conv, null, ct) is not null) named++;
+        }
+        return named;
     }
 
     private static string Clip(string s, int n) => s.Length <= n ? s : s[..n].TrimEnd() + "…";

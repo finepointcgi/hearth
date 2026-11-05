@@ -68,6 +68,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<FollowUpStore>();
         services.AddSingleton<FollowUpRunner>();
         services.AddSingleton<IToolProvider, ProactiveToolProvider>();
+        services.AddSingleton<LinkedFolders>();
+        services.AddSingleton<IToolProvider, LinkedFolderToolProvider>();
         services.TryAddSingleton<IBotComputer, NoBotComputer>();
         services.TryAddSingleton<IDesktopControl, NoDesktopControl>();
         services.TryAddSingleton<ISandboxDesktops, NoSandboxDesktops>();

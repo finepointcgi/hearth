@@ -86,6 +86,8 @@ public static class Schema
         JsonValue v when v.TryGetValue<double>(out var d) => d,
         JsonValue v when v.TryGetValue<string>(out var s) &&
             double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d2) => d2,
+        // Values built in code (e.g. an int) rather than parsed from JSON.
+        JsonValue v when double.TryParse(v.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d3) => d3,
         _ => null,
     };
 

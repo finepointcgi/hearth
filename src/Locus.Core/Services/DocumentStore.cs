@@ -4,13 +4,23 @@ using Locus.Core.Models;
 
 namespace Locus.Core.Services;
 
-public sealed record DocumentInfo(string Id, string Name, int Characters, int Chunks, string EmbeddingModel, DateTimeOffset AddedAt);
+/// <param name="EmbeddingModel">"" = indexed for keyword search only (no embedding model was available).</param>
+/// <param name="Source">For a file from a linked folder: its full path (the folder sync keeps it current).</param>
+public sealed record DocumentInfo(string Id, string Name, int Characters, int Chunks, string EmbeddingModel, DateTimeOffset AddedAt,
+    string? Source = null, string? FolderId = null, DateTime? SourceModifiedUtc = null, long? SourceSize = null)
+{
+    public bool KeywordOnly => EmbeddingModel.Length == 0;
+}
+
+/// <summary>Where a document came from (a file in a linked folder).</summary>
+public sealed record DocumentSource(string Path, string FolderId, DateTime ModifiedUtc, long Size);
 
 public sealed record DocumentHit(string DocumentName, string Text, double Score);
 
 /// <summary>
 /// Local document library for retrieval-augmented answers. Text is chunked, embedded with a local embedding
 /// model and kept as JSON on the device; search is brute-force cosine similarity (fine for personal libraries).
+/// Without an embedding model, documents are still indexed and found by keyword search.
 /// </summary>
 public sealed class DocumentStore(IAppPaths paths, SettingsStore settingsStore, ILlmClientFactory factory)
 {
@@ -36,35 +46,83 @@ public sealed class DocumentStore(IAppPaths paths, SettingsStore settingsStore, 
     private async Task<List<DocumentInfo>> IndexAsync() =>
         _index ??= await Json.ReadAsync<List<DocumentInfo>>(IndexPath) ?? [];
 
-    public async Task<DocumentInfo> AddAsync(string name, string text, IProgress<string>? progress = null, CancellationToken ct = default)
+    /// <summary>
+    /// Indexes a document. With <paramref name="source"/>, replaces any earlier version of that file. When the
+    /// embedding model can't be reached (or <paramref name="embed"/> is false) it's indexed for keyword search.
+    /// </summary>
+    public async Task<DocumentInfo> AddAsync(string name, string text, IProgress<string>? progress = null, CancellationToken ct = default,
+        DocumentSource? source = null, bool embed = true, bool notify = true)
     {
         var settings = await settingsStore.GetAsync();
         var model = settings.Documents.EmbeddingModel;
-        var client = factory.Create(EmbeddingProvider(settings));
         var pieces = Chunker.Split(text, settings.Documents.ChunkSize, settings.Documents.ChunkSize / 6);
         if (pieces.Count == 0) throw new InvalidOperationException("No text could be extracted from this file.");
 
-        var chunks = new List<Chunk>();
-        for (var i = 0; i < pieces.Count; i += 16)
+        var chunks = pieces.Select(p => new Chunk { Text = p }).ToList();
+        if (embed && !string.IsNullOrWhiteSpace(model))
         {
-            progress?.Report($"Embedding {Math.Min(i + 16, pieces.Count)}/{pieces.Count}…");
-            var batch = pieces.Skip(i).Take(16).ToList();
-            var vectors = await client.EmbedAsync(model, batch.Select(b => $"{name}\n{b}").ToList(), ct);
-            for (var j = 0; j < batch.Count; j++)
-                chunks.Add(new Chunk { Text = batch[j], Vector = Convert.ToBase64String(MemoryMarshal.AsBytes(Normalize(vectors[j]).AsSpan())) });
+            try
+            {
+                var client = factory.Create(EmbeddingProvider(settings));
+                for (var i = 0; i < pieces.Count; i += 16)
+                {
+                    progress?.Report($"Embedding {Math.Min(i + 16, pieces.Count)}/{pieces.Count}…");
+                    var batch = pieces.Skip(i).Take(16).ToList();
+                    var vectors = await client.EmbedAsync(model, batch.Select(b => $"{name}\n{b}").ToList(), ct);
+                    for (var j = 0; j < batch.Count; j++)
+                        chunks[i + j].Vector = Convert.ToBase64String(MemoryMarshal.AsBytes(Normalize(vectors[j]).AsSpan()));
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                foreach (var c in chunks) c.Vector = ""; // no embedding model: keyword search still works
+                embed = false;
+            }
         }
+        else embed = false;
 
-        var info = new DocumentInfo(Guid.NewGuid().ToString("N"), name, text.Length, chunks.Count, model, DateTimeOffset.Now);
+        var info = new DocumentInfo(Guid.NewGuid().ToString("N"), name, text.Length, chunks.Count, embed ? model : "", DateTimeOffset.Now,
+            source?.Path, source?.FolderId, source?.ModifiedUtc, source?.Size);
         await _lock.WaitAsync();
         try
         {
             await Json.WriteAtomicAsync(Path.Combine(Dir, info.Id + ".json"), new DocFile { Chunks = chunks });
-            (await IndexAsync()).Add(info);
+            var index = await IndexAsync();
+            if (source is not null)
+                foreach (var old in index.Where(d => d.Source == source.Path).ToList()) RemoveLocked(old.Id);
+            index.Add(info);
             await Json.WriteAtomicAsync(IndexPath, _index);
         }
         finally { _lock.Release(); }
-        Changed?.Invoke();
+        if (notify) Changed?.Invoke();
         return info;
+    }
+
+    /// <summary>Removes every document matching <paramref name="match"/> (e.g. a linked folder's files).</summary>
+    public async Task<int> RemoveWhereAsync(Func<DocumentInfo, bool> match, bool notify = true)
+    {
+        int removed;
+        await _lock.WaitAsync();
+        try
+        {
+            var gone = (await IndexAsync()).Where(match).ToList();
+            foreach (var d in gone) RemoveLocked(d.Id);
+            removed = gone.Count;
+            if (removed > 0) await Json.WriteAtomicAsync(IndexPath, _index);
+        }
+        finally { _lock.Release(); }
+        if (removed > 0 && notify) Changed?.Invoke();
+        return removed;
+    }
+
+    public void NotifyChanged() => Changed?.Invoke();
+
+    private void RemoveLocked(string id)
+    {
+        _index?.RemoveAll(d => d.Id == id);
+        _vectors.Remove(id);
+        var f = Path.Combine(Dir, Path.GetFileName(id) + ".json");
+        if (File.Exists(f)) File.Delete(f);
     }
 
     public async Task DeleteAsync(string id)
@@ -72,11 +130,9 @@ public sealed class DocumentStore(IAppPaths paths, SettingsStore settingsStore, 
         await _lock.WaitAsync();
         try
         {
-            (await IndexAsync()).RemoveAll(d => d.Id == id);
+            await IndexAsync();
+            RemoveLocked(id);
             await Json.WriteAtomicAsync(IndexPath, _index);
-            _vectors.Remove(id);
-            var f = Path.Combine(Dir, Path.GetFileName(id) + ".json");
-            if (File.Exists(f)) File.Delete(f);
         }
         finally { _lock.Release(); }
         Changed?.Invoke();
@@ -87,19 +143,35 @@ public sealed class DocumentStore(IAppPaths paths, SettingsStore settingsStore, 
         var settings = await settingsStore.GetAsync();
         var docs = await ListAsync();
         if (docs.Count == 0) return [];
-        var q = Normalize((await factory.Create(EmbeddingProvider(settings))
-            .EmbedAsync(settings.Documents.EmbeddingModel, [query], ct))[0]);
+        float[]? q = null;
+        if (docs.Any(d => !d.KeywordOnly && d.EmbeddingModel == settings.Documents.EmbeddingModel))
+        {
+            try
+            {
+                q = Normalize((await factory.Create(EmbeddingProvider(settings))
+                    .EmbedAsync(settings.Documents.EmbeddingModel, [query], ct))[0]);
+            }
+            catch (Exception) when (!ct.IsCancellationRequested) { /* model unavailable: keyword search for everything */ }
+        }
 
+        var terms = Keywords.Terms(query);
         var hits = new List<DocumentHit>();
         foreach (var doc in docs)
         {
-            if (doc.EmbeddingModel != settings.Documents.EmbeddingModel) continue; // vectors not comparable
+            var semantic = q is not null && doc.EmbeddingModel == settings.Documents.EmbeddingModel;
+            var nameScore = Keywords.Score(terms, doc.Name);
             foreach (var (text, vec) in await VectorsAsync(doc.Id))
-                if (vec.Length == q.Length)
-                    hits.Add(new DocumentHit(doc.Name, text, Dot(q, vec)));
+            {
+                if (semantic && vec.Length == q!.Length) hits.Add(new DocumentHit(Label(doc), text, Dot(q, vec)));
+                else if (Keywords.Score(terms, text) is var s && s > 0)
+                    hits.Add(new DocumentHit(Label(doc), text, 0.8 * Math.Min(1, s + 0.25 * nameScore)));
+            }
         }
         return hits.OrderByDescending(h => h.Score).Take(topK).ToList();
     }
+
+    /// <summary>Linked-folder files are labelled with their path so bots can open them.</summary>
+    private static string Label(DocumentInfo d) => d.Source ?? d.Name;
 
     /// <summary>
     /// Claude (API or Claude Code) can't make embeddings, so when it's the active provider the library uses the first
@@ -114,7 +186,7 @@ public sealed class DocumentStore(IAppPaths paths, SettingsStore settingsStore, 
     {
         if (_vectors.TryGetValue(id, out var v)) return v;
         var file = await Json.ReadAsync<DocFile>(Path.Combine(Dir, id + ".json")) ?? new DocFile();
-        v = file.Chunks.Select(c => (c.Text, MemoryMarshal.Cast<byte, float>(Convert.FromBase64String(c.Vector)).ToArray())).ToArray();
+        v = file.Chunks.Select(c => (c.Text, c.Vector.Length == 0 ? [] : MemoryMarshal.Cast<byte, float>(Convert.FromBase64String(c.Vector)).ToArray())).ToArray();
         _vectors[id] = v;
         return v;
     }
@@ -159,5 +231,34 @@ public static class Chunker
     private static IEnumerable<string> HardSplit(string s, int size)
     {
         for (var i = 0; i < s.Length; i += size) yield return s.Substring(i, Math.Min(size, s.Length - i));
+    }
+}
+
+/// <summary>Plain keyword matching, used when no embedding model is available.</summary>
+public static class Keywords
+{
+    private static readonly HashSet<string> Stop = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "is", "are", "was", "be", "it", "this", "that",
+        "with", "as", "at", "by", "from", "what", "which", "who", "how", "do", "does", "my", "me", "i", "about", "any",
+    };
+
+    public static string[] Terms(string query) =>
+        System.Text.RegularExpressions.Regex.Split(query.ToLowerInvariant(), @"[^\p{L}\p{N}_]+")
+            .Where(t => t.Length >= 2 && !Stop.Contains(t)).Distinct().ToArray();
+
+    /// <summary>0–1: the share of query terms found, with a little extra for repeats.</summary>
+    public static double Score(string[] terms, string text)
+    {
+        if (terms.Length == 0 || text.Length == 0) return 0;
+        var lower = text.ToLowerInvariant();
+        double score = 0;
+        foreach (var t in terms)
+        {
+            var count = 0;
+            for (var i = lower.IndexOf(t, StringComparison.Ordinal); i >= 0 && count < 20; i = lower.IndexOf(t, i + t.Length, StringComparison.Ordinal)) count++;
+            if (count > 0) score += 1 + Math.Log(count) * 0.2;
+        }
+        return Math.Min(1, score / (terms.Length * 1.3));
     }
 }

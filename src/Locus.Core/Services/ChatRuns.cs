@@ -94,6 +94,7 @@ public sealed class ChatRuns(ChatService chat, ConversationStore store)
         {
             await Task.Delay(TimeSpan.FromSeconds(3)); // let the model server connection and settings load
             try { await ResumeInterruptedAsync(); } catch { /* a bad chat file shouldn't stop the app */ }
+            try { await chat.TitleUntitledAsync(); } catch { /* naming is cosmetic */ }
         });
     }
 

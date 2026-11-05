@@ -36,14 +36,14 @@ public sealed class BotAbilities
     public static string? GroupOf(string tool) => tool switch
     {
         "calculate" or "get_current_datetime" or "convert_units" => null,
-        "follow_up" or "list_follow_ups" or "cancel_follow_up" or "start_task" or "propose_new_bot" => null,
+        "follow_up" or "list_follow_ups" or "cancel_follow_up" or "start_task" or "propose_new_bot" or "rename_chat" => null,
         "web_search" or "fetch_url" => nameof(WebSearch),
         _ when tool.StartsWith("browser_") => nameof(Browser),
         _ when tool.StartsWith("desktop_") => nameof(ComputerUse),
         "list_files" or "read_file" or "write_file" => nameof(Files),
         "run_python" or "run_command" or "run_remote" => nameof(Code),
         "generate_image" => nameof(Images),
-        "search_documents" => nameof(Documents),
+        "search_documents" or "read_linked_file" or "list_linked_files" => nameof(Documents),
         "use_skill" or "save_skill" or "improve_skill" => nameof(Skills),
         "message_bot" => nameof(MessageBots),
         "save_memory" or "delete_memory" or "recall_memory" or "search_past_chats" or "read_past_chat" => "Memory",
