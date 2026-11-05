@@ -72,6 +72,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp => new CodeSandbox(sp.GetRequiredService<PlatformInfo>()));
         services.AddSingleton<ProjectHistory>();
         services.AddSingleton<IToolProvider, ProjectToolProvider>();
+        services.AddSingleton<IToolProvider, ScriptToolProvider>();
         services.AddSingleton<IToolProvider, LinkedFolderToolProvider>();
         services.TryAddSingleton<IBotComputer, NoBotComputer>();
         services.TryAddSingleton<IDesktopControl, NoDesktopControl>();

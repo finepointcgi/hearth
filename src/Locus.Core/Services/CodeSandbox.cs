@@ -89,6 +89,56 @@ public sealed class CodeSandbox : IDisposable
         finally { _lastUse[name] = DateTimeOffset.Now; }
     }
 
+    /// <summary>
+    /// Like <see cref="RunAsync"/>, but the program can talk back while it runs: every output line starting with
+    /// <paramref name="marker"/> goes to <paramref name="onRequest"/>, whose answer is written to the program's input
+    /// as one line. Other output is collected as usual.
+    /// </summary>
+    public async Task<SandboxResult> RunInteractiveAsync(SandboxSettings s, string workspace, string command, string marker,
+        Func<string, Task<string>> onRequest, TimeSpan? timeout = null, CancellationToken ct = default)
+    {
+        if (DockerPath is null) throw new InvalidOperationException("Docker isn't installed, so the sandbox isn't available.");
+        var limit = timeout ?? TimeSpan.FromSeconds(300);
+        var name = ContainerName(workspace, null, s.Image, s.Network);
+        await EnsureRunningAsync(name, s, workspace, null, s.Image, ct);
+        _lastUse[name] = DateTimeOffset.Now;
+        var psi = new ProcessStartInfo(DockerPath)
+        {
+            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true,
+            UseShellExecute = false, CreateNoWindow = true,
+        };
+        foreach (var a in new[] { "exec", "-i", "-w", WorkspaceMount, name, "timeout", "-k", "5", ((int)Math.Ceiling(limit.TotalSeconds)).ToString(), "sh", "-c", command })
+            psi.ArgumentList.Add(a);
+        psi.Environment["PATH"] = $"{Path.GetDirectoryName(DockerPath)}{Path.PathSeparator}/usr/local/bin{Path.PathSeparator}/opt/homebrew/bin{Path.PathSeparator}{Environment.GetEnvironmentVariable("PATH")}";
+        using var proc = Process.Start(psi)!;
+        using var limitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limitCts.CancelAfter(limit + TimeSpan.FromSeconds(15));
+        var stderr = proc.StandardError.ReadToEndAsync(limitCts.Token);
+        var output = new StringBuilder();
+        try
+        {
+            while (await proc.StandardOutput.ReadLineAsync(limitCts.Token) is { } line)
+            {
+                if (line.StartsWith(marker, StringComparison.Ordinal))
+                {
+                    var answer = await onRequest(line[marker.Length..]);
+                    await proc.StandardInput.WriteLineAsync(answer.Replace("\n", " ").Replace("\r", " "));
+                    await proc.StandardInput.FlushAsync(limitCts.Token);
+                }
+                else if (output.Length < 200_000) output.AppendLine(line);
+            }
+            await proc.WaitForExitAsync(limitCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { }
+            if (ct.IsCancellationRequested) throw;
+            return new SandboxResult(-1, output.ToString(), "Timed out.", true);
+        }
+        finally { _lastUse[name] = DateTimeOffset.Now; }
+        return new SandboxResult(proc.ExitCode, output.ToString(), await stderr, proc.ExitCode is 124 or 137);
+    }
+
     private static string ContainerName(string workspace, string? project, string image, bool network)
     {
         var key = $"{workspace}|{project}|{image}|{network}";

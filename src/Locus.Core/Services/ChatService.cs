@@ -294,7 +294,7 @@ public sealed class ChatService(
             var ctx = new ToolContext
             {
                 Conversation = conv, Reply = reply, Settings = settings, Client = client, Model = model,
-                Bot = bot, Depth = depth, Unattended = unattended, TaintedBy = untrustedInput,
+                Bot = bot, Depth = depth, Unattended = unattended, TaintedBy = untrustedInput, Tools = byName,
             };
             var definitions = available.Select(t => new ToolDefinition(t.Name, t.Description, t.Parameters)).ToList();
             var content = new StringBuilder();
