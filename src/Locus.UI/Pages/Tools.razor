@@ -58,6 +58,11 @@
                     else { <span>Docker is ready.</span> }
                 </p>
             </div>
+            <div class="sub">
+                <h4>Helper agents</h4>
+                <p class="muted small">Bots can split a job into parts and hand them to temporary helpers that work at the same time (each helper is a model call running in parallel, so local servers may slow down with many).</p>
+                <label>Helpers at once (0 = off) <input type="number" min="0" max="10" @bind="_s.Tools.MaxHelpers" style="width:5rem" /></label>
+            </div>
         }
     </section>
 

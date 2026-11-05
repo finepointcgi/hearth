@@ -100,6 +100,8 @@ public sealed class ToolSettings
     public string PythonPath { get; set; } = "";
     public int MaxRounds { get; set; } = 8;
     public SandboxSettings Sandbox { get; set; } = new();
+    /// <summary>How many helper agents (delegate_task) may work at the same time; 0 turns helpers off.</summary>
+    public int MaxHelpers { get; set; } = 3;
 }
 
 /// <summary>Where bots run code: a Docker container (no approval needed) instead of directly on this computer.</summary>

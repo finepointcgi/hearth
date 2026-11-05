@@ -217,6 +217,7 @@ public sealed class ChatService(
             "Heartbeat" => "Heartbeat",
             "Task" => "Task",
             "Bot check" => "Bot check",
+            "Helper" => "Helpers",
             not null => "Routine",
             _ when depth > 0 => "Bot handoff",
             _ when untrustedInput?.StartsWith("an email") == true => "Bot inbox",
@@ -244,6 +245,9 @@ public sealed class ChatService(
                     && bot.Abilities.MessageBots)
                     available.Add(new MessageBotTool(this, bot, others, opts with { DeepSearch = false }));
             }
+            // Helpers: the replying bot (or Locus) can split work across temporary helper agents. Not for helpers themselves.
+            if (opts.UseTools && depth == 0 && settings.Tools.MaxHelpers > 0 && bot?.ToolMode != BotToolMode.None)
+                available.Add(new DelegateTool(this, bot, opts with { DeepSearch = false }));
             available = available.Where(t => !PermissionCatalog.IsBlocked(t, settings)).ToList();
             if (extraTools is not null) available.AddRange(extraTools);
             var byName = available.ToDictionary(t => t.Name);
@@ -406,6 +410,9 @@ public sealed class ChatService(
         if (tools.ContainsKey("start_task") && !unattended)
             sb.Append(" For work that needs many searches or steps (research across many sources, comparing lots of options, ")
               .Append("a job hunt), hand it to start_task with a complete goal so it runs in the background and reports back here.");
+        if (tools.ContainsKey("delegate_task"))
+            sb.Append(" When a job has several independent parts (researching several companies, checking many postings), ")
+              .Append("hand them to helpers with delegate_task so they're done at the same time.");
         if (tools.ContainsKey("propose_new_bot"))
             sb.Append(" If a kind of work keeps coming up that no one on the team specialises in, suggest hiring a new bot for ")
               .Append("it with propose_new_bot (the user approves it first). Don't propose one for a one-off request.");
@@ -524,8 +531,84 @@ public sealed class ChatService(
     }
 
     /// <summary>Messages to different bots (each in its own chat) are safe to run at once.</summary>
+    private readonly object _helperGate = new();
+    private int _helpersRunning;
+    private readonly Queue<TaskCompletionSource> _helperQueue = new();
+
+    /// <summary>Waits for a helper slot (Tools.MaxHelpers at a time, read live so changing it applies at once).</summary>
+    private async Task<IDisposable> HelperSlotAsync(CancellationToken ct)
+    {
+        while (true)
+        {
+            var max = Math.Max(1, (await settingsStore.GetAsync()).Tools.MaxHelpers);
+            TaskCompletionSource wait;
+            lock (_helperGate)
+            {
+                if (_helpersRunning < max)
+                {
+                    _helpersRunning++;
+                    return new HelperSlot(this);
+                }
+                wait = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _helperQueue.Enqueue(wait);
+            }
+            using (ct.Register(() => wait.TrySetCanceled(ct))) await wait.Task;
+        }
+    }
+
+    private sealed class HelperSlot(ChatService owner) : IDisposable
+    {
+        private int _done;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _done, 1) == 1) return;
+            lock (owner._helperGate)
+            {
+                owner._helpersRunning--;
+                while (owner._helperQueue.TryDequeue(out var next))
+                    if (next.TrySetResult()) break;
+            }
+        }
+    }
+
+    /// <summary>The most helpers that have run at once (for tests).</summary>
+    public int PeakHelpers { get; private set; }
+
+    /// <summary>Runs one helper: a throwaway chat as <paramref name="bot"/>, unattended, returning its answer.</summary>
+    internal async Task<string> RunHelperAsync(Bot? bot, string goal, string? shared, SendOptions opts, ToolContext parent, CancellationToken ct)
+    {
+        using var slot = await HelperSlotAsync(ct);
+        lock (_helperGate) PeakHelpers = Math.Max(PeakHelpers, _helpersRunning);
+        var conv = new Conversation { Title = "Helper", BotIds = bot is null ? [] : [bot.Id] };
+        conv.Messages.Add(new ChatMessage
+        {
+            Role = ChatRole.User, RoutineName = "Helper",
+            Content = "You're a helper doing one part of a bigger job. Do it with your tools, then reply with just the " +
+                      "result (facts, numbers, names, links) in a compact form — no greeting, no questions.\n\n" +
+                      (string.IsNullOrWhiteSpace(shared) ? "" : $"Background:\n{shared.Trim()}\n\n") + $"Your part:\n{goal}",
+        });
+        try
+        {
+            using var scope = UsageScope.Begin("Helpers", bot?.Id, parent.Conversation.Id);
+            var reply = await RunAgentAsync(conv, bot, opts, () => Task.CompletedTask, ct, autoTitle: false,
+                depth: parent.Depth + 1, unattended: true, untrustedInput: parent.TaintedBy, learn: false);
+            if (reply is null) return "(no answer)";
+            // What a helper read from the web (or email…) comes back with its answer: treat it the same way.
+            foreach (var tc in reply.ToolCalls)
+                if (parent.Tools.TryGetValue(tc.Name, out var t) && ContentTrust.UntrustedSource(t) is { } source)
+                    parent.TaintedBy ??= source;
+            if (reply.Error is not null) return $"(failed: {reply.Error})";
+            var text = reply.Content.Trim();
+            return text.Length > 8000 ? text[..8000] + "…" : text.Length == 0 ? "(no answer)" : text;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { return $"(failed: {ex.Message})"; }
+        finally { try { await store.DeleteAsync(conv.Id); } catch { } }
+    }
+
     public static bool CanRunInParallel(IReadOnlyList<ToolCall> batch)
     {
+        if (batch.Count >= 2 && batch.All(t => t.Name == "delegate_task")) return true; // helpers run side by side
         if (batch.Count < 2 || batch.Any(t => t.Name != "message_bot")) return false;
         var targets = batch.Select(t =>
         {
@@ -736,7 +819,7 @@ public sealed class ChatService(
                     text = $"{text}\n\n<attached_documents>\n{m.AttachmentText}\n</attached_documents>";
                 if (m.FromBotId is not null)
                     text = $"[Message from {allBots.FirstOrDefault(b => b.Id == m.FromBotId)?.Name ?? "another bot"}]: {text}";
-                else if (m.RoutineName is not null)
+                else if (m.RoutineName is not null and not "Helper")
                     text = $"[Scheduled routine \"{m.RoutineName}\"]: {text}";
                 yield return LlmMessage.User(text, m.Images);
             }
@@ -1025,6 +1108,53 @@ public sealed class ChatService(
     }
 
     private static string Clip(string s, int n) => s.Length <= n ? s : s[..n].TrimEnd() + "…";
+}
+
+/// <summary>
+/// Hands parts of a job to temporary helper agents that work in parallel (at most Tools.MaxHelpers at a time across
+/// Locus) and return their results. Helpers act as the same bot, can't ask the user (so nothing that needs approval
+/// runs), can't start more helpers, and leave no chat behind.
+/// </summary>
+internal sealed class DelegateTool(ChatService chat, Bot? self, SendOptions opts) : ITool
+{
+    public const int MaxGoals = 10;
+
+    public string Name => "delegate_task";
+    public string DisplayName => "Hand off to helpers";
+    public string Icon => "👥";
+    public string Description =>
+        "Split a job into independent parts and hand them to temporary helper agents that work at the same time and " +
+        "return their results (e.g. research 5 companies, check 8 job postings, summarise 4 documents). Each goal must " +
+        "stand on its own: include everything the helper needs. Helpers have your tools but can't ask the user anything.";
+    public JsonObject Parameters => new()
+    {
+        ["type"] = "object",
+        ["properties"] = new JsonObject
+        {
+            ["goals"] = new JsonObject { ["type"] = "array", ["items"] = new JsonObject { ["type"] = "string" }, ["description"] = $"1–{MaxGoals} independent goals, one per helper" },
+            ["shared_context"] = new JsonObject { ["type"] = "string", ["description"] = "Background every helper needs (criteria, format to return)" },
+        },
+        ["required"] = new JsonArray("goals"),
+    };
+    public bool RequiresApproval => false;
+
+    public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct)
+    {
+        var node = args["goals"];
+        if (node is JsonValue v && v.TryGetValue<string>(out var s))
+            node = s.TrimStart().StartsWith('[') ? JsonNode.Parse(s) : new JsonArray(s);
+        var goals = (node as JsonArray ?? []).Select(g => g?.ToString().Trim() ?? "").Where(g => g.Length > 0).ToList();
+        if (goals.Count == 0) return ToolResult.Error("Give at least one goal.");
+        if (goals.Count > MaxGoals) return ToolResult.Error($"At most {MaxGoals} goals at once.");
+        var shared = args.Str("shared_context");
+        var model = ctx.Settings.ProviderFor(self).Id == ctx.Settings.ActiveProvider.Id ? ctx.Model : opts.Model;
+
+        var results = await Task.WhenAll(goals.Select(g => chat.RunHelperAsync(self, g, shared, opts with { Model = model }, ctx, ct)));
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < goals.Count; i++)
+            sb.AppendLine($"### Helper {i + 1}: {(goals[i].Length > 80 ? goals[i][..80] + "…" : goals[i])}").AppendLine(results[i]).AppendLine();
+        return new ToolResult(sb.ToString().Trim());
+    }
 }
 
 /// <summary>Lets a bot send a direct message to another bot and get its reply (asynchronous handoff).</summary>
