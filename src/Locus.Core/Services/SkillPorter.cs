@@ -121,6 +121,7 @@ public sealed partial class SkillPorter(SkillStore store, IHttpClientFactory htt
         (new(@"(crypto ?wallet|bitcoin|ethereum|wire transfer|gift card)", RegexOptions.IgnoreCase), "Mentions moving money or crypto."),
         (new(@"\b(chmod\s+\+x|sudo\s|launchctl|crontab|systemctl enable|reg add)\b", RegexOptions.IgnoreCase), "Changes system settings or installs something that persists."),
         (new(@"[​-‏‪-‮⁠-⁤]"), "Contains invisible characters (can hide instructions)."),
+        (new(@"(jailbreak|bypass (the )?safety|safety[- ]bypass|uncensor|ignore (all |your )?(previous|prior) instructions|godmode|abliterat|obliterat)", RegexOptions.IgnoreCase), "Tries to get around AI safety rules (jailbreaking). Don't approve unless you're sure."),
     ];
 
     public static List<string> Scan(Skill s)
