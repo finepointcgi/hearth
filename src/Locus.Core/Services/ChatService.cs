@@ -25,7 +25,8 @@ public sealed class ChatService(
     SkillStore skillStore,
     ApprovalCenter approvals,
     ActivityLog activity,
-    MemoryCurator curator)
+    MemoryCurator curator,
+    ProjectContext projectContext)
 {
     private const int MaxToolResultChars = 16000;
     private const int MaxBotCallDepth = 2;
@@ -438,6 +439,10 @@ public sealed class ChatService(
                 system.Append("\n\nAdditional instructions from the user:\n").Append(settings.CustomSystemPrompt);
         }
 
+        // SOUL.md: the personality and voice the user gave Locus (every bot keeps its own role on top of it).
+        if (await projectContext.SoulAsync() is { } soul)
+            system.AppendLine().AppendLine().AppendLine("Personality and voice (from SOUL.md — keep to it unless your role says otherwise):").AppendLine(soul);
+
         if (settings.MemoryEnabled)
         {
             var max = Math.Max(5, bot?.Memory.MaxInPrompt ?? 60);
@@ -507,6 +512,9 @@ public sealed class ChatService(
                 .Append("search_documents for the user's own files. Don't invent tool results. After using tools, answer naturally.");
             if (byName.ContainsKey("save_memory"))
                 system.Append(" When the user shares a lasting personal fact or preference, save it with save_memory.");
+            if (byName.ContainsKey("edit_project_file"))
+                foreach (var (folder, file, text) in await projectContext.ProjectInstructionsAsync())
+                    system.AppendLine().AppendLine().AppendLine($"Project instructions for {folder} (its {file}; follow them when working there):").AppendLine(text);
             if (byName.ContainsKey("edit_project_file"))
                 system.Append(" To change code in the user's projects: read the file with read_linked_file, make small exact edits ")
                       .Append("with edit_project_file (write_project_file only for new files), then check your work with ")

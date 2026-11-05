@@ -1,4 +1,5 @@
 @page "/settings"
+@inject ProjectContext Soul
 @inject SettingsStore Store
 @inherits StatefulComponent
 @inject ILlmClientFactory Factory
@@ -131,6 +132,10 @@
         <label>Custom instructions (added to every system prompt)
             <textarea rows="4" @bind="_s.CustomSystemPrompt" placeholder="e.g. I'm a C# developer. Prefer metric units."></textarea>
         </label>
+        <label>Personality (SOUL.md)
+            <textarea rows="5" value="@_soul" @onchange="SaveSoul" placeholder="How Locus and your bots should sound, e.g. Direct and warm. Short answers first, details after. No filler or flattery. Light humour is fine."></textarea>
+            <span class="muted small">Every bot follows this voice on top of its own role. Saved as SOUL.md in Locus's data folder (the same file other agents like Hermes and OpenClaw use). Saved as you leave the box.</span>
+        </label>
         <label class="check"><input type="checkbox" @bind="_s.ShowThinking" /> Show thinking from reasoning models</label>
         <label class="check"><input type="checkbox" @bind="_s.AutoTitle" /> Auto-name chats with the model</label>
         <label class="check"><input type="checkbox" @bind="_s.TakeInitiative" /> Bots take initiative</label>
@@ -230,6 +235,14 @@
 }
 
 @code {
+    private string _soul = "";
+
+    private async Task SaveSoul(ChangeEventArgs e)
+    {
+        _soul = e.Value?.ToString() ?? "";
+        await Soul.SaveSoulAsync(_soul);
+    }
+
     private string _tab = "models";
 
     private AppSettings? _s;
@@ -241,6 +254,7 @@
     {
         _s = SettingsCopy.Of(await Store.GetAsync());
         _s.ActiveProviderId ??= _s.ActiveProvider.Id;
+        _soul = await Soul.SoulAsync() ?? "";
     }
 
     private void Add(ProviderKind kind, string name, string url)

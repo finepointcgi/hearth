@@ -36,6 +36,14 @@ internal static class Json
         File.Move(tmp, path, overwrite: true);
     }
 
+    public static async Task WriteTextAtomicAsync(string path, string text)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var tmp = path + ".tmp";
+        await File.WriteAllTextAsync(tmp, text);
+        File.Move(tmp, path, overwrite: true);
+    }
+
     public static async Task<T?> ReadAsync<T>(string path)
     {
         if (!File.Exists(path)) return default;
