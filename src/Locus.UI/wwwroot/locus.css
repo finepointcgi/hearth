@@ -691,3 +691,13 @@ iframe.code-preview { height: 360px; background: #fff; }
 .code-todos .todo-completed { color: var(--muted); text-decoration: line-through; }
 .code-todos .todo-inprogress { font-weight: 600; color: var(--brand); }
 .plan-actions { max-width: 780px; width: calc(100% - 2rem); margin: 0 auto .4rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+
+/* Files page: browse linked folders (places + breadcrumb) */
+.places-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.seg-mini.places { flex-wrap: wrap; max-width: 100%; }
+.seg-mini.places button { display: inline-flex; align-items: center; gap: .35rem; }
+.places-row .btn { display: inline-flex; align-items: center; gap: .35rem; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; font-size: .9rem; min-width: 0; }
+.crumb { background: none; border: 0; padding: .15rem .35rem; border-radius: 7px; color: var(--text); cursor: pointer; overflow-wrap: anywhere; }
+.crumb:hover { background: var(--bg-3); }
+.crumbs .badge { margin-left: .4rem; }

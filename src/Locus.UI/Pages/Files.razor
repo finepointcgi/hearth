@@ -3,6 +3,7 @@
 @inject IBotComputer Computer
 @inject ConversationStore Conversations
 @inject IJSRuntime JS
+@inject LinkedFolders Linked
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
@@ -12,6 +13,33 @@
 </header>
 
 <div class="settings files-page">
+    <div class="places-row">
+        @if (_folders.Count > 0)
+        {
+            <div class="seg-mini places" role="group" aria-label="Where">
+                <button class="@(_place is null ? "on" : "")" @onclick="() => OpenPlace(null)"><Icon Name="sparkles" Size="14" /> Locus files</button>
+                @foreach (var f in _folders)
+                {
+                    var folder = f;
+                    <button class="@(_place?.Id == folder.Id ? "on" : "")" title="@Display(folder.Path)" @onclick="() => OpenPlace(folder)">
+                        <Icon Name="folder" Size="14" /> @FolderName(folder)
+                    </button>
+                }
+            </div>
+        }
+        <a class="btn ghost small" href="documents" title="Link folders on this computer (Documents → Linked folders)"><Icon Name="folder" Size="14" /> @(_folders.Count == 0 ? "Browse a folder on this computer…" : "Link a folder")</a>
+    </div>
+    @if (_place is not null && _cwd is not null)
+    {
+        <nav class="crumbs" aria-label="Folder">
+            @foreach (var (label, path) in Crumbs())
+            {
+                var p = path;
+                <button class="crumb" @onclick="() => OpenDir(p)">@label</button><span class="muted">/</span>
+            }
+            <span class="badge" title="Set on the Documents page">@(_place.Editable ? "bots can edit" : "bots can read")</span>
+        </nav>
+    }
     <div class="row">
         <label class="search-box grow"><Icon Name="search" Size="16" /><input placeholder="Search files" @bind="_filter" @bind:event="oninput" /></label>
         <div class="seg-mini" role="group" aria-label="Kind">
@@ -25,6 +53,14 @@
 
     <div class="files-layout">
         <div class="file-list">
+            @foreach (var d in VisibleDirs())
+            {
+                var dir = d;
+                <button class="file-item" @onclick="() => OpenDir(dir)">
+                    <span class="file-thumb"><Icon Name="folder" Size="20" /></span>
+                    <span class="file-meta"><b>@System.IO.Path.GetFileName(dir)</b><span class="muted small">Folder</span></span>
+                </button>
+            }
             @foreach (var f in Visible())
             {
                 var file = f;
@@ -37,9 +73,14 @@
                         <span class="muted small">@file.Where · @file.When.ToString("MMM d, h:mm tt")@(file.Size > 0 ? " · " + Size(file.Size) : "")</span></span>
                 </button>
             }
-            @if (!Visible().Any())
+            @if (_dirError is not null)
             {
-                <p class="muted small pad">@(_all.Count == 0 ? "Nothing yet. Files your bots write, downloads from their browser, and images they generate show up here." : "No files match.")</p>
+                <p class="tiny-error pad">@_dirError</p>
+            }
+            else if (!Visible().Any() && !VisibleDirs().Any())
+            {
+                <p class="muted small pad">@(_place is not null ? (_all.Count == 0 && _dirs.Count == 0 ? "This folder is empty." : "Nothing matches.")
+                    : _all.Count == 0 ? "Nothing yet. Files your bots write, downloads from their browser, and images they generate show up here." : "No files match.")</p>
             }
         </div>
 
@@ -50,9 +91,10 @@
                     <b class="grow ellipsis">@sel.Name</b>
                     @if (sel.ConversationId is not null) { <a class="btn ghost small" href="c/@sel.ConversationId">Open chat</a> }
                     <button class="btn ghost small" @onclick="Download"><Icon Name="download" Size="15" /> Download</button>
-                    @if (sel.Path is not null) { <button class="btn danger small" @onclick="Delete"><Icon Name="trash-2" Size="15" /> Delete</button> }
+                    @if (sel.Path is not null && InWorkspace(sel.Path)) { <button class="btn danger small" @onclick="Delete"><Icon Name="trash-2" Size="15" /> Delete</button> }
                 </div>
-                <span class="muted small">@sel.Where@(sel.Path is not null ? " · " + Relative(sel.Path) : "")</span>
+                <span class="muted small">@sel.Where@(sel.Path is null ? "" : InWorkspace(sel.Path) ? " · " + Relative(sel.Path)
+                        : _place is not null ? " · " + System.IO.Path.GetRelativePath(_place.Path, sel.Path) : " · " + Display(sel.Path))</span>
                 @if (sel.Image is not null)
                 {
                     <img class="preview-image" src="@sel.Image.DataUrl" alt="@sel.Name" />
@@ -85,6 +127,10 @@
     }
 
     private List<FileEntry> _all = [];
+    private List<LinkedFolder> _folders = [];
+    private LinkedFolder? _place;
+    private string? _cwd, _dirError;
+    private List<string> _dirs = [];
     private FileEntry? _selected;
     private string _filter = "", _kind = "All";
     private string? _previewText, _previewMarkdown, _previewHtml;
@@ -93,6 +139,16 @@
 
     private async Task LoadAsync()
     {
+        _folders = (await Linked.ListAsync()).Where(f => f.Enabled && Directory.Exists(f.Path)).ToList();
+        if (_place is not null)
+        {
+            // Folders may have been unlinked since: stay in the same one if it's still linked.
+            _place = _folders.FirstOrDefault(f => f.Id == _place.Id);
+            if (_place is not null) { await OpenDir(_cwd ?? _place.Path); return; }
+            _cwd = null;
+        }
+        _dirs = [];
+        _dirError = null;
         var list = new List<FileEntry>();
         var root = Computer.WorkspaceDirectory;
         if (Directory.Exists(root))
@@ -117,6 +173,76 @@
         if (_selected is not null && _all.All(f => f.Name != _selected.Name || f.Path != _selected.Path)) _selected = null;
     }
 
+    private async Task OpenPlace(LinkedFolder? folder)
+    {
+        _place = folder;
+        _selected = null;
+        _filter = "";
+        _cwd = folder?.Path;
+        if (folder is null) await LoadAsync();
+        else await OpenDir(_cwd!);
+    }
+
+    /// <summary>
+    /// Lists one folder inside the current linked folder, with the same rules the bots get (LinkedFolders.FolderForAsync):
+    /// nothing outside it, no symlinks, no hidden files or folders.
+    /// </summary>
+    private async Task OpenDir(string dir)
+    {
+        _selected = null;
+        _dirError = null;
+        _dirs = [];
+        _all = [];
+        if (_place is null) return;
+        var full = LinkedFolders.Normalize(dir);
+        if ((await Linked.FolderForAsync(full))?.Id != _place.Id) { _dirError = "That's outside this folder."; return; }
+        _cwd = full;
+        try
+        {
+            _dirs = Directory.EnumerateDirectories(full)
+                .Where(d => !System.IO.Path.GetFileName(d).StartsWith('.') && new DirectoryInfo(d).LinkTarget is null)
+                .OrderBy(d => d, StringComparer.OrdinalIgnoreCase).Take(500).ToList();
+            _all = Directory.EnumerateFiles(full).Select(f => new FileInfo(f)).Where(i => !i.Name.StartsWith('.'))
+                .Take(2000)
+                .Where(i => i.LinkTarget is null)
+                .Select(i => new FileEntry(i.Name, FolderName(_place), i.LastWriteTime, i.Length, i.FullName, null, null))
+                .OrderByDescending(f => f.When).ToList();
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            _dirError = $"Can't open this folder: {ex.Message}";
+        }
+    }
+
+    private IEnumerable<(string label, string path)> Crumbs()
+    {
+        if (_place is null || _cwd is null) yield break;
+        var root = _place.Path;
+        yield return (FolderName(_place), root);
+        var path = root;
+        foreach (var part in System.IO.Path.GetRelativePath(root, _cwd).Split(System.IO.Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (part == ".") continue;
+            path = System.IO.Path.Combine(path, part);
+            yield return (part, path);
+        }
+    }
+
+    private IEnumerable<string> VisibleDirs() => _place is null ? [] :
+        _dirs.Where(d => _filter.Length == 0 || System.IO.Path.GetFileName(d).Contains(_filter, StringComparison.OrdinalIgnoreCase));
+
+    private bool InWorkspace(string path) =>
+        System.IO.Path.GetFullPath(path).StartsWith(System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(Computer.WorkspaceDirectory)) + System.IO.Path.DirectorySeparatorChar, StringComparison.Ordinal);
+
+    private static string FolderName(LinkedFolder f) => System.IO.Path.GetFileName(f.Path) is { Length: > 0 } n ? n : f.Path;
+
+    /// <summary>"/Users/me/notes" → "~/notes".</summary>
+    private static string Display(string path)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return path.StartsWith(home + System.IO.Path.DirectorySeparatorChar) ? "~" + path[home.Length..] : path;
+    }
+
     private IEnumerable<FileEntry> Visible() => _all
         .Where(f => _filter.Length == 0 || f.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase) || f.Where.Contains(_filter, StringComparison.OrdinalIgnoreCase))
         .Where(f => _kind switch
@@ -132,9 +258,17 @@
     {
         _selected = f;
         _previewText = _previewMarkdown = _previewHtml = null;
-        if (f.Path is null || f.Image is not null || new FileInfo(f.Path).Length > 400_000) return;
-        if (f.Ext is ".pdf" or ".docx" or ".xlsx" or ".zip") return;
-        var text = await File.ReadAllTextAsync(f.Path);
+        if (f.Path is null || f.Image is not null) return;
+        var size = new FileInfo(f.Path).Length;
+        if (IsImage(f.Ext) && size < 8_000_000)
+        {
+            _selected = f with { Image = new ImageAttachment(f.Name, Mime(f.Ext), Convert.ToBase64String(await File.ReadAllBytesAsync(f.Path))) };
+            return;
+        }
+        if (size > 400_000 || f.Ext is ".pdf" or ".docx" or ".xlsx" or ".zip") return;
+        var bytes = await File.ReadAllBytesAsync(f.Path);
+        if (bytes.AsSpan(0, Math.Min(bytes.Length, 8000)).IndexOf((byte)0) >= 0) return; // binary
+        var text = System.Text.Encoding.UTF8.GetString(bytes);
         if (f.Ext is ".html" or ".htm" or ".svg") _previewHtml = text;
         else if (f.Ext is ".md") _previewMarkdown = text;
         else if (f.Ext is ".csv") _previewMarkdown = CsvToMarkdown(text);
@@ -151,7 +285,7 @@
 
     private async Task Delete()
     {
-        if (_selected?.Path is not { } path || !path.StartsWith(Computer.WorkspaceDirectory)) return;
+        if (_selected?.Path is not { } path || !InWorkspace(path)) return;
         File.Delete(path);
         _selected = null;
         await LoadAsync();
