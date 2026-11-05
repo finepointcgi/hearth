@@ -124,6 +124,8 @@ public sealed class SettingsStore(IAppPaths paths)
                             values[k] = SealedPrefix + _box.Seal(v);
         if (root["Notifications"] is JsonObject n && n["Token"]?.GetValue<string>() is { Length: > 0 } t && !t.StartsWith(SealedPrefix))
             n["Token"] = SealedPrefix + _box.Seal(t);
+        if (root["Api"] is JsonObject api && api["Key"]?.GetValue<string>() is { Length: > 0 } apiKey && !apiKey.StartsWith(SealedPrefix))
+            api["Key"] = SealedPrefix + _box.Seal(apiKey);
     }
 
     /// <summary>Decrypts secrets after reading. Returns true when the file still had plaintext secrets.</summary>
@@ -154,6 +156,11 @@ public sealed class SettingsStore(IAppPaths paths)
         {
             if (!t.StartsWith(SealedPrefix)) plaintext = true;
             else try { n["Token"] = _box.Open(t[SealedPrefix.Length..]); } catch { n["Token"] = null; }
+        }
+        if (root["Api"] is JsonObject api && api["Key"]?.GetValue<string>() is { Length: > 0 } apiKey)
+        {
+            if (!apiKey.StartsWith(SealedPrefix)) plaintext = true;
+            else try { api["Key"] = _box.Open(apiKey[SealedPrefix.Length..]); } catch { api["Key"] = null; }
         }
         return plaintext;
     }

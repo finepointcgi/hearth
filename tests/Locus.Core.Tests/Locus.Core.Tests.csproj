@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Locus.Core\Locus.Core.csproj" />
+    <ProjectReference Include="..\..\src\Locus.Acp\Locus.Acp.csproj" />
   </ItemGroup>
 
 </Project>

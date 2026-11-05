@@ -50,7 +50,8 @@ if (!string.IsNullOrEmpty(password))
     app.Use(async (ctx, next) =>
     {
         var path = ctx.Request.Path.Value ?? "";
-        if (path.StartsWith("/login") || path == "/health" || path.StartsWith("/hooks/") || path == "/favicon.ico"
+        // The API (/v1/…) checks its own key instead of the sign-in cookie.
+        if (path.StartsWith("/login") || path == "/health" || path.StartsWith("/hooks/") || path.StartsWith("/v1/") || path == "/favicon.ico"
             || path is "/manifest.webmanifest" or "/sw.js" or "/apple-touch-icon.png" || path.StartsWith("/icon-")
             || (ctx.Request.Cookies.TryGetValue("locus_auth", out var c)
                 && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(c), Encoding.UTF8.GetBytes(cookieValue))))
@@ -91,6 +92,64 @@ app.MapGet("/health", async (SettingsStore settings, ILlmClientFactory factory, 
         lastCheck = health.LastCheck,
     });
 });
+
+// OpenAI-compatible API: other apps, scripts and the editor bridge talk to Locus and its bots.
+// Off until turned on in Connections → More, and every call needs the API key.
+app.MapGet("/v1/models", async (HttpRequest req, SettingsStore settings, OpenAiApi api) =>
+{
+    if (!(await settings.GetAsync()).Api.Accepts(req.Headers.Authorization)) return ApiError(401, "Missing or wrong API key.");
+    var created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    return Results.Json(new
+    {
+        @object = "list",
+        data = (await api.ModelsAsync()).Select(m => new { id = m.id, @object = "model", created, owned_by = "locus", description = m.description }),
+    });
+});
+
+app.MapPost("/v1/chat/completions", async (HttpContext ctx, SettingsStore settings, OpenAiApi api) =>
+{
+    if (!(await settings.GetAsync()).Api.Accepts(ctx.Request.Headers.Authorization)) { await ApiError(401, "Missing or wrong API key.").ExecuteAsync(ctx); return; }
+    System.Text.Json.Nodes.JsonObject body;
+    try { body = (await System.Text.Json.Nodes.JsonNode.ParseAsync(ctx.Request.Body) as System.Text.Json.Nodes.JsonObject) ?? throw new FormatException(); }
+    catch { await ApiError(400, "Send a JSON body.").ExecuteAsync(ctx); return; }
+    var model = body["model"]?.ToString() ?? OpenAiApi.PlainModel;
+    var messages = (body["messages"] as System.Text.Json.Nodes.JsonArray ?? []).OfType<System.Text.Json.Nodes.JsonObject>()
+        .Select(m => new ApiMessage(m["role"]?.ToString() ?? "user", ContentText(m["content"]))).ToList();
+    var stream = body["stream"]?.GetValue<bool>() == true;
+    var id = "chatcmpl-" + Guid.NewGuid().ToString("N")[..24];
+    var created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    try
+    {
+        if (!stream)
+        {
+            var text = await api.CompleteAsync(model, messages, null, ctx.RequestAborted);
+            await Results.Json(new
+            {
+                id, @object = "chat.completion", created, model,
+                choices = new[] { new { index = 0, message = new { role = "assistant", content = text }, finish_reason = "stop" } },
+                usage = new { prompt_tokens = 0, completion_tokens = 0, total_tokens = 0 },
+            }).ExecuteAsync(ctx);
+            return;
+        }
+        ctx.Response.ContentType = "text/event-stream";
+        ctx.Response.Headers.CacheControl = "no-cache";
+        async Task Send(object chunk)
+        {
+            await ctx.Response.WriteAsync("data: " + System.Text.Json.JsonSerializer.Serialize(chunk) + "\n\n", ctx.RequestAborted);
+            await ctx.Response.Body.FlushAsync(ctx.RequestAborted);
+        }
+        await Send(new { id, @object = "chat.completion.chunk", created, model, choices = new[] { new { index = 0, delta = new { role = "assistant", content = "" }, finish_reason = (string?)null } } });
+        await api.CompleteAsync(model, messages, delta =>
+            Send(new { id, @object = "chat.completion.chunk", created, model, choices = new[] { new { index = 0, delta = new { role = (string?)null, content = delta }, finish_reason = (string?)null } } }),
+            ctx.RequestAborted);
+        await Send(new { id, @object = "chat.completion.chunk", created, model, choices = new[] { new { index = 0, delta = new { role = (string?)null, content = (string?)null }, finish_reason = "stop" } } });
+        await ctx.Response.WriteAsync("data: [DONE]\n\n", ctx.RequestAborted);
+    }
+    catch (KeyNotFoundException ex) { if (!ctx.Response.HasStarted) await ApiError(404, ex.Message).ExecuteAsync(ctx); }
+    catch (ArgumentException ex) { if (!ctx.Response.HasStarted) await ApiError(400, ex.Message).ExecuteAsync(ctx); }
+    catch (OperationCanceledException) { }
+    catch (Exception ex) { if (!ctx.Response.HasStarted) await ApiError(500, ex.Message).ExecuteAsync(ctx); }
+}).DisableAntiforgery();
 
 // Webhook triggers for bot routines: POST /hooks/{routineId}?token=SECRET (or X-Locus-Token header).
 app.MapPost("/hooks/{routineId}", async (string routineId, HttpRequest req, RoutineRunner runner) =>
@@ -133,6 +192,18 @@ app.MapRazorComponents<App>()
 
 app.Run();
 return 0;
+
+static IResult ApiError(int status, string message) =>
+    Results.Json(new { error = new { message, type = status == 401 ? "authentication_error" : "invalid_request_error" } }, statusCode: status);
+
+// OpenAI messages carry text as a string or as parts ([{type:"text", text}], images are skipped).
+static string ContentText(System.Text.Json.Nodes.JsonNode? content) => content switch
+{
+    null => "",
+    System.Text.Json.Nodes.JsonArray parts => string.Join("\n", parts.OfType<System.Text.Json.Nodes.JsonObject>()
+        .Where(p => p["type"]?.ToString() is "text" or "input_text").Select(p => p["text"]?.ToString() ?? "")),
+    _ => content.ToString(),
+};
 
 static string LoginPage(bool wrong) => $$"""
     <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

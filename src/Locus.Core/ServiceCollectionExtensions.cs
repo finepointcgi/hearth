@@ -70,6 +70,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IToolProvider, ProactiveToolProvider>();
         services.AddSingleton<LinkedFolders>();
         services.AddSingleton<ProjectContext>();
+        services.AddSingleton<OpenAiApi>();
         services.AddSingleton(sp => new CodeSandbox(sp.GetRequiredService<PlatformInfo>()));
         services.AddSingleton<ProjectHistory>();
         services.AddSingleton<IToolProvider, ProjectToolProvider>();

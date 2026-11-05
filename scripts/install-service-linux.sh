@@ -38,6 +38,7 @@ WantedBy=default.target"
 if [[ "${1:-}" == "--dry-run" ]]; then echo "${CONTENT//$LOCUS_PASSWORD/***}"; exit 0; fi
 
 "$DOTNET" publish "$REPO/src/Locus.Web/Locus.Web.csproj" -c Release -o "$APP_DIR" --nologo -v quiet
+"$DOTNET" publish "$REPO/src/Locus.Acp/Locus.Acp.csproj" -c Release -o "$HOME/.locus/acp" --nologo -v quiet  # editor bridge (Connections → More → API)
 mkdir -p "$(dirname "$UNIT")"
 printf '%s\n' "$CONTENT" > "$UNIT"; chmod 600 "$UNIT"
 systemctl --user daemon-reload

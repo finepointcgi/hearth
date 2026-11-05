@@ -70,6 +70,7 @@ fi
 
 echo "Building Locus…"
 "$DOTNET" publish "$REPO/src/Locus.Web/Locus.Web.csproj" -c Release -o "$APP_DIR" --nologo -v quiet
+"$DOTNET" publish "$REPO/src/Locus.Acp/Locus.Acp.csproj" -c Release -o "$HOME/.locus/acp" --nologo -v quiet  # editor bridge (Connections → More → API)
 mkdir -p "$LOG_DIR" "$(dirname "$PLIST")"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 # launchd needs a moment to fully unload the old job before the new one can be loaded.

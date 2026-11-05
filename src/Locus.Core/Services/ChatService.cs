@@ -219,6 +219,7 @@ public sealed class ChatService(
             "Task" => "Task",
             "Bot check" => "Bot check",
             "Helper" => "Helpers",
+            "API" => "API",
             not null => "Routine",
             _ when depth > 0 => "Bot handoff",
             _ when untrustedInput?.StartsWith("an email") == true => "Bot inbox",
@@ -827,7 +828,7 @@ public sealed class ChatService(
                     text = $"{text}\n\n<attached_documents>\n{m.AttachmentText}\n</attached_documents>";
                 if (m.FromBotId is not null)
                     text = $"[Message from {allBots.FirstOrDefault(b => b.Id == m.FromBotId)?.Name ?? "another bot"}]: {text}";
-                else if (m.RoutineName is not null and not "Helper")
+                else if (m.RoutineName is not null and not ("Helper" or "API"))
                     text = $"[Scheduled routine \"{m.RoutineName}\"]: {text}";
                 yield return LlmMessage.User(text, m.Images);
             }

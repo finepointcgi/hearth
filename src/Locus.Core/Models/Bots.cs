@@ -207,6 +207,10 @@ public sealed class Bot
     public const int MaxBots = 50;
     public const int MaxPerGroup = 6;
 
+    /// <summary>"Chief of Staff" → "chief-of-staff" (for API model names).</summary>
+    public static string SlugName(string name) =>
+        System.Text.RegularExpressions.Regex.Replace(name.Trim().ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
+
     public string Id { get; set; } = Guid.NewGuid().ToString("N")[..10];
     public string Name { get; set; } = "Bot";
     public string Emoji { get; set; } = "🤖";

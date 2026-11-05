@@ -61,6 +61,7 @@ public sealed class AppSettings
     public SkillLearningSettings SkillLearning { get; set; } = new();
     public Services.HeartbeatSettings Heartbeat { get; set; } = new();
     public Services.NotificationSettings Notifications { get; set; } = new();
+    public Services.ApiSettings Api { get; set; } = new();
     public Services.BackupSettings Backup { get; set; } = new();
     /// <summary>First-run setup finished (or skipped because Locus was already in use).</summary>
     public bool SetupDone { get; set; }
