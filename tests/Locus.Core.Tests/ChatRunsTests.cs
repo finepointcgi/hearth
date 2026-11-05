@@ -78,6 +78,44 @@ public sealed class ChatRunsTests : IDisposable
     }
 
     [Fact]
+    public async Task SlowModelSaysItIsWaitingThenClearsTheNote()
+    {
+        var sp = StartApp();
+        var before = ChatService.WaitingNoticeAfter;
+        ChatService.WaitingNoticeAfter = TimeSpan.FromMilliseconds(150);
+        try
+        {
+            _team.DelayFor = _ => TimeSpan.FromMilliseconds(1500);
+            _team.Script = (_, _, _) => new LlmChunk("Here you go.");
+            var runs = sp.GetRequiredService<ChatRuns>();
+            var conv = await NewChatAsync(sp, "research google");
+            var run = runs.ReplyAsync(conv, Opts);
+            await WaitUntil(() => conv.Messages.LastOrDefault()?.Notice?.Contains("Waiting for the model") == true);
+            await run;
+            Assert.Equal("Here you go.", conv.Messages.Last().Content);
+            Assert.Null(conv.Messages.Last().Notice);
+        }
+        finally { ChatService.WaitingNoticeAfter = before; }
+    }
+
+    [Fact]
+    public async Task ToolCallsWrittenAsTextStillRun()
+    {
+        var sp = StartApp();
+        var round = 0;
+        _team.Script = (_, msgs, req) => Interlocked.Increment(ref round) == 1
+            ? new LlmChunk("Let me work it out.\n<function_calls>\n[{\"name\": \"calculate\", \"arguments\": {\"expression\": \"6*7\"}}]\n</function_calls>")
+            : new LlmChunk("It's " + msgs.Last(m => m.Role == "tool").Content);
+        var runs = sp.GetRequiredService<ChatRuns>();
+        var conv = await NewChatAsync(sp, "what's 6 times 7");
+        await runs.ReplyAsync(conv, Opts);
+        var reply = conv.Messages.Last();
+        Assert.Equal("calculate", Assert.Single(reply.ToolCalls).Name);
+        Assert.DoesNotContain("function_calls", reply.Content);
+        Assert.Contains("42", reply.Content);
+    }
+
+    [Fact]
     public async Task RestartPicksUpWhereItLeftOff()
     {
         var first = StartApp();

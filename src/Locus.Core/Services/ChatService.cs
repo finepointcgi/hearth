@@ -334,11 +334,34 @@ public sealed class ChatService(
 
                 if (content.Length > 0 && !content.ToString().EndsWith("\n\n")) content.Append("\n\n");
                 List<LlmToolCall> calls = [];
+                var roundStart = content.Length;
                 string? providerState = null;
                 var roundTimer = System.Diagnostics.Stopwatch.StartNew();
                 LlmStats? roundStats = null;
+                // A busy model server (another chat or a background task using it) can take minutes to start
+                // answering: say so instead of just spinning.
+                var firstChunk = new TaskCompletionSource();
+                var others = Interlocked.Increment(ref _modelCallsInFlight) - 1;
+                string? waitingNotice = null;
+                var waiting = Task.Run(async () =>
+                {
+                    if (await Task.WhenAny(firstChunk.Task, Task.Delay(WaitingNoticeAfter, ct).ContinueWith(_ => { }, TaskScheduler.Default)) == firstChunk.Task || ct.IsCancellationRequested) return;
+                    var busy = Math.Max(others, Volatile.Read(ref _modelCallsInFlight) - 1);
+                    reply.Notice = waitingNotice = busy > 0
+                        ? $"⏳ Waiting for the model: it's busy with {busy} other {(busy == 1 ? "chat or task" : "chats or tasks")}. Your reply starts when it's free."
+                        : "⏳ Waiting for the model to start answering…";
+                    await onUpdate();
+                }, CancellationToken.None);
+                try
+                {
                 await foreach (var chunk in client.StreamChatAsync(request, ct))
                 {
+                    if (!firstChunk.Task.IsCompleted)
+                    {
+                        firstChunk.TrySetResult();
+                        await waiting;
+                        if (waitingNotice is not null && reply.Notice == waitingNotice) reply.Notice = null;
+                    }
                     if (!string.IsNullOrEmpty(chunk.Content)) content.Append(chunk.Content);
                     if (!string.IsNullOrEmpty(chunk.Thinking)) thinking.Append(chunk.Thinking);
                     if (chunk.Stats is not null) reply.Stats = roundStats = chunk.Stats;
@@ -349,8 +372,29 @@ public sealed class ChatService(
                     reply.Thinking = thinking.Length > 0 ? thinking.ToString().Trim() : null;
                     await onUpdate();
                 }
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _modelCallsInFlight);
+                    firstChunk.TrySetResult();
+                    await waiting;
+                    if (waitingNotice is not null && reply.Notice == waitingNotice) reply.Notice = null;
+                }
 
                 reply.Trace.Add(new TraceStep("model", model, roundTimer.ElapsedMilliseconds, roundStats?.PromptTokens, roundStats?.CompletionTokens));
+                if (calls.Count == 0 && offer is not null)
+                {
+                    // Some local models write the calls as text; run them instead of ending with them printed.
+                    var (written, rest) = TextToolCalls.Find(content.ToString(roundStart, content.Length - roundStart), byName.Keys.ToHashSet());
+                    if (written.Count > 0)
+                    {
+                        calls.AddRange(written);
+                        content.Length = roundStart;
+                        content.Append(rest);
+                        reply.Content = StripSelfPrefix(content.ToString(), bot).Trim();
+                        await onUpdate();
+                    }
+                }
                 if (calls.Count == 0) break;
 
                 var batch = calls.Select(call => new ToolCall
@@ -933,6 +977,10 @@ public sealed class ChatService(
             }
         }
     }
+
+    private static int _modelCallsInFlight;
+    /// <summary>How long a reply can wait for its first word before the chat says the model is busy.</summary>
+    public static TimeSpan WaitingNoticeAfter { get; set; } = TimeSpan.FromSeconds(12);
 
     private static string StripSelfPrefix(string text, Bot? bot)
     {
