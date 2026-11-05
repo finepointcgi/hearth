@@ -110,7 +110,10 @@ public class ClaudeApiClientTests
 
         var req = JsonNode.Parse(bodies[0])!;
         Assert.Equal("claude-opus-5-5", req["model"]!.ToString());
-        Assert.Equal("You are Locus.", req["system"]!.ToString());
+        // The system prompt is cached (marker on it) and the conversation tail is cached automatically.
+        Assert.Equal("You are Locus.", req["system"]![0]!["text"]!.ToString());
+        Assert.Equal("ephemeral", req["system"]![0]!["cache_control"]!["type"]!.ToString());
+        Assert.Equal("ephemeral", req["cache_control"]!["type"]!.ToString());
         Assert.Equal("adaptive", req["thinking"]!["type"]!.ToString());
         Assert.Equal("summarized", req["thinking"]!["display"]!.ToString());
         Assert.Equal("high", req["output_config"]!["effort"]!.ToString());

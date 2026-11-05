@@ -424,7 +424,9 @@ public sealed class ChatService(
     private async Task<StringBuilder> BuildSystemPromptAsync(Conversation conv, Bot? bot, List<Bot> members, List<Bot> allBots,
         AppSettings settings, Dictionary<string, ITool> byName, SendOptions opts, bool unattended)
     {
-        var date = DateTime.Now.ToString("dddd, MMMM d, yyyy h:mm tt");
+        // Date only: a clock time would change the prompt every minute and defeat prompt caching
+        // (get_current_datetime gives the exact time).
+        var date = DateTime.Now.ToString("dddd, MMMM d, yyyy");
         StringBuilder system;
         if (bot is null)
         {

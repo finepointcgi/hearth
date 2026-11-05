@@ -58,7 +58,14 @@ public sealed class ClaudeApiClient(ProviderProfile profile) : ILlmClient
             Betas = ["server-side-fallback-2026-07-01"],
             Fallbacks = new BetaFallbacksParam(JsonSerializer.SerializeToElement("default")),
         };
-        if (system.Length > 0) parameters = parameters with { System = system };
+        // Prompt caching: a marker on the system prompt (with the tools before it, the part that rarely changes) plus
+        // automatic caching of the growing conversation, so each turn re-reads the earlier ones at a fraction of the price.
+        if (system.Length > 0)
+            parameters = parameters with
+            {
+                System = new List<BetaTextBlockParam> { new() { Text = system, CacheControl = new BetaCacheControlEphemeral() } },
+            };
+        parameters = parameters with { CacheControl = new BetaCacheControlEphemeral() };
         if (req.Think) parameters = parameters with { OutputConfig = new BetaOutputConfig { Effort = Effort.High } };
         if (req.Tools is { Count: > 0 }) parameters = parameters with { Tools = req.Tools.Select(ToTool).ToList() };
 
