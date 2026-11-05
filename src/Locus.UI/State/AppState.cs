@@ -15,7 +15,7 @@ public sealed class AppState : IDisposable
     private Task? _init;
 
     public AppState(SettingsStore settings, ConversationStore conversations, ILlmClientFactory factory,
-        BotStore bots, RoutineRunner routines, SkillStore skills, Locus.Core.Services.Channels.ChannelHub channels, TaskRunner tasks, BotInbox inbox, HeartbeatRunner heartbeat, SkillPorter porter, MemoryCurator curator, ChatHistoryIndex history, PushNotifier notifier, BackupService backups)
+        BotStore bots, RoutineRunner routines, SkillStore skills, Locus.Core.Services.Channels.ChannelHub channels, TaskRunner tasks, BotInbox inbox, HeartbeatRunner heartbeat, SkillPorter porter, MemoryCurator curator, ChatHistoryIndex history, PushNotifier notifier, BackupService backups, ChatRuns runs)
     {
         _settings = settings;
         _conversations = conversations;
@@ -35,6 +35,8 @@ public sealed class AppState : IDisposable
         _history = history;
         _notifier = notifier;
         _backups = backups;
+        _runs = runs;
+        _runs.RunsChanged += NotifyChanged;
         _skills.Changed += OnSkillsChanged;
     }
 
@@ -48,6 +50,10 @@ public sealed class AppState : IDisposable
     private readonly ChatHistoryIndex _history;
     private readonly PushNotifier _notifier;
     private readonly BackupService _backups;
+    private readonly ChatRuns _runs;
+
+    /// <summary>Chats with a reply in progress (shown in the chat list).</summary>
+    public bool IsWorking(string id) => _runs.IsRunning(id);
 
     private async void OnSkillsChanged()
     {
@@ -114,6 +120,7 @@ public sealed class AppState : IDisposable
         _history.EnsureStarted();
         _notifier.EnsureStarted();
         _backups.EnsureStarted();
+        _runs.EnsureStarted(); // replies cut off by a restart carry on
         _ = _channels.EnsureStartedAsync().ContinueWith(_ => { }); // Telegram/Discord; errors show on Connections
         NotifyChanged();
         await RefreshModelsAsync();
@@ -196,5 +203,6 @@ public sealed class AppState : IDisposable
         _settings.Changed -= OnSettingsChanged;
         _bots.Changed -= OnBotsChanged;
         _skills.Changed -= OnSkillsChanged;
+        _runs.RunsChanged -= NotifyChanged;
     }
 }

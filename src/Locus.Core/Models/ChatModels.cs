@@ -87,7 +87,12 @@ public sealed class Conversation
     public List<string> BotIds { get; set; } = [];
     /// <summary>Set when a bot posts here on its own (routines, bot-to-bot messages).</summary>
     public bool Unread { get; set; }
+    /// <summary>Set while a reply is being worked on, so a restart can pick it up again.</summary>
+    public PendingRun? Running { get; set; }
 }
+
+/// <summary>A reply in progress: what it was started with, so it can be resumed after a restart.</summary>
+public sealed record PendingRun(string Model, bool Think, bool DeepSearch, bool UseTools, DateTimeOffset StartedAt, int Resumes = 0);
 
 public sealed record ConversationSummary(string Id, string Title, DateTimeOffset UpdatedAt, bool Pinned,
     IReadOnlyList<string> BotIds, bool Unread);

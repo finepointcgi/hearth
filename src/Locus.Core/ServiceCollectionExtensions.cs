@@ -64,6 +64,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<McpManager>();
         services.AddSingleton<ToolRegistry>();
         services.AddSingleton<ChatService>();
+        services.AddSingleton<ChatRuns>();
         services.TryAddSingleton<IBotComputer, NoBotComputer>();
         services.TryAddSingleton<IDesktopControl, NoDesktopControl>();
         services.TryAddSingleton<ISandboxDesktops, NoSandboxDesktops>();

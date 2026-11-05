@@ -93,7 +93,7 @@
         }
         @if (Message.ToolCalls.Count > 0)
         {
-            <ToolSteps Calls="Message.ToolCalls" />
+            <ToolSteps Calls="Message.ToolCalls.ToArray()" />
         }
         @if (Message.Sources.Count > 0)
         {
@@ -172,7 +172,7 @@
                     }
                 </span>
             </div>
-            @if (_showTrace && Message.Trace.Count > 0) { <TraceView Steps="Message.Trace" /> }
+            @if (_showTrace && Message.Trace.Count > 0) { <TraceView Steps="Message.Trace.ToArray()" /> }
         }
     }
 </div>

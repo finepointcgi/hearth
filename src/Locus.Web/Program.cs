@@ -119,6 +119,10 @@ app.Services.GetRequiredService<MemoryCurator>().EnsureStarted();
 app.Services.GetRequiredService<ChatHistoryIndex>().EnsureStarted();
 app.Services.GetRequiredService<PushNotifier>().EnsureStarted();
 app.Services.GetRequiredService<BackupService>().EnsureStarted();
+// Chat replies run in the background; ones a restart interrupts resume on the next start.
+var chatRuns = app.Services.GetRequiredService<ChatRuns>();
+chatRuns.EnsureStarted();
+app.Lifetime.ApplicationStopping.Register(chatRuns.PrepareForShutdown);
 _ = app.Services.GetRequiredService<Locus.Core.Services.Channels.ChannelHub>().EnsureStartedAsync().ContinueWith(_ => { });
 
 app.MapRazorComponents<App>()

@@ -9,6 +9,7 @@
 @inject ISpeechOutput Speech
 @inject BotStore Bots
 @inject LiveVoice Live
+@inject ChatRuns Runs
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
@@ -141,13 +142,12 @@
     [Parameter] public string? Id { get; set; }
 
     private Conversation? _conv;
-    private CancellationTokenSource? _cts;
     private ElementReference _scroller;
     private Composer? _composer;
     private DateTime _lastRender;
     private bool _forceScroll;
 
-    private bool Busy => _cts is not null;
+    private bool Busy => Runs.IsRunning(_conv?.Id);
 
     private List<Bot> Members => _conv is null ? [] : _conv.BotIds.Select(State.BotById).OfType<Bot>().ToList();
 
@@ -169,6 +169,15 @@
         base.OnInitialized();
         Store.Saved += OnSavedElsewhere;
         Live.Changed += OnLiveChanged;
+        Runs.Updated += OnRunUpdated;
+    }
+
+    /// <summary>The reply runs in the background (it carries on if this page closes); this page follows it.</summary>
+    private void OnRunUpdated(string id)
+    {
+        if (_conv is null || id != _conv.Id) return;
+        if (Runs.Live(id) is { } live && !ReferenceEquals(live, _conv)) _conv = live; // started on another device
+        _ = OnStreamUpdate();
     }
 
     /// <summary>Picks up messages written by routines or other bots while this chat is open.</summary>
@@ -206,15 +215,14 @@
         if (_conv is not null && _conv.Id == Id) return; // same chat (e.g. after first-message navigation)
         if (Live.Active) await Live.StopAsync();
 
-        _cts?.Cancel();
-        _cts = null;
         if (Id is null)
         {
             _conv = null;
             return;
         }
 
-        _conv = await Store.GetAsync(Id);
+        // A chat that's still working: show the live one so the reply keeps streaming in.
+        _conv = Runs.Live(Id) ?? await Store.GetAsync(Id);
         if (_conv is null) { Nav.NavigateTo(""); return; }
         if (_conv.Unread)
         {
@@ -261,7 +269,8 @@
         if (imagine)
         {
             var prompt = input.Text["/imagine".Length..].Trim();
-            await RunAsync(ct => ChatSvc.ImagineAsync(_conv, prompt, OnStreamUpdate, ct));
+            var target = _conv;
+            await Runs.StartAsync(target, (update, ct) => ChatSvc.ImagineAsync(target, prompt, update, ct));
             return;
         }
         await Generate();
@@ -272,24 +281,13 @@
         if (_conv is null || State.SelectedModel is null) return;
         var conv = _conv;
         var options = new SendOptions(State.SelectedModel, State.Think, State.DeepSearch && State.CanSearch, State.UseTools);
-        await RunAsync(ct => ChatSvc.GenerateAsync(conv, options, OnStreamUpdate, ct));
+        try { await Runs.ReplyAsync(conv, options); }
+        catch (InvalidOperationException) { return; } // already working (e.g. started on another device)
 
         var last = conv.Messages.LastOrDefault();
         if (State.Settings.Voice.AutoReadAloud && !Live.Active && last is { Role: ChatRole.Assistant, Error: null, Content.Length: > 0 })
         {
             try { await Speech.SpeakAsync(State.Settings, last.Content); } catch { /* read-aloud is best effort */ }
-        }
-    }
-
-    private async Task RunAsync(Func<CancellationToken, Task> work)
-    {
-        using var cts = _cts = new CancellationTokenSource();
-        StateHasChanged();
-        try { await work(cts.Token); }
-        finally
-        {
-            if (ReferenceEquals(_cts, cts)) _cts = null;
-            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -318,7 +316,7 @@
         return Task.CompletedTask;
     }
 
-    private void Stop() => _cts?.Cancel();
+    private void Stop() => Runs.Stop(_conv?.Id);
 
     private async Task Regenerate()
     {
@@ -337,7 +335,6 @@
 
     private async Task NewChat()
     {
-        _cts?.Cancel();
         if (_conv is { BotIds.Count: > 0 })
         {
             // New thread with the same bot(s).
@@ -405,7 +402,8 @@
 
     public override void Dispose()
     {
-        _cts?.Cancel();
+        // The reply keeps going in the background; this page just stops following it.
+        Runs.Updated -= OnRunUpdated;
         Store.Saved -= OnSavedElsewhere;
         Live.Changed -= OnLiveChanged;
         _ = Live.StopAsync();

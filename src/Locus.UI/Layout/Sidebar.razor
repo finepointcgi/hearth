@@ -42,7 +42,8 @@
                                 <a href="c/@c.Id" @onclick="Close" title="@c.Title" class="@(c.Unread ? "unread" : "")">
                                     @if (c.BotIds.Count > 0) { <AvatarStack Bots="c.BotIds.Select(State.BotById).OfType<Bot>()" /> }
                                     <span class="conv-title">@c.Title</span>
-                                    @if (c.Unread) { <span class="unread-dot"></span> }
+                                    @if (State.IsWorking(c.Id)) { <span class="working-dot" title="Working on a reply" aria-label="Working on a reply"></span> }
+                                    else if (c.Unread) { <span class="unread-dot"></span> }
                                 </a>
                                 <div class="conv-actions">
                                     <button title="@(c.Pinned ? "Unpin" : "Pin")" aria-label="Pin" @onclick="() => TogglePin(c.Id)"><Icon Name="pin" Size="14" /></button>
