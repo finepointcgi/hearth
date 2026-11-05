@@ -1,0 +1,79 @@
+@inject SkillCatalog Catalog
+
+<section class="card">
+    <h3>Skill catalog</h3>
+    <p class="muted small">Public skill collections on GitHub. Pick one to import it; it waits for your review below (and is scanned for risky instructions) before bots can use it.</p>
+    <div class="row">
+        @foreach (var (name, repo, _) in SkillCatalog.Collections)
+        {
+            var n = name;
+            <button class="btn @(_collection == n ? "primary" : "ghost")" @onclick="() => Open(n)" disabled="@_loading">@name <span class="muted small">@repo</span></button>
+        }
+        @if (_skills.Count > 0) { <input class="grow" placeholder="Filter" @bind="_filter" @bind:event="oninput" @bind:after="LoadDescriptions" /> }
+    </div>
+    @if (_message is not null) { <p class="muted small">@_message</p> }
+    @if (_skills.Count > 0)
+    {
+        <div class="import-list">
+            @foreach (var s in Visible)
+            {
+                var skill = s;
+                <div class="memory-row">
+                    <span class="grow small"><b>@skill.Name</b>@(skill.Category.Length > 0 ? $" · {skill.Category}" : "")
+                        <br /><span class="muted">@(_descriptions.GetValueOrDefault(skill.Dir) ?? "…")</span></span>
+                    <a class="btn ghost small" href="@skill.GitHubUrl" target="_blank" rel="noopener">View</a>
+                    <button class="btn ghost small" @onclick="() => Import(skill)" disabled="@(_importing.Contains(skill.Dir))">@(_done.Contains(skill.Dir) ? "Imported" : "Import")</button>
+                </div>
+            }
+        </div>
+        <div class="muted small">@Filtered.Count() skills@(Filtered.Count() > Visible.Count ? $" (showing {Visible.Count}; filter to narrow)" : "")</div>
+    }
+</section>
+
+@code {
+    private string? _collection, _message;
+    private string _filter = "";
+    private bool _loading;
+    private List<CatalogSkill> _skills = [];
+    private readonly Dictionary<string, string> _descriptions = [];
+    private readonly HashSet<string> _importing = [], _done = [];
+
+    private IEnumerable<CatalogSkill> Filtered => _skills.Where(s => _filter.Length == 0
+        || s.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase) || s.Category.Contains(_filter, StringComparison.OrdinalIgnoreCase)
+        || (_descriptions.GetValueOrDefault(s.Dir)?.Contains(_filter, StringComparison.OrdinalIgnoreCase) ?? false));
+    private List<CatalogSkill> Visible => Filtered.Take(40).ToList();
+
+    private async Task Open(string collection)
+    {
+        _collection = collection; _loading = true; _message = null; _skills = [];
+        try { _skills = await Catalog.ListAsync(collection); }
+        catch (Exception ex) { _message = $"Couldn't load the catalog: {ex.Message}"; }
+        finally { _loading = false; }
+        await LoadDescriptions();
+    }
+
+    private async Task LoadDescriptions()
+    {
+        var missing = Visible.Where(s => !_descriptions.ContainsKey(s.Dir)).ToList();
+        foreach (var batch in missing.Chunk(8))
+        {
+            var found = await Task.WhenAll(batch.Select(async s => (s.Dir, await Catalog.DescriptionAsync(s))));
+            foreach (var (dir, d) in found) _descriptions[dir] = d;
+            StateHasChanged();
+        }
+    }
+
+    private async Task Import(CatalogSkill s)
+    {
+        _importing.Add(s.Dir);
+        try
+        {
+            var imported = await Catalog.ImportAsync(s);
+            _done.Add(s.Dir);
+            var warnings = imported.SelectMany(i => i.Warnings).Distinct().ToList();
+            _message = $"Imported {string.Join(", ", imported.Select(i => i.Name))}; review it below." + (warnings.Count > 0 ? " ⚠ " + string.Join(" ", warnings) : "");
+        }
+        catch (Exception ex) { _message = $"Couldn't import {s.Name}: {ex.Message}"; }
+        finally { _importing.Remove(s.Dir); }
+    }
+}

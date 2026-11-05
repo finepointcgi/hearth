@@ -54,6 +54,16 @@
                         <input class="grow" type="password" @bind="provider.ApiKey" placeholder="@(provider.Kind == ProviderKind.Anthropic ? "Anthropic API key (sk-ant-…)" : "API key (optional for local servers)")" />
                     }
                 </div>
+                @if (provider.Kind is ProviderKind.Anthropic or ProviderKind.OpenAICompatible)
+                {
+                    <details class="advanced">
+                        <summary>More API keys@(provider.ExtraApiKeys.Count > 0 ? $" ({provider.ExtraApiKeys.Count} saved)" : "")</summary>
+                        <p class="muted small">Calls take turns across all the keys, and when one hits a rate limit or runs out of quota the request moves on to the next. Paste one key per line; saving replaces the list (leave empty to keep it). Stored encrypted.</p>
+                        <textarea rows="3" placeholder="@(provider.ExtraApiKeys.Count > 0 ? "saved — paste keys to replace them" : "one key per line")" autocomplete="off" spellcheck="false"
+                                  @onchange="e => SetExtraKeys(provider, e.Value?.ToString())"></textarea>
+                        @if (provider.ExtraApiKeys.Count > 0) { <button class="btn ghost small" @onclick="() => provider.ExtraApiKeys.Clear()">Remove extra keys</button> }
+                    </details>
+                }
                 <div class="muted small">@KindHelp(provider.Kind)</div>
                 <div class="row">
                     <input class="grow" @bind="provider.DefaultModel" placeholder="Default model (optional)" />
@@ -235,6 +245,12 @@
 }
 
 @code {
+    private static void SetExtraKeys(ProviderProfile provider, string? text)
+    {
+        var keys = (text ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct().ToList();
+        if (keys.Count > 0) provider.ExtraApiKeys = keys;
+    }
+
     private string _soul = "";
 
     private async Task SaveSoul(ChangeEventArgs e)

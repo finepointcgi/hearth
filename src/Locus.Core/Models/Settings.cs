@@ -26,6 +26,16 @@ public sealed class ProviderProfile
     /// <summary>The models' context window in tokens (null = a default for the kind of server); long chats are
     /// summarised to fit.</summary>
     public int? ContextTokens { get; set; }
+    /// <summary>More API keys for the same server: calls take turns and move on when one is rate-limited
+    /// (encrypted at rest).</summary>
+    public List<string> ExtraApiKeys { get; set; } = [];
+
+    /// <summary>This server with a different API key (for key pools).</summary>
+    public ProviderProfile WithKey(string key) => new()
+    {
+        Id = Id, Name = Name, Kind = Kind, BaseUrl = BaseUrl, ApiKey = key, DefaultModel = DefaultModel,
+        InputPricePerMillion = InputPricePerMillion, OutputPricePerMillion = OutputPricePerMillion, ContextTokens = ContextTokens,
+    };
 }
 
 public sealed class AppSettings
@@ -51,6 +61,8 @@ public sealed class AppSettings
     /// <summary>Permission overrides keyed "area.read"/"area.write" (see PermissionCatalog).</summary>
     public Dictionary<string, PermissionLevel> Permissions { get; set; } = [];
     public bool AutoTitle { get; set; } = true;
+    /// <summary>How the sidebar groups chats: "time", "person", "topic" or "project".</summary>
+    public string ChatGroupBy { get; set; } = "time";
 
     public ToolSettings Tools { get; set; } = new();
     public bool MemoryEnabled { get; set; } = true;
@@ -62,6 +74,7 @@ public sealed class AppSettings
     public Services.HeartbeatSettings Heartbeat { get; set; } = new();
     public Services.NotificationSettings Notifications { get; set; } = new();
     public Services.ApiSettings Api { get; set; } = new();
+    public List<Services.OutgoingWebhook> Webhooks { get; set; } = [];
     public Services.BackupSettings Backup { get; set; } = new();
     /// <summary>First-run setup finished (or skipped because Locus was already in use).</summary>
     public bool SetupDone { get; set; }
@@ -100,6 +113,8 @@ public sealed class ToolSettings
     public bool PythonEnabled { get; set; }
     public string PythonPath { get; set; } = "";
     public int MaxRounds { get; set; } = 8;
+    /// <summary>Tool rounds per reply in code sessions (exploring and fixing code takes many steps).</summary>
+    public int CodeMaxRounds { get; set; } = 60;
     public SandboxSettings Sandbox { get; set; } = new();
     /// <summary>How many helper agents (delegate_task) may work at the same time; 0 turns helpers off.</summary>
     public int MaxHelpers { get; set; } = 3;

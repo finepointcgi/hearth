@@ -111,11 +111,17 @@ public sealed class SettingsStore(IAppPaths paths)
     {
         root.Remove("ActiveProvider"); // computed; older versions wrote a duplicate (with its key) here
         foreach (var p in (root["Providers"] as JsonArray ?? []).OfType<JsonObject>())
+        {
             if (p["ApiKey"]?.GetValue<string>() is { Length: > 0 } key)
             {
                 p["ApiKeySealed"] = _box.Seal(key);
                 p.Remove("ApiKey");
             }
+            if (p["ExtraApiKeys"] is JsonArray extra)
+                for (var i = 0; i < extra.Count; i++)
+                    if (extra[i]?.GetValue<string>() is { Length: > 0 } x && !x.StartsWith(SealedPrefix))
+                        extra[i] = SealedPrefix + _box.Seal(x);
+        }
         foreach (var m in (root["McpServers"] as JsonArray ?? []).OfType<JsonObject>())
             foreach (var section in new[] { "Environment", "Headers" })
                 if (m[section] is JsonObject values)
@@ -126,6 +132,9 @@ public sealed class SettingsStore(IAppPaths paths)
             n["Token"] = SealedPrefix + _box.Seal(t);
         if (root["Api"] is JsonObject api && api["Key"]?.GetValue<string>() is { Length: > 0 } apiKey && !apiKey.StartsWith(SealedPrefix))
             api["Key"] = SealedPrefix + _box.Seal(apiKey);
+        foreach (var w in (root["Webhooks"] as JsonArray ?? []).OfType<JsonObject>())
+            if (w["Secret"]?.GetValue<string>() is { Length: > 0 } secret && !secret.StartsWith(SealedPrefix))
+                w["Secret"] = SealedPrefix + _box.Seal(secret);
     }
 
     /// <summary>Decrypts secrets after reading. Returns true when the file still had plaintext secrets.</summary>
@@ -141,6 +150,13 @@ public sealed class SettingsStore(IAppPaths paths)
                 p.Remove("ApiKeySealed");
             }
             else if (p["ApiKey"]?.GetValue<string>() is { Length: > 0 }) plaintext = true;
+            if (p["ExtraApiKeys"] is JsonArray extra)
+                for (var i = 0; i < extra.Count; i++)
+                    if (extra[i]?.GetValue<string>() is { Length: > 0 } x)
+                    {
+                        if (!x.StartsWith(SealedPrefix)) { plaintext = true; continue; }
+                        try { extra[i] = _box.Open(x[SealedPrefix.Length..]); } catch { extra[i] = ""; }
+                    }
         }
         foreach (var m in (root["McpServers"] as JsonArray ?? []).OfType<JsonObject>())
             foreach (var section in new[] { "Environment", "Headers" })
@@ -162,6 +178,12 @@ public sealed class SettingsStore(IAppPaths paths)
             if (!apiKey.StartsWith(SealedPrefix)) plaintext = true;
             else try { api["Key"] = _box.Open(apiKey[SealedPrefix.Length..]); } catch { api["Key"] = null; }
         }
+        foreach (var w in (root["Webhooks"] as JsonArray ?? []).OfType<JsonObject>())
+            if (w["Secret"]?.GetValue<string>() is { Length: > 0 } secret)
+            {
+                if (!secret.StartsWith(SealedPrefix)) plaintext = true;
+                else try { w["Secret"] = _box.Open(secret[SealedPrefix.Length..]); } catch { w["Secret"] = null; }
+            }
         return plaintext;
     }
 }
@@ -183,7 +205,7 @@ public sealed class ConversationStore(IAppPaths paths)
         foreach (var file in Directory.EnumerateFiles(Dir, "*.json"))
         {
             var c = await Json.ReadAsync<Conversation>(file);
-            if (c is not null) list.Add(new(c.Id, DisplayTitle(c), c.UpdatedAt, c.Pinned, c.BotIds, c.Unread));
+            if (c is not null) list.Add(new(c.Id, DisplayTitle(c), c.UpdatedAt, c.Pinned, c.BotIds, c.Unread, c.Topic, c.Code?.Name, c.CreatedAt));
         }
         return list.OrderByDescending(c => c.Pinned).ThenByDescending(c => c.UpdatedAt).ToList();
     }

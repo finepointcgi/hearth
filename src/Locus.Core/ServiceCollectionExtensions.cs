@@ -73,8 +73,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<OpenAiApi>();
         services.AddSingleton<ContextReferences>();
         services.AddSingleton<AgentImporter>();
+        services.AddSingleton<EventWebhooks>();
+        services.AddSingleton<SkillCatalog>();
         services.AddSingleton(sp => new CodeSandbox(sp.GetRequiredService<PlatformInfo>()));
         services.AddSingleton<ProjectHistory>();
+        services.AddSingleton<CodeTools>();
         services.AddSingleton<IToolProvider, ProjectToolProvider>();
         services.AddSingleton<IToolProvider, ScriptToolProvider>();
         services.AddSingleton<IToolProvider, LinkedFolderToolProvider>();

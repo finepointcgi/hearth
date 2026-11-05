@@ -85,13 +85,19 @@ public sealed class LlmClientFactory(IHttpClientFactory http, PlatformInfo platf
     public ILlmClient Create(ProviderProfile profile)
     {
         var client = http.CreateClient(HttpClientName);
-        ILlmClient inner = profile.Kind switch
+        ILlmClient Single(ProviderProfile p) => p.Kind switch
         {
-            ProviderKind.Ollama => new OllamaClient(client, profile),
-            ProviderKind.Anthropic => new ClaudeApiClient(profile),
-            ProviderKind.ClaudeCode => new ClaudeCodeClient(profile, platform, paths),
-            _ => new OpenAICompatibleClient(client, profile),
+            ProviderKind.Ollama => new OllamaClient(client, p),
+            ProviderKind.Anthropic => new ClaudeApiClient(p),
+            ProviderKind.ClaudeCode => new ClaudeCodeClient(p, platform, paths),
+            _ => new OpenAICompatibleClient(client, p),
         };
+        // Several keys for one server: take turns and move past rate-limited ones.
+        var keys = new[] { profile.ApiKey }.Concat(profile.ExtraApiKeys)
+            .Where(k => !string.IsNullOrWhiteSpace(k)).Select(k => k!.Trim()).Distinct().ToList();
+        var inner = keys.Count > 1 && profile.Kind is ProviderKind.Anthropic or ProviderKind.OpenAICompatible
+            ? new KeyPoolClient(keys.Select(k => (KeyPoolClient.KeyId(k), Single(profile.WithKey(k)))).ToList())
+            : Single(profile);
         return usage is null ? inner : new MeteredLlmClient(inner, profile, usage);
     }
 }

@@ -182,7 +182,8 @@ app.Services.GetRequiredService<BackupService>().EnsureStarted();
 var chatRuns = app.Services.GetRequiredService<ChatRuns>();
 chatRuns.EnsureStarted();
 app.Services.GetRequiredService<FollowUpRunner>().EnsureStarted(); // bots coming back to chats on their own
-app.Services.GetRequiredService<LinkedFolders>().EnsureStarted(); // folders linked on the Documents page stay indexed
+app.Services.GetRequiredService<LinkedFolders>().EnsureStarted();
+app.Services.GetRequiredService<EventWebhooks>().EnsureStarted(); // your webhooks hear about approvals, tasks, follow-ups… // folders linked on the Documents page stay indexed
 app.Lifetime.ApplicationStopping.Register(chatRuns.PrepareForShutdown);
 _ = app.Services.GetRequiredService<Locus.Core.Services.Channels.ChannelHub>().EnsureStartedAsync().ContinueWith(_ => { });
 
