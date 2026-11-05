@@ -2,6 +2,7 @@
 @inject IJSRuntime JS
 @inject IVoiceInput Voice
 @inject DocumentStore Documents
+@inject ContextReferences References
 
 <div class="composer-wrap">
     @if (_images.Count > 0 || _docs.Count > 0)
@@ -38,6 +39,20 @@
             <button class="mention" title="Everyone replies" @onclick='() => Mention("everyone")'><Icon Name="users" Size="15" /> @@everyone</button>
         </div>
     }
+    @if (_fileMatches.Count > 0 && MentionMatches.Count == 0)
+    {
+        <div class="slash-menu">
+            @foreach (var f in _fileMatches)
+            {
+                var path = f;
+                <button class="slash-item" @onclick="() => PickMention(path)">
+                    <Icon Name="file-text" Size="15" />
+                    <b>@System.IO.Path.GetFileName(path)</b>
+                    <span class="muted small ellipsis">@path</span>
+                </button>
+            }
+        </div>
+    }
     @if (MentionMatches.Count > 0)
     {
         <div class="slash-menu">
@@ -63,7 +78,7 @@
         </div>
     }
     <div class="composer @(_listening ? "listening" : "")">
-        <textarea @ref="_textarea" @bind="_text" @bind:event="oninput" rows="1"
+        <textarea @ref="_textarea" @bind="_text" @bind:event="oninput" @bind:after="SuggestFiles" rows="1"
                   placeholder="@Placeholder" disabled="@(State.SelectedModel is null && !State.CanImagine)"></textarea>
         <div class="composer-bar">
             <label class="chip" title="Attach images or documents (PDF, text, code)">
@@ -261,11 +276,42 @@
         await JS.InvokeVoidAsync("locus.focus", _textarea);
     }
 
+    private List<string> _fileMatches = [];
+
+    /// <summary>"@part-of-a-file-name" suggests files from linked folders (picking one inserts its path).</summary>
+    private async Task SuggestFiles()
+    {
+        var q = MentionQuery;
+        _fileMatches = q is { Length: >= 2 } && !q.StartsWith('/') && !q.StartsWith("http") && MentionMatches.Count == 0
+            ? await References.SuggestFilesAsync(q) : [];
+    }
+
+    [JSInvokable]
+    public void PasteImage(string name, string base64)
+    {
+        if (_images.Count >= 10) return;
+        _images.Add(new ImageAttachment(string.IsNullOrWhiteSpace(name) ? "pasted.jpg" : name, "image/jpeg", base64));
+        StateHasChanged();
+    }
+
     private async Task Submit()
     {
         if (_listening) await ToggleVoice();
         if (!CanSend) return;
-        var input = new ComposerInput(_text.Trim(), _images.ToList(), _docs.ToList());
+        _fileMatches = [];
+        // @https://… and @/path/to/file attach that page or file.
+        string? untrusted = null;
+        if (ContextReferences.HasReferences(_text))
+        {
+            _status = "Reading what you referenced…";
+            StateHasChanged();
+            var (items, problems) = await References.ResolveAsync(_text);
+            foreach (var item in items) _docs.Add(new AttachedDoc(item.Name, item.Text, Indexed: false));
+            untrusted = items.FirstOrDefault(i => i.UntrustedSource is not null)?.UntrustedSource;
+            _error = problems.Count > 0 ? string.Join(" ", problems) : null;
+            _status = null;
+        }
+        var input = new ComposerInput(_text.Trim(), _images.ToList(), _docs.ToList(), untrusted);
         _text = "";
         _images.Clear();
         _docs.Clear();

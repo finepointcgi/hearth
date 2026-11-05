@@ -56,6 +56,19 @@ public sealed class FetchUrlTool(IHttpClientFactory http) : ITool
             return ToolResult.Error("A valid http(s) URL is required.");
         var max = (int)Math.Clamp(args.Num("max_chars") ?? 12000, 500, 60000);
 
+        string title, text;
+        try { (title, text) = await ReadAsync(uri, ct); }
+        catch (HttpRequestException ex) when (ex.StatusCode is not null) { return ToolResult.Error(ex.Message); }
+
+        if (!ctx.Reply.Sources.Any(s => s.Url == uri.ToString()))
+            ctx.Reply.Sources.Add(new SearchResult(title.Length > 0 ? title : uri.Host, uri.ToString(), ""));
+
+        return new ToolResult($"# {title}\nSource: {uri}\n\n{Schema.Truncate(text, max)}");
+    }
+
+    /// <summary>Downloads a page or PDF and returns its title and readable text (throws on HTTP errors).</summary>
+    public async Task<(string title, string text)> ReadAsync(Uri uri, CancellationToken ct)
+    {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(25));
         var client = http.CreateClient(Llm.LlmClientFactory.HttpClientName);
@@ -63,22 +76,15 @@ public sealed class FetchUrlTool(IHttpClientFactory http) : ITool
         req.Headers.UserAgent.Add(new ProductInfoHeaderValue("Mozilla", "5.0"));
         req.Headers.UserAgent.Add(new ProductInfoHeaderValue("(compatible; Locus/1.0)"));
         using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
-        if (!res.IsSuccessStatusCode) return ToolResult.Error($"HTTP {(int)res.StatusCode} {res.ReasonPhrase}");
+        if (!res.IsSuccessStatusCode) throw new HttpRequestException($"HTTP {(int)res.StatusCode} {res.ReasonPhrase}", null, res.StatusCode);
 
         var bytes = await ReadLimitedAsync(res, 8 * 1024 * 1024, cts.Token);
         var type = res.Content.Headers.ContentType?.MediaType ?? "";
-        string title = "", text;
         if (type.Contains("pdf") || uri.AbsolutePath.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
-            text = TextExtractor.FromPdf(bytes);
-        else if (type.Contains("html") || type.Length == 0)
-            (title, text) = TextExtractor.FromHtml(Encoding.UTF8.GetString(bytes));
-        else
-            text = Encoding.UTF8.GetString(bytes);
-
-        if (!ctx.Reply.Sources.Any(s => s.Url == uri.ToString()))
-            ctx.Reply.Sources.Add(new SearchResult(title.Length > 0 ? title : uri.Host, uri.ToString(), ""));
-
-        return new ToolResult($"# {title}\nSource: {uri}\n\n{Schema.Truncate(text, max)}");
+            return ("", TextExtractor.FromPdf(bytes));
+        if (type.Contains("html") || type.Length == 0)
+            return TextExtractor.FromHtml(Encoding.UTF8.GetString(bytes));
+        return ("", Encoding.UTF8.GetString(bytes));
     }
 
     private static async Task<byte[]> ReadLimitedAsync(HttpResponseMessage res, int limit, CancellationToken ct)

@@ -211,6 +211,7 @@ public sealed class ChatService(
         var history = conv.Messages.ToList();
         var lastUser = history.LastOrDefault(m => m.Role == ChatRole.User)
             ?? throw new InvalidOperationException("No user message to reply to.");
+        untrustedInput ??= lastUser.UntrustedSource; // e.g. a web page attached with @https://…
         var allBots = bot is null ? [] : await bots.ListAsync();
         var members = conv.BotIds.Select(id => allBots.FirstOrDefault(b => b.Id == id)).OfType<Bot>().ToList();
         using var usageScope = UsageScope.Begin(lastUser.RoutineName switch

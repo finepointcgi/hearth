@@ -255,7 +255,7 @@
             Nav.NavigateTo($"c/{_conv.Id}");
         }
         _conv.PersonaId = State.PersonaId;
-        var message = new ChatMessage { Role = ChatRole.User, Content = input.Text, Images = input.Images };
+        var message = new ChatMessage { Role = ChatRole.User, Content = input.Text, Images = input.Images, UntrustedSource = input.UntrustedSource };
         foreach (var doc in input.Docs)
         {
             message.AttachedFiles.Add(doc.Name);

@@ -32,6 +32,8 @@ public sealed class ChatMessage
     public string? RoutineName { get; set; }
     /// <summary>Data from the event that triggered a routine (webhook body, file, feed item…).</summary>
     public string? EventPayload { get; set; }
+    /// <summary>The message carries content from somewhere untrusted (a web page attached with @): runs are guarded.</summary>
+    public string? UntrustedSource { get; set; }
     [JsonIgnore] public bool IsStreaming { get; set; }
     [JsonIgnore] public string? Error { get; set; }
     /// <summary>Memories saved automatically after this reply (shown under it).</summary>

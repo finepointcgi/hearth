@@ -33,8 +33,31 @@ window.locus = {
         dotnet.invokeMethodAsync("SubmitFromJs", textarea.value);
       }
     });
+    // Paste images straight into the message (screenshots, copied pictures), shrunk like attached ones.
+    textarea.addEventListener("paste", async (e) => {
+      const files = [...(e.clipboardData?.items || [])]
+        .filter((i) => i.kind === "file" && i.type.startsWith("image/")).map((i) => i.getAsFile()).filter(Boolean);
+      if (!files.length) return;
+      e.preventDefault();
+      for (const f of files) {
+        try { await dotnet.invokeMethodAsync("PasteImage", (f.name || "pasted").replace(/\.\w+$/, "") + ".jpg", await locus.shrinkImage(f, 1536)); }
+        catch (err) { console.warn("Couldn't paste image", err); }
+      }
+    });
     resize();
     if (!window.matchMedia("(pointer: coarse)").matches) textarea.focus();
+  },
+  async shrinkImage(file, max) {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff"; // transparent screenshots get a white background in JPEG
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
   },
   resetComposer(textarea) {
     textarea.value = "";
