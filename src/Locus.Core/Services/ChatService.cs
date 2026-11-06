@@ -598,7 +598,7 @@ public sealed class ChatService(
             // Check before answering: after research, the model re-reads its answer against the tool results and fixes
             // anything they don't support.
             if (ShouldCheck(settings.CheckAnswers, reply) && !ct.IsCancellationRequested)
-                await CheckAnswerAsync(reply, baseMessages, client, model, settings, opts, bot, server, onUpdate, ct);
+                await CheckAnswerAsync(reply, baseMessages, definitions, budget - toolTokens, client, model, settings, opts, bot, onUpdate, ct);
         }
         catch (OperationCanceledException)
         {
@@ -1161,8 +1161,8 @@ public sealed class ChatService(
     /// One extra turn asking the model to check its answer against the tool results; when it finds problems, a second
     /// turn rewrites the answer. Both continue the same conversation, so a local server reuses what it already read.
     /// </summary>
-    private async Task CheckAnswerAsync(ChatMessage reply, List<LlmMessage> baseMessages, ILlmClient client, string model,
-        AppSettings settings, SendOptions opts, Bot? bot, ProviderProfile server, Func<Task> onUpdate, CancellationToken ct)
+    private async Task CheckAnswerAsync(ChatMessage reply, List<LlmMessage> baseMessages, IReadOnlyList<ToolDefinition> tools, int room,
+        ILlmClient client, string model, AppSettings settings, SendOptions opts, Bot? bot, Func<Task> onUpdate, CancellationToken ct)
     {
         var timer = System.Diagnostics.Stopwatch.StartNew();
         var notice = reply.Notice;
@@ -1171,11 +1171,18 @@ public sealed class ChatService(
         try
         {
             var messages = baseMessages.Concat(ToolRounds(reply)).ToList();
-            messages = ContextWindow.FitToolResults(messages, ContextWindow.BudgetFor(server, settings) - 1500);
+            // Fitted exactly as the reply's last step was, so the prompt starts the same and stays cached.
+            messages = ContextWindow.FitToolResults(messages, room);
             messages.Add(new LlmMessage { Role = "assistant", Content = reply.Content });
             messages.Add(LlmMessage.User(CheckPrompt));
-            var verdict = await CompleteAsync(client, new LlmRequest(model, messages, 0.1, 600, settings.ContextLength, false), ct);
+            // The tools stay listed (any calls the model makes are ignored) so the prompt starts the same as
+            // the reply's last step and a local server reuses what it already read.
+            var listed = tools.Count > 0 ? tools : null;
+            var verdict = await CompleteAsync(client, new LlmRequest(model, messages, 0.1, 350, settings.ContextLength, false, listed), ct);
             reply.Trace.Add(new TraceStep("model", "check: " + model, timer.ElapsedMilliseconds));
+            // A model that answers with a tool call written as text: drop it (the check simply doesn't apply).
+            var toolNames = tools.Select(t => t.Name).ToHashSet();
+            verdict = TextToolCalls.Find(verdict, toolNames).rest;
             var problems = verdict.Trim().Trim('.', '*', '"').Trim();
             if (problems.Length == 0 || problems.Equals("OK", StringComparison.OrdinalIgnoreCase) || problems.StartsWith("OK", StringComparison.OrdinalIgnoreCase) && problems.Length < 40)
             {
@@ -1186,8 +1193,9 @@ public sealed class ChatService(
             await onUpdate();
             messages.Add(new LlmMessage { Role = "assistant", Content = problems });
             messages.Add(LlmMessage.User(RevisePrompt));
-            var revised = await CompleteAsync(client, new LlmRequest(model, messages, settings.Temperature, settings.MaxTokens, settings.ContextLength, false), ct);
+            var revised = await CompleteAsync(client, new LlmRequest(model, messages, settings.Temperature, settings.MaxTokens, settings.ContextLength, false, listed), ct);
             reply.Trace.Add(new TraceStep("model", "revise: " + model, timer.ElapsedMilliseconds));
+            revised = TextToolCalls.Find(revised, toolNames).rest;
             if (StripSelfPrefix(revised, bot).Trim() is { Length: > 20 } better)
             {
                 reply.Content = better;
