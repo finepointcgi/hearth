@@ -1,3 +1,5 @@
+@inject Locus.Core.Services.Ocr Ocr
+@inject Locus.Core.Services.AudioTranscriber Transcriber
 @inherits StatefulComponent
 @inject IJSRuntime JS
 @inject IVoiceInput Voice
@@ -83,7 +85,7 @@
         <div class="composer-bar">
             <label class="chip" title="Attach images or documents (PDF, text, code)">
                 <Icon Name="paperclip" Size="16" />
-                <InputFile OnChange="OnFiles" accept="image/*,.pdf,.txt,.md,.csv,.json,.html,.htm,.xml,.yaml,.yml,.cs,.js,.ts,.py,.java,.go,.rs,.cpp,.c,.h,.sql,.log" multiple class="hidden-file" />
+                <InputFile OnChange="OnFiles" accept="image/*,audio/*,.m4a,.mp3,.wav,.ogg,.opus,.webm,.pdf,.txt,.md,.csv,.json,.html,.htm,.xml,.yaml,.yml,.cs,.js,.ts,.py,.java,.go,.rs,.cpp,.c,.h,.sql,.log" multiple class="hidden-file" />
             </label>
             <div class="options-wrap">
                 <button class="chip options-btn @(_optionsOpen ? "on" : "")" title="Options" aria-haspopup="menu" aria-expanded="@_optionsOpen" @onclick="() => _optionsOpen = !_optionsOpen">
@@ -385,7 +387,32 @@
                 {
                     // Downscale in the browser/webview so we don't push huge images to the model.
                     var resized = await file.RequestImageFileAsync("image/jpeg", 1536, 1536);
-                    _images.Add(new ImageAttachment(file.Name, "image/jpeg", Convert.ToBase64String(await ReadAsync(resized, 15))));
+                    var picture = await ReadAsync(resized, 15);
+                    _images.Add(new ImageAttachment(file.Name, "image/jpeg", Convert.ToBase64String(picture)));
+                    // The text in it too (read on this computer), so models that can't see images can still use it.
+                    if (Ocr.Available)
+                    {
+                        _status = $"Reading the text in {file.Name}…";
+                        StateHasChanged();
+                        try
+                        {
+                            var seen = await Ocr.ReadAsync(picture, "image.jpg");
+                            if (seen.Length > 10) _docs.Add(new AttachedDoc(file.Name + " (text in the image)", seen, Indexed: false));
+                        }
+                        catch { /* the image itself is still attached */ }
+                    }
+                    continue;
+                }
+                if (AudioTranscriber.IsAudio(file.Name, file.ContentType))
+                {
+                    // Voice memos and recordings: transcribed here (Whisper server or whisper.cpp), sent as text.
+                    _status = $"Transcribing {file.Name}…";
+                    StateHasChanged();
+                    var audio = await ReadAsync(file, 100);
+                    var said = await Transcriber.TranscribeAsync(audio, file.Name, file.ContentType, CancellationToken.None);
+                    _docs.Add(new AttachedDoc(file.Name,
+                        $"Transcript of the recording {file.Name}:\n{said}\n\n(If the user didn't say what to do with it: summarize it, then list decisions and action items with owners and dates.)",
+                        Indexed: false));
                     continue;
                 }
                 if (!TextExtractor.IsSupported(file.Name)) { _error = $"{file.Name}: unsupported file type"; continue; }
@@ -394,6 +421,14 @@
                 StateHasChanged();
                 var bytes = await ReadAsync(file, 40);
                 var text = await Task.Run(() => TextExtractor.Extract(file.Name, bytes));
+                // A scanned PDF (pictures of pages, no text layer): read the pages.
+                if (file.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    _status = $"Reading the scanned pages of {file.Name}…";
+                    StateHasChanged();
+                    try { if (await Ocr.ScannedPdfTextAsync(bytes, text) is { Length: > 0 } scanned) text = scanned; }
+                    catch { /* keep what the text layer had */ }
+                }
                 if (text.Length <= State.Settings.Documents.InlineLimit)
                 {
                     _docs.Add(new AttachedDoc(file.Name, text, Indexed: false));

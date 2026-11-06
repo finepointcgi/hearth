@@ -51,6 +51,8 @@ public sealed class AppSettings
     public int MaxTokens { get; set; } = 2048;
     /// <summary>When a reply hits the length limit, ask the model to continue it (up to twice) instead of stopping mid-sentence.</summary>
     public bool ContinueCutOffReplies { get; set; } = true;
+    /// <summary>Check answers against their sources before showing them (one or two extra model turns).</summary>
+    public AnswerCheck CheckAnswers { get; set; } = AnswerCheck.AfterResearch;
     /// <summary>Context window requested from Ollama (num_ctx). 0 = server default.</summary>
     public int ContextLength { get; set; } = 8192;
     public bool ShowThinking { get; set; } = true;
@@ -87,7 +89,12 @@ public sealed class AppSettings
     public DocumentSettings Documents { get; set; } = new();
     public ImageGenSettings ImageGen { get; set; } = new();
     public VoiceSettings Voice { get; set; } = new();
+    public ModelRoutingSettings ModelRouting { get; set; } = new();
+    /// <summary>"Always allow": bot id (or "locus") → tools that bot may run without asking, chosen on approval cards.</summary>
+    public Dictionary<string, List<string>> AlwaysAllow { get; set; } = [];
     public BriefingSettings Briefing { get; set; } = new();
+    /// <summary>The starter skills were added (once; deleted ones aren't brought back on their own).</summary>
+    public bool StarterSkillsAdded { get; set; }
     public SelfCheckSettings SelfCheck { get; set; } = new();
     public List<McpServerConfig> McpServers { get; set; } = [];
     /// <summary>Max bot replies triggered by one user message in a group (stops bots looping).</summary>
@@ -165,6 +172,18 @@ public sealed class ImageGenSettings
     public int Steps { get; set; } = 25;
     public double CfgScale { get; set; } = 6.5;
     public string NegativePrompt { get; set; } = "blurry, low quality, watermark, text";
+}
+
+public enum AnswerCheck { Off, AfterResearch, AnyTools }
+
+/// <summary>Automatic model choice: a fast model for everyday messages, a strong one for hard work.</summary>
+public sealed class ModelRoutingSettings
+{
+    public bool Enabled { get; set; }
+    public string? FastProviderId { get; set; }
+    public string FastModel { get; set; } = "";
+    public string? StrongProviderId { get; set; }
+    public string StrongModel { get; set; } = "";
 }
 
 /// <summary>The morning brief: a routine Locus keeps on the chosen bot, built from these choices.</summary>

@@ -57,6 +57,25 @@
     </section>
 
     <section class="card">
+        <h3>Always allowed</h3>
+        <p class="muted small">Tools you chose "Always allow" for on an approval card. These run without asking for that bot only, even after it has read web pages or email.</p>
+        @foreach (var (who, tools) in _s.AlwaysAllow.Where(kv => kv.Value.Count > 0).ToList())
+        {
+            var whoKey = who;
+            var name = whoKey == "locus" ? "💬 Locus" : State.BotById(whoKey) is { } b ? $"{b.Emoji} {b.Name}" : "(a deleted bot)";
+            @foreach (var t in tools.ToList())
+            {
+                var tool = t;
+                <div class="memory-row">
+                    <span class="grow"><b>@name</b> may run <code>@tool</code> without asking</span>
+                    <button class="btn ghost small" @onclick="() => Forget(whoKey, tool)">Ask again</button>
+                </div>
+            }
+        }
+        @if (!_s.AlwaysAllow.Any(kv => kv.Value.Count > 0)) { <p class="muted small">Nothing yet.</p> }
+    </section>
+
+    <section class="card">
         <h3>What bots did</h3>
         <div class="row">
             <select @bind="_botFilter">
@@ -161,4 +180,12 @@
     }
 
     private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    private async Task Forget(string who, string tool)
+    {
+        var s = await Store.GetAsync();
+        if (s.AlwaysAllow.TryGetValue(who, out var list)) list.Remove(tool);
+        await Store.SaveAsync(s);
+        _s = SettingsCopy.Of(s);
+    }
 }

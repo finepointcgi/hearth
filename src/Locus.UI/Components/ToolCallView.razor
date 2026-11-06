@@ -34,6 +34,10 @@
         <div class="approval">
             <span><Icon Name="circle-alert" Size="16" /> @(Call.ApprovalReason ?? "This tool can make changes or run code.") Allow it?</span>
             <button class="btn ghost" @onclick="() => Decide(false)">Deny</button>
+            @if (Call.AlwaysAllow is not null)
+            {
+                <button class="btn ghost" title="Don't ask again when @Call.AlwaysAllowFor uses @Label (undo on the Permissions page)" @onclick="AllowAlways">Always allow for @Call.AlwaysAllowFor</button>
+            }
             <button class="btn primary" @onclick="() => Decide(true)">Allow</button>
         </div>
     }
@@ -184,4 +188,10 @@
     };
 
     private void Decide(bool allow) => Call.Approval?.TrySetResult(allow);
+
+    private async Task AllowAlways()
+    {
+        if (Call.AlwaysAllow is { } remember) await remember();
+        Decide(true);
+    }
 }

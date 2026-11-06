@@ -1,6 +1,7 @@
 @page "/memory"
 @inherits StatefulComponent
 @inject MemoryStore Store
+@inject Locus.Core.Services.PeopleStore People
 @inject SettingsStore Settings
 @inject MemoryCurator Curator
 @inject IJSRuntime JS
@@ -103,6 +104,29 @@
             <button class="btn danger" @onclick="() => Store.ClearAsync()">Forget everything</button>
         }
     </section>
+    <section class="card">
+        <h3>People &amp; companies <span class="muted small">(@_people.Count)</span></h3>
+        <p class="muted small">Who's who in your life and work: recruiters, colleagues, companies. Bots add notes as they learn and look people up with who_is before writing to, calling or discussing them.</p>
+        @foreach (var e in _people)
+        {
+            var entity = e;
+            <details class="memory-archive">
+                <summary><b>@entity.Name</b> <span class="muted small">@entity.Kind · @entity.Notes.Count notes@(entity.Related.Count > 0 ? " · " + string.Join(", ", entity.Related) : "")</span></summary>
+                @foreach (var n in entity.Notes)
+                {
+                    var note = n;
+                    <div class="memory-row">
+                        <span class="grow">@note.Text</span>
+                        <span class="muted small">@note.At.ToString("MMM d")</span>
+                        <button class="icon-btn" title="Delete note" @onclick="() => People.DeleteNoteAsync(entity.Id, note)">🗑</button>
+                    </div>
+                }
+                <button class="btn ghost small" @onclick="() => People.DeleteAsync(entity.Id)">Forget @entity.Name</button>
+            </details>
+        }
+        @if (_people.Count == 0) { <p class="muted small">No one yet. Mention people and companies in chats and bots will keep notes.</p> }
+    </section>
+
     @if (State.Bots.Count > 0)
     {
         <section class="card">
@@ -266,7 +290,17 @@
         await LoadStatsAsync();
         foreach (var b in State.Bots) _botCounts[b.Id] = (await Store.ListAsync(b.Id)).Count;
         Store.Changed += Reload;
+        _people = await People.ListAsync();
+        People.Changed += ReloadPeople;
         _items = await Store.ListAsync();
+    }
+
+    private List<Locus.Core.Services.Entity> _people = [];
+
+    private async void ReloadPeople()
+    {
+        _people = await People.ListAsync();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async void Reload()
@@ -312,5 +346,5 @@
 
     private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
 
-    public override void Dispose() { Store.Changed -= Reload; base.Dispose(); }
+    public override void Dispose() { Store.Changed -= Reload; People.Changed -= ReloadPeople; base.Dispose(); }
 }

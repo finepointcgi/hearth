@@ -140,6 +140,13 @@
             <div class="notice">ℹ @Message.Notice</div>
         }
 
+        @if (Message.Checked is { } fixedBy)
+        {
+            <details class="checked-note">
+                <summary>🔎 Checked against the sources and corrected</summary>
+                <div class="muted small">@fixedBy</div>
+            </details>
+        }
         <div class="md">
             <Markdown Text="@Message.Content" />
             @if (Message.IsStreaming)

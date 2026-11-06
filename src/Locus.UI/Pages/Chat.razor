@@ -218,6 +218,22 @@
         </ul>
     </details>
 }
+@if (_conv is { Plan.Count: > 0 } planned && planned.Code is null)
+{
+    var stepsDone = planned.Plan.Count(t => t.Status == CodeTodoStatus.Completed);
+    <details class="code-todos" open="@(stepsDone < planned.Plan.Count)">
+        <summary><Icon Name="check" Size="14" /> Plan <span class="muted small">@stepsDone/@planned.Plan.Count</span></summary>
+        <ul>
+            @foreach (var t in planned.Plan)
+            {
+                <li class="todo-@t.Status.ToString().ToLowerInvariant()">
+                    <Icon Name="@(t.Status switch { CodeTodoStatus.Completed => "check", CodeTodoStatus.InProgress => "circle-dot", _ => "circle" })" Size="14" />
+                    <span>@t.Content</span>
+                </li>
+            }
+        </ul>
+    </details>
+}
 @if (_conv?.Code is { Mode: CodePermissionMode.Plan } && !Busy && _conv.Messages.LastOrDefault() is { Role: ChatRole.Assistant, Error: null, Content.Length: > 0 })
 {
     <div class="plan-actions">

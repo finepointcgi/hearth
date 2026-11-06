@@ -27,6 +27,8 @@ public sealed class ChannelHub
     private readonly HealthMonitor _health;
     private readonly SettingsStore _settings;
     private readonly SpeechService _speech;
+    private readonly AudioTranscriber _transcriber;
+    private readonly Ocr _ocr;
     private readonly DocumentStore _documents;
     private readonly TaskRunner _tasks;
     private readonly TaskStore _taskStore;
@@ -40,7 +42,7 @@ public sealed class ChannelHub
     public ChannelHub(ChannelStore store, ChatService chat, ConversationStore conversations, BotStore bots, ModelPicker models,
         ApprovalCenter approvals, ActivityLog activity, RoutineRunner routines, IHttpClientFactory http, HealthMonitor health,
         SettingsStore settings, SpeechService speech, DocumentStore documents, TaskRunner tasks, TaskStore taskStore,
-        HeartbeatRunner heartbeat)
+        HeartbeatRunner heartbeat, AudioTranscriber transcriber, Ocr ocr)
     {
         _heartbeat = heartbeat;
         _tasks = tasks;
@@ -48,6 +50,8 @@ public sealed class ChannelHub
         _health = health;
         _settings = settings;
         _speech = speech;
+        _transcriber = transcriber;
+        _ocr = ocr;
         _documents = documents;
         _store = store; _chat = chat; _conversations = conversations; _bots = bots; _models = models;
         _approvals = approvals; _activity = activity; _routines = routines;
@@ -211,12 +215,12 @@ public sealed class ChannelHub
             {
                 if (f.IsVoice)
                 {
-                    if (string.IsNullOrWhiteSpace(settings.Voice.SttUrl))
+                    if (await _transcriber.StatusAsync() is { ready: false } status)
                     {
-                        await a.SendTextAsync(m.ChatId, "🎙 I can't listen to voice notes yet — add a speech-to-text server in Locus → Settings → Voice (e.g. a Whisper server).");
+                        await a.SendTextAsync(m.ChatId, $"🎙 I can't listen to voice notes yet: {status.how}.");
                         return;
                     }
-                    var said = await _speech.TranscribeAsync(settings.Voice, f.Data, f.MimeType, CancellationToken.None);
+                    var said = await _transcriber.TranscribeAsync(f.Data, f.Name, f.MimeType, CancellationToken.None);
                     if (string.IsNullOrWhiteSpace(said)) { await a.SendTextAsync(m.ChatId, "🎙 I couldn't make out anything in that voice note."); return; }
                     await a.SendTextAsync(m.ChatId, $"🎙 “{said}”");
                     text = (text + " " + said).Trim();
@@ -224,6 +228,10 @@ public sealed class ChannelHub
                 else if (f.MimeType.StartsWith("image/"))
                 {
                     images.Add(new ImageAttachment(f.Name, f.MimeType, Convert.ToBase64String(f.Data)));
+                    // The text in it too, for models that can't see images (read on this computer).
+                    if (_ocr.Available)
+                        try { if (await _ocr.ReadAsync(f.Data, f.Name) is { Length: > 10 } seen) attachmentText.Append($"\n--- text in {f.Name} ---\n{seen}\n"); }
+                        catch { }
                 }
                 else if (TextExtractor.IsSupported(f.Name))
                 {

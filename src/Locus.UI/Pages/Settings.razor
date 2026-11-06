@@ -1,4 +1,6 @@
 @page "/settings"
+@inject Locus.Core.Services.AudioTranscriber Transcriber
+@inject IHttpClientFactory HttpFactory
 @inject ProjectContext Soul
 @inject SettingsStore Store
 @inherits StatefulComponent
@@ -133,6 +135,14 @@
             <label class="grow">Context length (Ollama num_ctx, 0 = default)<input type="number" min="0" step="1024" @bind="_s.ContextLength" /></label>
         </div>
         <label class="check"><input type="checkbox" @bind="_s.ContinueCutOffReplies" /> Continue replies that hit the length limit (up to twice) instead of stopping mid-sentence</label>
+        <label>Check answers against their sources
+            <select @bind="_s.CheckAnswers">
+                <option value="@AnswerCheck.AfterResearch">After research (web pages, documents, email)</option>
+                <option value="@AnswerCheck.AnyTools">After any tool use</option>
+                <option value="@AnswerCheck.Off">Off</option>
+            </select>
+            <span class="muted small">The model re-reads its answer against what the tools returned and fixes anything unsupported before you see it. One or two extra turns.</span>
+        </label>
         <label>Default personality
             <select @bind="_s.DefaultPersonaId">
                 @foreach (var p in Personas.All)
@@ -153,6 +163,10 @@
         <label class="check"><input type="checkbox" @bind="_s.TakeInitiative" /> Bots take initiative</label>
         <p class="muted small">Bots act on clear next steps instead of asking first, schedule their own follow-ups (they come back to the chat later with what they found) and hand big jobs to background tasks. Anything that changes things still follows your Permissions.</p>
     </section>
+    }
+    @if (_tab == "models")
+    {
+    <ModelRoutingCard />
     }
     @if (_tab == "web")
     {
@@ -223,6 +237,19 @@
         </div>
         @if (_voiceTest is not null) { <div class="error-box">@_voiceTest</div> }
     </section>
+
+    <section class="card">
+        <h3>Voice memos and recordings</h3>
+        <p class="muted small">Drop an audio file into a chat, or send a voice note in Telegram, and Locus transcribes it, then the bot summarizes it and lists action items. Uses the speech-to-text server above when set, otherwise whisper.cpp on this computer (private and offline).</p>
+        <div class="row">
+            <span class="grow small">@(_transcription is { } t ? (t.ready ? "✅ Ready: " : "⚠ Not set up: ") + t.how : "Checking…")</span>
+            @if (_transcription is { ready: false })
+            {
+                <button class="btn ghost" @onclick="SetUpTranscription" disabled="@(_settingUp is not null)">@(_settingUp ?? "Set up local transcription")</button>
+            }
+        </div>
+        <span class="muted small">Setting up installs whisper.cpp with Homebrew and downloads an English speech model (about 148 MB) into Locus's data folder.</span>
+    </section>
     }
     @if (_tab == "daily")
     {
@@ -273,8 +300,28 @@
     private bool _confirmDelete;
     private readonly Dictionary<string, (bool ok, string msg)> _tests = [];
 
+    private (bool ready, string how)? _transcription;
+    private string? _settingUp;
+
+    private async Task SetUpTranscription()
+    {
+        try
+        {
+            var progress = new Progress<string>(m => { _settingUp = m; InvokeAsync(StateHasChanged); });
+            _settingUp = "Starting…";
+            await Transcriber.SetUpLocalAsync(HttpFactory, progress, CancellationToken.None);
+        }
+        catch (Exception ex) { _voiceTest = ex.Message; }
+        finally
+        {
+            _settingUp = null;
+            _transcription = await Transcriber.StatusAsync();
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        _transcription = await Transcriber.StatusAsync();
         _s = SettingsCopy.Of(await Store.GetAsync());
         _s.ActiveProviderId ??= _s.ActiveProvider.Id;
         _soul = await Soul.SoulAsync() ?? "";
@@ -357,7 +404,28 @@
     {
         if (_s is null) return;
         foreach (var p in _s.Providers) p.BaseUrl = p.BaseUrl.Trim();
-        await Store.SaveAsync(SettingsCopy.Of(_s));
+        // Only what this page edits: everything else (cards on this page that save themselves, other pages,
+        // approvals) may have changed since it opened and must not be overwritten with the old copy.
+        var current = SettingsCopy.Of(await Store.GetAsync());
+        var mine = SettingsCopy.Of(_s);
+        current.Providers = mine.Providers;
+        current.ActiveProviderId = mine.ActiveProviderId;
+        current.FallbackProviderIds = mine.FallbackProviderIds;
+        current.AutoTitle = mine.AutoTitle;
+        current.ContextLength = mine.ContextLength;
+        current.ContinueCutOffReplies = mine.ContinueCutOffReplies;
+        current.CheckAnswers = mine.CheckAnswers;
+        current.CustomSystemPrompt = mine.CustomSystemPrompt;
+        current.DefaultPersonaId = mine.DefaultPersonaId;
+        current.ImageGen = mine.ImageGen;
+        current.MaxTokens = mine.MaxTokens;
+        current.SearchResultCount = mine.SearchResultCount;
+        current.SearxngUrl = mine.SearxngUrl;
+        current.ShowThinking = mine.ShowThinking;
+        current.TakeInitiative = mine.TakeInitiative;
+        current.Temperature = mine.Temperature;
+        current.Voice = mine.Voice;
+        await Store.SaveAsync(current);
         State.PersonaId = _s.DefaultPersonaId;
         _saved = true;
         StateHasChanged();

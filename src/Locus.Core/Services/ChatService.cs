@@ -27,7 +27,8 @@ public sealed class ChatService(
     ActivityLog activity,
     MemoryCurator curator,
     ProjectContext projectContext,
-    CodeTools codeTools)
+    CodeTools codeTools,
+    PeopleStore people)
 {
     private const int MaxToolResultChars = 16000;
     private const int MaxBotCallDepth = 2;
@@ -246,15 +247,19 @@ public sealed class ChatService(
         string? untrustedInput = null, bool learn = true)
     {
         var settings = await settingsStore.GetAsync();
-        var client = factory.CreateForBot(settings, bot);
-        // A bot on its own server uses its model, or that server's default — not the model picked for the chat.
-        var ownServer = settings.ProviderFor(bot).Id != settings.ActiveProvider.Id;
-        var model = !string.IsNullOrWhiteSpace(bot?.Model) ? bot.Model
-            : ownServer ? await ModelPicker.DefaultForAsync(factory, settings.ProviderFor(bot)) ?? opts.Model
-            : opts.Model;
         var history = conv.Messages.ToList();
         var lastUser = history.LastOrDefault(m => m.Role == ChatRole.User)
             ?? throw new InvalidOperationException("No user message to reply to.");
+        // Automatic model choice: everyday messages to the fast model, hard work to the strong one.
+        var route = ModelRouter.Pick(settings, bot, lastUser.Content, lastUser.Images.Count + lastUser.AttachedFiles.Count,
+            CodeTools.SessionFor(conv, bot) is not null);
+        var routedBot = route is { } rt ? (bot is null ? new Bot { ProviderId = rt.provider.Id } : bot.WithVersion(new BotVersion { ProviderId = rt.provider.Id, Model = rt.model })) : bot;
+        var client = factory.CreateForBot(settings, routedBot);
+        // A bot on its own server uses its model, or that server's default — not the model picked for the chat.
+        var ownServer = settings.ProviderFor(routedBot).Id != settings.ActiveProvider.Id;
+        var model = route?.model ?? (!string.IsNullOrWhiteSpace(bot?.Model) ? bot.Model
+            : ownServer ? await ModelPicker.DefaultForAsync(factory, settings.ProviderFor(bot)) ?? opts.Model
+            : opts.Model);
         untrustedInput ??= lastUser.UntrustedSource; // e.g. a web page attached with @https://…
         var allBots = bot is null ? [] : await bots.ListAsync();
         var members = conv.BotIds.Select(id => allBots.FirstOrDefault(b => b.Id == id)).OfType<Bot>().ToList();
@@ -271,11 +276,12 @@ public sealed class ChatService(
             _ => "Chat",
         }, bot?.Id, conv.Id);
         // Chats you're waiting on go ahead of background work on a local model server.
-        var server = settings.ProviderFor(bot);
+        var server = settings.ProviderFor(routedBot);
         if (depth == 0 && IsBackgroundRun(lastUser, untrustedInput)) ModelQueue.MarkBackground();
         using var chatRunning = ModelQueue.InBackground ? null : ModelQueue.ChatRunning(server);
 
         var reply = new ChatMessage { Role = ChatRole.Assistant, Model = model, IsStreaming = true, BotId = bot?.Id };
+        if (route is { } chosen) reply.Trace.Add(new TraceStep("route", chosen.reason, 0));
         conv.Messages.Add(reply);
         conv.Model = opts.Model;
         await onUpdate();
@@ -306,6 +312,8 @@ public sealed class ChatService(
                 foreach (var t in codeTools.For(codeSession))
                     if (available.All(a => a.Name != t.Name)) available.Add(t);
             available = available.Where(t => !PermissionCatalog.IsBlocked(t, settings)).ToList();
+            // Code sessions keep their own task list (todo_write).
+            if (codeSession is not null) available.RemoveAll(t => t.Name == UpdatePlanTool.ToolName);
             if (extraTools is not null) available.AddRange(extraTools.Where(t => available.All(a => a.Name != t.Name)));
             var byName = available.ToDictionary(t => t.Name);
             // Offer only the tools this message is likely to need (any available tool still runs if called by name).
@@ -376,7 +384,7 @@ public sealed class ChatService(
             var window = historyWindow is > 0 && history.Count > historyWindow ? history.TakeLast(historyWindow.Value).ToList() : history;
             // Fit the model's context window: tool schemas and the system prompt first, then as much history as fits
             // (summarising the oldest part of long chats).
-            var budget = ContextWindow.BudgetFor(settings.ProviderFor(bot), settings);
+            var budget = ContextWindow.BudgetFor(server, settings);
             var toolTokens = offered.Sum(t => ContextWindow.Tokens(t.Name + t.Description + t.Parameters.ToJsonString()) + 10);
             var historyRoom = budget - toolTokens - ContextWindow.Tokens(system.ToString());
             baseMessages.AddRange(await FitHistoryAsync(conv, window, bot, allBots, skills, client, model, historyRoom, reply, onUpdate, ct));
@@ -586,6 +594,11 @@ public sealed class ChatService(
                         await RunToolAsync(tc, byName.GetValueOrDefault(tc.Name), ctx, onUpdate, ct);
                     }
             }
+
+            // Check before answering: after research, the model re-reads its answer against the tool results and fixes
+            // anything they don't support.
+            if (ShouldCheck(settings.CheckAnswers, reply) && !ct.IsCancellationRequested)
+                await CheckAnswerAsync(reply, baseMessages, client, model, settings, opts, bot, server, onUpdate, ct);
         }
         catch (OperationCanceledException)
         {
@@ -784,6 +797,8 @@ public sealed class ChatService(
         if (tools.ContainsKey("propose_new_bot"))
             sb.Append(" If a kind of work keeps coming up that no one on the team specialises in, suggest hiring a new bot for ")
               .Append("it with propose_new_bot (the user approves it first). Don't propose one for a one-off request.");
+        if (tools.ContainsKey(UpdatePlanTool.ToolName) && !unattended)
+            sb.Append(" For a task with 3 or more distinct steps, show your plan first with update_plan and tick steps off as you go.");
         if (tools.ContainsKey("add_routine") && !unattended)
             sb.Append(" When the user wants something done regularly (weekly, every morning), set it up with add_routine on the bot that does it.");
         return sb.ToString();
@@ -847,6 +862,12 @@ public sealed class ChatService(
                 system.AppendLine($"({hidden} more memories are in long-term storage. Ones that look relevant are attached to the user's " +
                     $"message as \"From long-term memory\"{(byName.ContainsKey("recall_memory") ? "; search the rest with recall_memory" : "")}.)");
         }
+
+        // People and companies: just the names (who_is has the notes), so the prompt stays short.
+        if (byName.ContainsKey("who_is") && await people.ListAsync() is { Count: > 0 } known)
+            system.AppendLine().Append("People and companies you have notes on (look them up with who_is before you write to, call or ")
+                .Append("discuss them; add what you learn with note_about): ")
+                .AppendLine(string.Join(", ", known.OrderBy(e => e.Name).Take(60).Select(e => e.Name)) + (known.Count > 60 ? ", …" : "") + ".");
 
         if (bot is not null && members.Count > 1)
         {
@@ -1033,8 +1054,23 @@ public sealed class ChatService(
 
         var held = ContentTrust.ShouldHold(tool, ctx) && !PermissionCatalog.IsBlocked(tool, ctx.Settings);
         if (held) tc.ApprovalReason = $"Asking because this conversation just read {ctx.TaintedBy}, which could contain hidden instructions.";
-        if (held || PermissionCatalog.NeedsApproval(tool, ctx.Settings, ctx))
+        var who = ctx.Bot?.Id ?? "locus";
+        // "Always allow" (chosen on an earlier approval card) skips asking for this tool and this bot. Never for calls.
+        var alwaysAllowed = AlwaysAllowable(tool.Name) && !PermissionCatalog.IsBlocked(tool, ctx.Settings)
+            && ctx.Settings.AlwaysAllow.GetValueOrDefault(who)?.Contains(tool.Name) == true;
+        if (!alwaysAllowed && (held || PermissionCatalog.NeedsApproval(tool, ctx.Settings, ctx)))
         {
+            if (AlwaysAllowable(tool.Name))
+            {
+                tc.AlwaysAllowFor = ctx.Bot?.Name ?? "Locus";
+                tc.AlwaysAllow = async () =>
+                {
+                    var s = await settingsStore.GetAsync();
+                    var list = s.AlwaysAllow.TryGetValue(who, out var l) ? l : s.AlwaysAllow[who] = [];
+                    if (!list.Contains(tool.Name)) list.Add(tool.Name);
+                    await settingsStore.SaveAsync(s);
+                };
+            }
             if (ctx.Unattended || ctx.Depth > 0)
             {
                 tc.Status = ToolCallStatus.Denied;
@@ -1054,6 +1090,7 @@ public sealed class ChatService(
             try { approved = await tc.Approval.Task.WaitAsync(ct); }
             catch (OperationCanceledException) { approvals.Cancel(pending.Id); throw; }
             tc.Approval = null;
+            tc.AlwaysAllow = null;
             await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Approval,
                 $"{(approved ? "Allowed" : "Denied")} {tc.Name}", null, ctx.Bot?.Id, ctx.Conversation.Id, approved));
             if (!approved)
@@ -1095,6 +1132,86 @@ public sealed class ChatService(
         }
         await onUpdate();
     }
+
+    /// <summary>Whether this reply gets checked against its tool results (Settings → Check answers).</summary>
+    public static bool ShouldCheck(AnswerCheck mode, ChatMessage reply) =>
+        reply.Error is null && reply.Content.Length > 0 && mode switch
+        {
+            AnswerCheck.Off => false,
+            AnswerCheck.AnyTools => reply.ToolCalls.Any(t => t.Status == ToolCallStatus.Done),
+            _ => reply.ToolCalls.Any(t => t.Status == ToolCallStatus.Done && ReadsSources(t.Name)),
+        };
+
+    /// <summary>Tools whose results are evidence an answer should match: web, documents, email, files.</summary>
+    private static bool ReadsSources(string tool) =>
+        tool is "web_search" or "fetch_url" or "search_documents" or "read_linked_file" or "read_file" or "message_bot"
+        || tool.StartsWith("browser_") || tool is "drive_read" or "onedrive_read" or "excel_read" or "sheets_read" or "gmail_read" or "outlook_read";
+
+    private const string CheckPrompt =
+        "[Locus] Before this goes to the user, fact-check your answer above against the tool results in this conversation. " +
+        "For each specific claim (numbers, names, dates, quotes, prices, links, citations), is it actually supported by what the " +
+        "tools returned? Reply with exactly OK if everything is supported. Otherwise list only the problems, one per line: the claim, " +
+        "and what the results actually say (or that nothing supports it).";
+
+    private const string RevisePrompt =
+        "[Locus] Rewrite your answer for the user, fixing those problems: correct or remove unsupported claims, and say plainly " +
+        "what couldn't be verified. Keep everything that was right, the same format and length. Don't mention this check.";
+
+    /// <summary>
+    /// One extra turn asking the model to check its answer against the tool results; when it finds problems, a second
+    /// turn rewrites the answer. Both continue the same conversation, so a local server reuses what it already read.
+    /// </summary>
+    private async Task CheckAnswerAsync(ChatMessage reply, List<LlmMessage> baseMessages, ILlmClient client, string model,
+        AppSettings settings, SendOptions opts, Bot? bot, ProviderProfile server, Func<Task> onUpdate, CancellationToken ct)
+    {
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var notice = reply.Notice;
+        reply.Notice = "🔎 Checking the answer against the sources…";
+        await onUpdate();
+        try
+        {
+            var messages = baseMessages.Concat(ToolRounds(reply)).ToList();
+            messages = ContextWindow.FitToolResults(messages, ContextWindow.BudgetFor(server, settings) - 1500);
+            messages.Add(new LlmMessage { Role = "assistant", Content = reply.Content });
+            messages.Add(LlmMessage.User(CheckPrompt));
+            var verdict = await CompleteAsync(client, new LlmRequest(model, messages, 0.1, 600, settings.ContextLength, false), ct);
+            reply.Trace.Add(new TraceStep("model", "check: " + model, timer.ElapsedMilliseconds));
+            var problems = verdict.Trim().Trim('.', '*', '"').Trim();
+            if (problems.Length == 0 || problems.Equals("OK", StringComparison.OrdinalIgnoreCase) || problems.StartsWith("OK", StringComparison.OrdinalIgnoreCase) && problems.Length < 40)
+            {
+                reply.Notice = notice;
+                return;
+            }
+            reply.Notice = "🔎 Fixing what the check found…";
+            await onUpdate();
+            messages.Add(new LlmMessage { Role = "assistant", Content = problems });
+            messages.Add(LlmMessage.User(RevisePrompt));
+            var revised = await CompleteAsync(client, new LlmRequest(model, messages, settings.Temperature, settings.MaxTokens, settings.ContextLength, false), ct);
+            reply.Trace.Add(new TraceStep("model", "revise: " + model, timer.ElapsedMilliseconds));
+            if (StripSelfPrefix(revised, bot).Trim() is { Length: > 20 } better)
+            {
+                reply.Content = better;
+                reply.Checked = problems.Length > 600 ? problems[..600] + "…" : problems;
+            }
+            reply.Notice = notice;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            reply.Notice = notice; // the unchecked answer stands
+        }
+        finally { await onUpdate(); }
+    }
+
+    private static async Task<string> CompleteAsync(ILlmClient client, LlmRequest request, CancellationToken ct)
+    {
+        var sb = new StringBuilder();
+        await foreach (var chunk in client.StreamChatAsync(request, ct))
+            if (!string.IsNullOrEmpty(chunk.Content)) sb.Append(chunk.Content);
+        return sb.ToString();
+    }
+
+    /// <summary>Tools that can be set to "always allow" (placing phone calls always asks).</summary>
+    public static bool AlwaysAllowable(string tool) => tool is not "call_phone";
 
     /// <summary>Short, readable summary of a tool call for the action history.</summary>
     private static string Audit(ToolCall tc)
@@ -1359,7 +1476,8 @@ public sealed class ChatService(
                     "for future conversations: lasting preferences, personal details, ongoing projects, people, decisions. " +
                     "Skip small talk, one-off questions and anything already known. One per line, each starting with " +
                     "\"user: \" (a fact about the user)" + (bot is null ? "" : $" or \"note: \" (something {bot.Name} should keep in mind for its work)") +
-                    ". Reply with exactly NONE if there's nothing worth keeping."),
+                    ", or \"about <Full Name>: \" (a fact about a specific person or company in the user's life or work, e.g. " +
+                    "\"about Shield AI: interviewing Mitch for Director SE&A\"). Reply with exactly NONE if there's nothing worth keeping."),
                 LlmMessage.User($"Already known:\n{string.Join("\n", known.Select(k => "- " + k))}\n\n" +
                                 $"User said:\n{Clip(lastUser.Content, 2000)}\n\nAssistant replied:\n{Clip(reply.Content, 1500)}"),
             };
@@ -1373,6 +1491,19 @@ public sealed class ChatService(
             {
                 var line = raw.Trim().TrimStart('-', '*', ' ');
                 if (line.Length < 6 || line.Equals("NONE", StringComparison.OrdinalIgnoreCase)) continue;
+                // "about Name: fact" goes to the people and company notes.
+                if (line.StartsWith("about ", StringComparison.OrdinalIgnoreCase) && line.IndexOf(':') is var colon and > 7)
+                {
+                    var who = line[6..colon].Trim();
+                    var what = line[(colon + 1)..].Trim();
+                    if (who.Length is >= 2 and <= 60 && what.Length is >= 4 and <= 300 && !who.Equals("the user", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await people.NoteAsync(who, what);
+                        saved.Add($"{who}: {what}");
+                        if (saved.Count == 3) break;
+                    }
+                    continue;
+                }
                 var isNote = line.StartsWith("note:", StringComparison.OrdinalIgnoreCase);
                 var isUser = line.StartsWith("user:", StringComparison.OrdinalIgnoreCase);
                 if (!isNote && !isUser) continue;

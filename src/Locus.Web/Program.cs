@@ -231,6 +231,20 @@ app.Services.GetRequiredService<BotInbox>().EnsureStarted();
 app.Services.GetRequiredService<HeartbeatRunner>().EnsureStarted();
 app.Services.GetRequiredService<SkillPorter>().EnsureStarted();
 app.Services.GetRequiredService<MemoryCurator>().EnsureStarted();
+// The starter skills, once.
+_ = Task.Run(async () =>
+{
+    try
+    {
+        var settingsStore = app.Services.GetRequiredService<SettingsStore>();
+        var current = await settingsStore.GetAsync();
+        if (current.StarterSkillsAdded) return;
+        await StarterSkills.AddMissingAsync(app.Services.GetRequiredService<SkillStore>());
+        current.StarterSkillsAdded = true;
+        await settingsStore.SaveAsync(current);
+    }
+    catch { /* they can be added from the Skills page */ }
+});
 app.Services.GetRequiredService<SelfCheck>().EnsureStarted(); // nightly self-check (off unless turned on in Settings)
 app.Services.GetRequiredService<ChatHistoryIndex>().EnsureStarted();
 app.Services.GetRequiredService<PushNotifier>().EnsureStarted();

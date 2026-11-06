@@ -60,7 +60,7 @@ public sealed class BotAbilities
         "search_documents" or "read_linked_file" or "list_linked_files" => nameof(Documents),
         "use_skill" or "save_skill" or "improve_skill" => nameof(Skills),
         "message_bot" => nameof(MessageBots),
-        "save_memory" or "delete_memory" or "recall_memory" or "search_past_chats" or "read_past_chat" => "Memory",
+        "save_memory" or "delete_memory" or "recall_memory" or "search_past_chats" or "read_past_chat" or "who_is" or "note_about" => "Memory",
         _ when tool.StartsWith("sheets_") => nameof(GoogleSheets),
         _ when tool.StartsWith("gmail_") => nameof(Gmail),
         _ when tool.StartsWith("calendar_") => nameof(Calendar),

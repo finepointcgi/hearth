@@ -42,6 +42,11 @@ Console.WriteLine($"provider={provider.Name} model={model} temp={s.Temperature} 
 
 if (args.Contains("probe")) { await Probe(); return; }
 if (args.Contains("memory")) { await MemoryCheck(); return; }
+if (args.Contains("models"))
+{
+    foreach (var m in await sp.GetRequiredService<Locus.Core.Llm.ILlmClientFactory>().Create(provider).ListModelsAsync()) Console.WriteLine("  " + m.Id);
+    return;
+}
 
 var cases = new List<Case>
 {

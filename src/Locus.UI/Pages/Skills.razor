@@ -84,6 +84,13 @@
     }
 
     <AgentImportCard />
+    <section class="card">
+        <div class="row">
+            <span class="grow"><b>Starter skills</b><br /><span class="muted small">Job pipeline, interview prep, meal plan, meeting prep, email triage, research report and weekly review. They use whatever you've connected (mail, calendar, documents, To Do).</span></span>
+            <button class="btn ghost" @onclick="AddStarters">Add missing</button>
+        </div>
+        @if (_starterMessage is not null) { <span class="muted small">@_starterMessage</span> }
+    </section>
     <SkillCatalogCard />
 
     <section class="card">
@@ -268,4 +275,12 @@
     }
 
     private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    private string? _starterMessage;
+
+    private async Task AddStarters()
+    {
+        var added = await Locus.Core.Services.StarterSkills.AddMissingAsync(Store);
+        _starterMessage = added == 0 ? "You have all of them." : $"Added {added} starter skill{(added == 1 ? "" : "s")}.";
+    }
 }

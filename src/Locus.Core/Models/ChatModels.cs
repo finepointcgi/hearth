@@ -20,6 +20,8 @@ public sealed class ChatMessage
     public List<ImageAttachment> GeneratedImages { get; set; } = [];
     /// <summary>Names of documents the user attached to this message.</summary>
     public List<string> AttachedFiles { get; set; } = [];
+    /// <summary>What the answer check corrected before the reply was shown (null when nothing needed fixing).</summary>
+    public string? Checked { get; set; }
     /// <summary>Extracted text of attached documents; sent to the model but not shown in the bubble.</summary>
     public string? AttachmentText { get; set; }
     public string? Model { get; set; }
@@ -82,6 +84,10 @@ public sealed class ToolCall
     /// </summary>
     public ChatMessage? Handoff { get; set; }
     [JsonIgnore] public TaskCompletionSource<bool>? Approval { get; set; }
+    /// <summary>While waiting for approval: remembers "always allow this tool for this bot" (null when not offered).</summary>
+    [JsonIgnore] public Func<Task>? AlwaysAllow { get; set; }
+    /// <summary>Who "always allow" applies to, for the button label.</summary>
+    [JsonIgnore] public string? AlwaysAllowFor { get; set; }
     /// <summary>Screenshot returned by the tool: shown in its card and sent to vision models (latest only).</summary>
     [JsonIgnore] public ImageAttachment? Image { get; set; }
 }
@@ -119,6 +125,8 @@ public sealed class Conversation
     /// pulled into. These chats aren't listed (the exchange shows in that chat instead).
     /// </summary>
     public string? HandoffFrom { get; set; }
+    /// <summary>The bot's checklist for a long task in this chat (update_plan), shown above the chat.</summary>
+    public List<CodeTodo> Plan { get; set; } = [];
 }
 
 /// <summary>How a code session handles changes: ask for each one, apply file edits without asking, or only plan.</summary>

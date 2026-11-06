@@ -746,3 +746,8 @@ table.selfcheck tr.bad td:nth-child(3) { color: var(--danger, #e5484d); font-wei
 .notify-grid { display: flex; flex-direction: column; gap: .2rem; margin: .4rem 0; }
 .notify-prefs .row.small { font-size: .85rem; align-items: center; gap: .4rem; flex-wrap: wrap; }
 .notify-prefs input[type=time] { width: 7.5rem; }
+
+/* Replies the answer check corrected */
+.checked-note { font-size: .8rem; color: var(--muted); margin: .2rem 0 .3rem; }
+.checked-note > summary { cursor: pointer; }
+.checked-note div { white-space: pre-wrap; margin-top: .25rem; }

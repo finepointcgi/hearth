@@ -1,11 +1,15 @@
 @* How a reply was produced: every model round and tool call, with time and tokens. *@
 <div class="trace">
     <div class="trace-head">
-        <b>@Steps.Count steps · @Fmt(Steps.Sum(s => s.Ms))</b>
+        <b>@Steps.Count(s => s.Kind != "route") steps · @Fmt(Steps.Sum(s => s.Ms))</b>
         <span class="muted small">model @Fmt(Steps.Where(s => s.Kind == "model").Sum(s => s.Ms)) · tools @Fmt(Steps.Where(s => s.Kind == "tool").Sum(s => s.Ms))
             @if (Steps.Any(s => s.InputTokens is not null)) { <text> · @Steps.Sum(s => s.InputTokens ?? 0).ToString("N0") in / @Steps.Sum(s => s.OutputTokens ?? 0).ToString("N0") out tokens</text> }</span>
     </div>
-    @foreach (var s in Steps)
+    @foreach (var r in Steps.Where(s => s.Kind == "route"))
+    {
+        <div class="muted small">🔀 Automatic model choice: @r.Name</div>
+    }
+    @foreach (var s in Steps.Where(s => s.Kind != "route"))
     {
         <div class="trace-row @s.Kind">
             <span class="trace-icon"><Icon Name="@(s.Kind == "model" ? "sparkles" : ToolCallView.IconFor(s.Name))" Size="13" /></span>
