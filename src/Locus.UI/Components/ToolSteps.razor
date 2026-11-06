@@ -2,7 +2,11 @@
 @if (Calls.Count == 1 || Live)
 {
     <div class="tools">
-        @foreach (var tc in Calls) { <ToolCallView @key="tc.Id" Call="tc" /> }
+        @foreach (var tc in Calls)
+        {
+            @if (!string.IsNullOrWhiteSpace(tc.Preface)) { <div class="step-preface"><Markdown Text="@tc.Preface" /></div> }
+            <ToolCallView @key="tc.Id" Call="tc" />
+        }
     </div>
 }
 else
@@ -15,7 +19,11 @@ else
             <Icon Name="chevron-down" Size="15" Class="steps-chevron" />
         </summary>
         <div class="tools">
-            @foreach (var tc in Calls) { <ToolCallView @key="tc.Id" Call="tc" /> }
+            @foreach (var tc in Calls)
+        {
+            @if (!string.IsNullOrWhiteSpace(tc.Preface)) { <div class="step-preface"><Markdown Text="@tc.Preface" /></div> }
+            <ToolCallView @key="tc.Id" Call="tc" />
+        }
         </div>
     </details>
 }

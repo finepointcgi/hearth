@@ -79,6 +79,9 @@ public sealed class OpenAICompatibleClient(HttpClient http, ProviderProfile prof
         };
         if (req.MaxTokens > 0) payload["max_tokens"] = req.MaxTokens;
         if (req.Tools is { Count: > 0 }) payload["tools"] = LlmJson.ToolsArray(req.Tools);
+        // Qwen3, DeepSeek-R1-style and other hybrid models think unless told not to; mlx/vLLM/llama.cpp/LM Studio
+        // pass this to the chat template. Without it the Think switch did nothing and every reply thought first.
+        payload["chat_template_kwargs"] = new JsonObject { ["enable_thinking"] = req.Think };
 
         // Hosted APIs differ: newer OpenAI models reject max_tokens (want max_completion_tokens) and custom
         // temperature. On a 400 that names one of these, adjust and retry instead of failing.
@@ -105,6 +108,11 @@ public sealed class OpenAICompatibleClient(HttpClient http, ProviderProfile prof
                     payload.Remove("temperature");
                     continue;
                 }
+                if (body.Contains("chat_template_kwargs", StringComparison.OrdinalIgnoreCase) && payload.ContainsKey("chat_template_kwargs"))
+                {
+                    payload.Remove("chat_template_kwargs");
+                    continue;
+                }
                 if (body.Contains("stream_options", StringComparison.OrdinalIgnoreCase) && payload.ContainsKey("stream_options"))
                 {
                     payload.Remove("stream_options");
@@ -122,6 +130,7 @@ public sealed class OpenAICompatibleClient(HttpClient http, ProviderProfile prof
         var chunks = 0;
         LlmStats? stats = null;
         var sawDone = false;
+        string? finish = null;
         // Tool call deltas arrive in fragments keyed by index.
         var calls = new SortedDictionary<int, (string id, string name, StringBuilder args)>();
 
@@ -142,7 +151,9 @@ public sealed class OpenAICompatibleClient(HttpClient http, ProviderProfile prof
                     completion is > 0 && secs > 0 ? completion / secs : null);
             }
 
-            var delta = node["choices"]?.AsArray().FirstOrDefault()?["delta"];
+            var choice = node["choices"]?.AsArray().FirstOrDefault();
+            if (choice?["finish_reason"]?.ToString() is { Length: > 0 } fr) finish = fr;
+            var delta = choice?["delta"];
             if (delta is null) continue;
 
             if (delta["tool_calls"] is JsonArray tcs)
@@ -184,8 +195,13 @@ public sealed class OpenAICompatibleClient(HttpClient http, ProviderProfile prof
         var toolCalls = calls.Values.Where(c => c.name.Length > 0)
             .Select(c => new LlmToolCall(c.id, c.name, c.args.Length > 0 ? c.args.ToString() : "{}"))
             .ToList();
-        yield return new LlmChunk(fc, ft, stats, toolCalls.Count > 0 ? toolCalls : null);
+        yield return new LlmChunk(fc, ft, stats, toolCalls.Count > 0 ? toolCalls : null,
+            Notice: finish == "length" ? CutOffNotice(req.MaxTokens) : null);
     }
+
+    /// <summary>Shown when a reply stopped because it reached the length limit.</summary>
+    public static string CutOffNotice(int maxTokens) =>
+        $"The reply was cut off at the length limit ({maxTokens:N0} tokens). Raise \"Max reply tokens\" in Settings, or ask it to continue.";
 
     private static JsonNode ToJson(LlmMessage m)
     {

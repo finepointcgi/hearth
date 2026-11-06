@@ -287,6 +287,39 @@ public class OpenAICompatTests
         Assert.Equal(500, handler.Requests[^1]["max_completion_tokens"]!.GetValue<int>());
         Assert.Null(handler.Requests[^1]["temperature"]);
     }
+
+    private sealed class Sse(string events, bool rejectTemplateKwargs = false) : HttpMessageHandler
+    {
+        public List<JsonNode> Requests { get; } = [];
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var body = JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!;
+            Requests.Add(body);
+            if (rejectTemplateKwargs && body["chat_template_kwargs"] is not null)
+                return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("""{"error":{"message":"Unrecognized request argument supplied: chat_template_kwargs"}}""") };
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(events, Encoding.UTF8, "text/event-stream") };
+        }
+    }
+
+    [Fact]
+    public async Task ThinkSwitchReachesTheServerAndCutOffsAreFlagged()
+    {
+        var handler = new Sse("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n");
+        var client = new OpenAICompatibleClient(new HttpClient(handler), new ProviderProfile { BaseUrl = "http://mlx.test/v1" });
+        var notices = new List<string>();
+        await foreach (var c in client.StreamChatAsync(new LlmRequest("qwen", [LlmMessage.User("hi")], 0.7, 2048, 0, Think: false)))
+            if (c.Notice is not null) notices.Add(c.Notice);
+        Assert.False(handler.Requests[0]["chat_template_kwargs"]!["enable_thinking"]!.GetValue<bool>());
+        Assert.Contains("cut off", Assert.Single(notices));
+
+        // Servers that don't know the field get the request without it.
+        var strict = new Sse("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", rejectTemplateKwargs: true);
+        var hosted = new OpenAICompatibleClient(new HttpClient(strict), new ProviderProfile { BaseUrl = "https://api.example.test/v1" });
+        await foreach (var c in hosted.StreamChatAsync(new LlmRequest("gpt-x", [LlmMessage.User("hi")], 0.7, 0, 0, Think: true)))
+            Assert.Null(c.Notice);
+        Assert.Equal(2, strict.Requests.Count);
+        Assert.Null(strict.Requests[1]["chat_template_kwargs"]);
+    }
 }
 
 public class ClaudeCodeRunOnTests

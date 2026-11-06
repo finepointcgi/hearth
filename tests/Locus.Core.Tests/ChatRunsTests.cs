@@ -116,6 +116,54 @@ public sealed class ChatRunsTests : IDisposable
     }
 
     [Fact]
+    public async Task DraftsBeforeToolCallsGoWithTheStepsNotTheAnswer()
+    {
+        var sp = StartApp();
+        var round = 0;
+        string? replayed = null;
+        _team.Script = (_, msgs, _) =>
+        {
+            if (Interlocked.Increment(ref round) == 1)
+                return new LlmChunk("Based on what I know it's about 40. Let me check.",
+                    ToolCalls: [new LlmToolCall("c1", "calculate", "{\"expression\": \"6*7\"}")]);
+            replayed = msgs.LastOrDefault(m => m.Role == "assistant")?.Content;
+            return new LlmChunk("It's 42.");
+        };
+        var runs = sp.GetRequiredService<ChatRuns>();
+        var conv = await NewChatAsync(sp, "what's 6 times 7");
+        await runs.ReplyAsync(conv, Opts);
+        var reply = conv.Messages.Last();
+        Assert.Equal("It's 42.", reply.Content);
+        Assert.Equal("Based on what I know it's about 40. Let me check.", reply.ToolCalls[0].Preface);
+        Assert.Equal("Based on what I know it's about 40. Let me check.", replayed); // the model knows what it said
+    }
+
+    [Fact]
+    public async Task LastRoundAsksForAnAnswerAndHidesLateCalls()
+    {
+        var sp = StartApp();
+        var store = sp.GetRequiredService<SettingsStore>();
+        var s = await store.GetAsync();
+        s.Tools.MaxRounds = 2;
+        await store.SaveAsync(s);
+        LlmRequest? last = null;
+        _team.Script = (_, _, req) =>
+        {
+            last = req;
+            return req.Tools is { Count: > 0 }
+                ? ScriptedTeam.Call("calculate", new { expression = "1+1" })
+                : new LlmChunk("<tool_call>\n<function=calculate>\n<parameter=expression>\n2+2\n</parameter>\n</function>\n</tool_call>");
+        };
+        var runs = sp.GetRequiredService<ChatRuns>();
+        var conv = await NewChatAsync(sp, "keep calculating");
+        await runs.ReplyAsync(conv, Opts);
+        Assert.Contains("all the tool steps", last!.Messages[^1].Content);
+        var reply = conv.Messages.Last();
+        Assert.DoesNotContain("<tool_call>", reply.Content);
+        Assert.Contains("used all 2 tool steps", reply.Notice);
+    }
+
+    [Fact]
     public async Task RestartPicksUpWhereItLeftOff()
     {
         var first = StartApp();

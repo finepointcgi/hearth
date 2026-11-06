@@ -58,7 +58,13 @@ public sealed class FetchUrlTool(IHttpClientFactory http) : ITool
 
         string title, text;
         try { (title, text) = await ReadAsync(uri, ct); }
-        catch (HttpRequestException ex) when (ex.StatusCode is not null) { return ToolResult.Error(ex.Message); }
+        catch (HttpRequestException ex) when (ex.StatusCode is not null)
+        {
+            // Models guess URLs and then keep guessing; point them back at real links.
+            return ToolResult.Error(ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Gone
+                ? $"{ex.Message}: that page doesn't exist. Don't guess addresses: open a URL from web_search results, or search again."
+                : ex.Message);
+        }
 
         if (!ctx.Reply.Sources.Any(s => s.Url == uri.ToString()))
             ctx.Reply.Sources.Add(new SearchResult(title.Length > 0 ? title : uri.Host, uri.ToString(), ""));

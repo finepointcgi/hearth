@@ -64,6 +64,11 @@ public sealed class ToolCall
     public long DurationMs { get; set; }
     public ToolCallStatus Status { get; set; }
     public int Round { get; set; }
+    /// <summary>
+    /// What the model wrote in this round before its calls (set on the round's first call): work in progress, shown
+    /// with the steps rather than in the answer, and replayed to the model so it knows what it already said.
+    /// </summary>
+    public string? Preface { get; set; }
     /// <summary>Provider data for the turn that made this call (set on the round's first call), replayed verbatim.</summary>
     public string? ProviderState { get; set; }
     [JsonIgnore] public TaskCompletionSource<bool>? Approval { get; set; }

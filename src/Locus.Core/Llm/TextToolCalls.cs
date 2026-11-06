@@ -39,8 +39,37 @@ public static partial class TextToolCalls
         return ([], text);
     }
 
+    // Qwen3 / Qwen3-Coder's own format: <function=name><parameter=key>value</parameter></function>
+    [GeneratedRegex(@"<function=(?<name>[\w.-]+)>(?<params>[\s\S]*?)(?:</function>|$)")]
+    private static partial Regex XmlFunction();
+
+    [GeneratedRegex(@"<parameter=(?<key>[\w.-]+)>\s*(?<value>[\s\S]*?)\s*(?:</parameter>|(?=<parameter=)|$)")]
+    private static partial Regex XmlParameter();
+
+    private static List<LlmToolCall> ParseXml(string body, IReadOnlySet<string> toolNames)
+    {
+        var calls = new List<LlmToolCall>();
+        foreach (Match f in XmlFunction().Matches(body))
+        {
+            var name = f.Groups["name"].Value;
+            if (!toolNames.Contains(name)) return [];
+            var args = new JsonObject();
+            foreach (Match p in XmlParameter().Matches(f.Groups["params"].Value))
+            {
+                var raw = p.Groups["value"].Value;
+                JsonNode? value;
+                try { value = raw.Length > 0 && (char.IsDigit(raw[0]) || raw[0] is '-' or '[' or '{' || raw is "true" or "false") ? JsonNode.Parse(raw) : JsonValue.Create(raw); }
+                catch { value = JsonValue.Create(raw); }
+                args[p.Groups["key"].Value] = value;
+            }
+            calls.Add(new LlmToolCall("text_" + Guid.NewGuid().ToString("N")[..10], name, args.ToJsonString()));
+        }
+        return calls;
+    }
+
     private static List<LlmToolCall> Parse(string body, IReadOnlySet<string> toolNames)
     {
+        if (body.Contains("<function=")) return ParseXml(body, toolNames);
         JsonNode? node;
         try { node = JsonNode.Parse(body.Trim()); }
         catch { node = TryRepair(body); }

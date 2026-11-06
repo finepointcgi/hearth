@@ -329,6 +329,10 @@ public sealed class ChatService(
                 var messages = ContextWindow.FitToolResults(baseMessages.Concat(ToolRounds(reply)).ToList(), budget - toolTokens);
                 // Last round: withhold tools so the model has to answer.
                 var offer = definitions.Count > 0 && round < maxRounds - 1 ? definitions : null;
+                // Without being told, local models answer a tool-less last round with yet another call written as text.
+                if (offer is null && definitions.Count > 0 && reply.ToolCalls.Count > 0)
+                    messages.Add(LlmMessage.User("[Locus] That's all the tool steps for this reply. Don't call any more tools: " +
+                        "answer now from the results above, and say briefly what you couldn't check."));
                 var request = new LlmRequest(model, messages, settings.Temperature, settings.MaxTokens,
                     settings.ContextLength, opts.Think, offer);
 
@@ -395,12 +399,34 @@ public sealed class ChatService(
                         await onUpdate();
                     }
                 }
+                if (offer is null && definitions.Count > 0)
+                {
+                    // Out of tool steps but it still wrote a call: don't show the call as the answer.
+                    var (late, rest) = TextToolCalls.Find(content.ToString(roundStart, content.Length - roundStart), byName.Keys.ToHashSet());
+                    if (late.Count > 0)
+                    {
+                        content.Length = roundStart;
+                        content.Append(rest);
+                        reply.Content = StripSelfPrefix(content.ToString(), bot).Trim();
+                        reply.Notice ??= $"This reply used all {maxRounds} tool steps before finishing. Ask it to continue, or raise \"Max tool rounds per reply\" under Tools.";
+                        await onUpdate();
+                    }
+                }
                 if (calls.Count == 0) break;
+
+                // Text in a round that ends with tool calls is work in progress ("Let me search…", or a draft answer
+                // the model then decides to check). It goes with the steps, so the answer is only the final round's
+                // text instead of several drafts stacked up.
+                var preface = content.ToString(roundStart, content.Length - roundStart).Trim();
+                content.Length = roundStart;
+                while (content.Length > 0 && char.IsWhiteSpace(content[^1])) content.Length--;
+                reply.Content = StripSelfPrefix(content.ToString(), bot).Trim();
 
                 var batch = calls.Select(call => new ToolCall
                 {
                     Id = call.Id, Name = call.Name, ArgumentsJson = call.ArgumentsJson, Round = round,
                     ProviderState = call == calls[0] ? providerState : null,
+                    Preface = call == calls[0] && preface.Length > 0 ? preface : null,
                 }).ToList();
                 if (CanRunInParallel(batch))
                 {
@@ -759,16 +785,19 @@ public sealed class ChatService(
         if (tool is null)
         {
             tc.Status = ToolCallStatus.Error;
-            tc.Result = $"Unknown tool '{tc.Name}'. Available tools are listed in the tools array.";
+            var close = ctx.Tools?.Keys.Where(n => n.Contains(tc.Name, StringComparison.OrdinalIgnoreCase)
+                || tc.Name.Contains(n, StringComparison.OrdinalIgnoreCase)).Take(3).ToList() ?? [];
+            tc.Result = $"Unknown tool '{tc.Name}'." + (close.Count > 0 ? $" Did you mean {string.Join(" or ", close)}?" : " Use one of the tools you were given.");
             return;
         }
 
-        JsonObject args;
-        try { args = JsonNode.Parse(string.IsNullOrWhiteSpace(tc.ArgumentsJson) ? "{}" : tc.ArgumentsJson) as JsonObject ?? []; }
-        catch (System.Text.Json.JsonException)
+        // Local models get arguments wrong now and then: say exactly what was wrong and what's expected so the
+        // next round can fix it, instead of a bare "invalid".
+        var (args, problem) = Tools.ToolArguments.Check(tc.ArgumentsJson, tool.Parameters);
+        if (problem is not null)
         {
             tc.Status = ToolCallStatus.Error;
-            tc.Result = "Arguments were not valid JSON.";
+            tc.Result = problem;
             return;
         }
 
@@ -922,6 +951,7 @@ public sealed class ChatService(
             yield return new LlmMessage
             {
                 Role = "assistant",
+                Content = round.First().Preface ?? "",
                 ToolCalls = round.Select(t => new LlmToolCall(t.Id, t.Name, t.ArgumentsJson)).ToList(),
                 ProviderState = round.First().ProviderState,
             };
@@ -982,8 +1012,22 @@ public sealed class ChatService(
     /// <summary>How long a reply can wait for its first word before the chat says the model is busy.</summary>
     public static TimeSpan WaitingNoticeAfter { get; set; } = TimeSpan.FromSeconds(12);
 
+    /// <summary>
+    /// Text from several tool rounds runs together with piles of blank lines (models often send "\n\n" before a
+    /// call): keep at most one blank line, except inside code blocks.
+    /// </summary>
+    public static string TidyRounds(string text)
+    {
+        if (!text.Contains("\n\n\n")) return text;
+        var parts = text.Split("```");
+        for (var i = 0; i < parts.Length; i += 2)
+            parts[i] = System.Text.RegularExpressions.Regex.Replace(parts[i], @"\n[ \t]*(?:\n[ \t]*){2,}", "\n\n");
+        return string.Join("```", parts);
+    }
+
     private static string StripSelfPrefix(string text, Bot? bot)
     {
+        text = TidyRounds(text);
         if (bot is null) return text;
         var t = text.TrimStart();
         foreach (var p in new[] { $"[{bot.Name}]:", $"{bot.Name}:", $"**{bot.Name}:**", $"**{bot.Name}**:" })
