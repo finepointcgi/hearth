@@ -13,6 +13,18 @@
         {
             <div class="msg-from">🎯 Task step</div>
         }
+        else if (Message.RoutineName is Locus.Core.Services.Phone.PhoneService.CallerName)
+        {
+            <div class="msg-from">📞 You, on the phone</div>
+        }
+        else if (Message.RoutineName is Locus.Core.Services.Phone.PhoneService.CalleeName)
+        {
+            <div class="msg-from">📞 On the call</div>
+        }
+        else if (Message.RoutineName is Locus.Core.Services.Phone.PhoneService.TaskName or Locus.Core.Services.Phone.PhoneService.ResultName)
+        {
+            <div class="msg-from">📞 @(Message.RoutineName == Locus.Core.Services.Phone.PhoneService.TaskName ? "Call goal" : "Call finished")</div>
+        }
         else if (Message.RoutineName is not null)
         {
             <div class="msg-from">⏰ Routine: <b>@Message.RoutineName</b></div>

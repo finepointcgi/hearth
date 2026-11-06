@@ -51,7 +51,8 @@ if (!string.IsNullOrEmpty(password))
     {
         var path = ctx.Request.Path.Value ?? "";
         // The API (/v1/…) checks its own key instead of the sign-in cookie.
-        if (path.StartsWith("/login") || path == "/health" || path.StartsWith("/hooks/") || path.StartsWith("/v1/") || path == "/favicon.ico"
+        // /phone/… is Twilio: every request there is checked against Twilio's signature instead.
+        if (path.StartsWith("/login") || path == "/health" || path.StartsWith("/hooks/") || path.StartsWith("/v1/") || path.StartsWith("/phone/") || path == "/favicon.ico"
             || path is "/manifest.webmanifest" or "/sw.js" or "/apple-touch-icon.png" || path.StartsWith("/icon-")
             || (ctx.Request.Cookies.TryGetValue("locus_auth", out var c)
                 && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(c), Encoding.UTF8.GetBytes(cookieValue))))
@@ -166,6 +167,61 @@ app.MapPost("/hooks/{routineId}", async (string routineId, HttpRequest req, Rout
         _ => Results.NotFound(),
     };
 }).DisableAntiforgery();
+
+// Phone calls (Twilio ConversationRelay). Twilio signs every request with the account's auth token; unsigned or
+// wrongly signed requests get 403.
+app.UseWebSockets();
+static async Task<Dictionary<string, string>> TwilioForm(HttpRequest req) =>
+    req.HasFormContentType ? (await req.ReadFormAsync()).ToDictionary(f => f.Key, f => f.Value.ToString()) : [];
+app.MapPost(Locus.Core.Services.Phone.PhoneService.IncomingPath, async (HttpRequest req, Locus.Core.Services.Phone.PhoneService phone) =>
+{
+    var form = await TwilioForm(req);
+    if (!await phone.IsFromTwilioAsync(req.Path, req.QueryString.Value ?? "", form, req.Headers["X-Twilio-Signature"])) return Results.StatusCode(403);
+    return Results.Content(await phone.IncomingAsync(form), "text/xml");
+}).DisableAntiforgery();
+app.MapPost(Locus.Core.Services.Phone.PhoneService.StatusPath, async (HttpRequest req, Locus.Core.Services.Phone.PhoneService phone) =>
+{
+    var form = await TwilioForm(req);
+    if (!await phone.IsFromTwilioAsync(req.Path, req.QueryString.Value ?? "", form, req.Headers["X-Twilio-Signature"])) return Results.StatusCode(403);
+    await phone.StatusAsync(form);
+    return Results.NoContent();
+}).DisableAntiforgery();
+app.MapPost(Locus.Core.Services.Phone.PhoneService.EndedPath, async (HttpRequest req, Locus.Core.Services.Phone.PhoneService phone) =>
+{
+    var form = await TwilioForm(req);
+    if (!await phone.IsFromTwilioAsync(req.Path, req.QueryString.Value ?? "", form, req.Headers["X-Twilio-Signature"])) return Results.StatusCode(403);
+    return Results.Content(Locus.Core.Services.Phone.Twilio.Empty, "text/xml"); // relay finished: hang up
+}).DisableAntiforgery();
+app.Map(Locus.Core.Services.Phone.PhoneService.RelayPath, async (HttpContext ctx, Locus.Core.Services.Phone.PhoneService phone) =>
+{
+    if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = 400; return; }
+    if (!await phone.IsRelayFromTwilioAsync(ctx.Request.QueryString.Value ?? "", ctx.Request.Headers["X-Twilio-Signature"]))
+    {
+        ctx.Response.StatusCode = 403;
+        return;
+    }
+    using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
+    var buffer = new byte[16 * 1024];
+    async Task<string?> Receive(CancellationToken ct)
+    {
+        using var ms = new MemoryStream();
+        while (true)
+        {
+            var r = await socket.ReceiveAsync(buffer, ct);
+            if (r.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) return null;
+            ms.Write(buffer, 0, r.Count);
+            if (ms.Length > 1_000_000) return null;
+            if (r.EndOfMessage) return Encoding.UTF8.GetString(ms.ToArray());
+        }
+    }
+    Task Send(string text, CancellationToken ct) => socket.State == System.Net.WebSockets.WebSocketState.Open
+        ? socket.SendAsync(Encoding.UTF8.GetBytes(text), System.Net.WebSockets.WebSocketMessageType.Text, true, ct)
+        : Task.CompletedTask;
+    try { await phone.RunRelayAsync(Receive, Send, ctx.RequestAborted); }
+    catch (System.Net.WebSockets.WebSocketException) { }
+    if (socket.State == System.Net.WebSockets.WebSocketState.Open)
+        await socket.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+});
 
 // Routines, triggers, Telegram/Discord and the health monitor run on the server even when nobody has the page open.
 app.Services.GetRequiredService<RoutineRunner>().EnsureStarted();

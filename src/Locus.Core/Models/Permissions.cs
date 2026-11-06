@@ -40,6 +40,7 @@ public static class PermissionCatalog
         new("inbox", "📮", "Bot inbox", null, "Reply to email sent to the bot"),
         new("hiring", "🧑‍💼", "New bots", null, "Add a bot to your team"),
         new("routines", "⏰", "Routines", null, "Set up a bot's scheduled routines"),
+        new("phone", "📞", "Phone calls", null, "Call someone for you"),
         new("projects", "🛠️", "Project folders", null, "Change files in folders you made editable"),
     ];
 

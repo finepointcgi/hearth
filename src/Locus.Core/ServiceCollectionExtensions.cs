@@ -68,6 +68,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<FollowUpStore>();
         services.AddSingleton<FollowUpRunner>();
         services.AddSingleton<IToolProvider, ProactiveToolProvider>();
+        services.AddSingleton<Services.Phone.PhoneStore>();
+        services.AddSingleton<Services.Phone.PhoneService>();
+        services.AddSingleton<IToolProvider, PhoneToolProvider>();
         services.AddSingleton<LinkedFolders>();
         services.AddSingleton<ProjectContext>();
         services.AddSingleton<OpenAiApi>();

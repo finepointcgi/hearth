@@ -1,0 +1,134 @@
+@using Locus.Core.Services.Phone
+@inject PhoneStore Store
+@inject PhoneService Phone
+@inject AppState State
+@inject IHttpClientFactory Http
+
+<section class="card">
+    <div class="row">
+        <span class="conn-logo">📞</span>
+        <span class="grow">
+            <b>Phone calls</b> <span class="muted small">(Twilio)</span><br />
+            <span class="muted small">Call your bot on its own number, and let bots phone businesses for you (each call needs your OK). Twilio turns speech into text and back; your bots do the talking.</span>
+        </span>
+        @if (_config.Enabled && _missing is null) { <span class="ok-text">● @_config.Number</span> }
+    </div>
+
+    <details class="steps" open="@(_missing is not null)">
+        <summary>Setup</summary>
+        <ol>
+            <li>Create a <a href="https://www.twilio.com/try-twilio" target="_blank" rel="noopener">Twilio account</a> and buy a phone number with Voice (about $1.15 a month; calls cost about 1–2¢ a minute plus speech).</li>
+            <li>Turn on ConversationRelay: in the Twilio Console go to <b>Voice → Settings → Privacy &amp; Security</b> and accept the <b>predictive and generative AI/ML features addendum</b>, then Save. (Older Console: Voice → Settings → General.)</li>
+            <li>Give Locus a public <b>https</b> address Twilio can reach, e.g. <code class="snippet">tailscale funnel --bg 5290</code> (Tailscale) or a Cloudflare Tunnel, and paste it below.</li>
+            <li>Paste your Account SID and Auth Token (Console → Account info) and your Twilio number, then <b>Save</b> and <b>Check</b>.</li>
+            <li>In the Console, open the number → Voice configuration → "A call comes in": <b>Webhook</b>, HTTP POST, <code class="snippet">@(IncomingUrl ?? "https://your-address/phone/incoming")</code></li>
+        </ol>
+    </details>
+
+    <label class="check"><input type="checkbox" @bind="_config.Enabled" /> Phone calls on</label>
+    <div class="row">
+        <label class="grow">Account SID <input @bind="_config.AccountSid" placeholder="AC…" autocomplete="off" /></label>
+        <label class="grow">Auth Token <input type="password" @bind="_token" placeholder="@(_hasToken ? "saved (type to replace)" : "paste from the Twilio Console")" autocomplete="new-password" /></label>
+    </div>
+    <div class="row">
+        <label class="grow">Twilio number <input @bind="_config.Number" placeholder="+13135550100" /></label>
+        <label class="grow">Public https address <input @bind="_config.PublicUrl" placeholder="https://your-mac.tailnet.ts.net" /></label>
+    </div>
+    <div class="row">
+        <label class="grow">Answers calls
+            <select @bind="_answerBot">
+                <option value="">Locus</option>
+                @foreach (var b in State.Bots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
+            </select>
+        </label>
+        <label class="grow">Who may call in <input @bind="_callers" placeholder="your cell, e.g. +13135550123 (comma-separated)" /></label>
+    </div>
+    <span class="muted small">Calls from any other number hear "this line is private" and are hung up, so strangers can't use your bots.</span>
+    <details class="advanced">
+        <summary>Voice</summary>
+        <div class="row">
+            <label>Language <input @bind="_config.Language" style="width:7rem" /></label>
+            <label>Speech provider
+                <select @bind="_config.TtsProvider">
+                    <option value="">Twilio's default</option>
+                    <option value="Google">Google</option>
+                    <option value="Amazon">Amazon</option>
+                    <option value="ElevenLabs">ElevenLabs</option>
+                </select>
+            </label>
+            <label class="grow">Voice <input @bind="_config.Voice" placeholder="provider's default" /></label>
+        </div>
+    </details>
+
+    <div class="row end">
+        @if (_message is not null) { <span class="muted small grow">@_message</span> }
+        <button class="btn ghost" @onclick="Check" disabled="@_checking">@(_checking ? "Checking…" : "Check")</button>
+        <button class="btn primary" @onclick="Save">Save</button>
+    </div>
+    @if (Phone.Active.Count > 0)
+    {
+        <div class="muted small">On a call now: @string.Join(", ", Phone.Active.Select(c => (c.Outbound ? "→ " : "← ") + c.Number))</div>
+    }
+</section>
+
+@code {
+    private PhoneConfig _config = new();
+    private string _token = "", _callers = "", _answerBot = "";
+    private bool _hasToken, _checking;
+    private string? _message, _missing;
+
+    private string? IncomingUrl => _config.PublicUrl.StartsWith("https://") ? _config.PublicUrl.TrimEnd('/') + PhoneService.IncomingPath : null;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var c = await Store.GetAsync();
+        _config = System.Text.Json.JsonSerializer.Deserialize<PhoneConfig>(System.Text.Json.JsonSerializer.Serialize(c))!;
+        _hasToken = await Store.AuthTokenAsync() is not null;
+        _callers = string.Join(", ", c.AllowedCallers);
+        _answerBot = c.AnswerBotId ?? "";
+        _missing = await Store.MissingAsync();
+    }
+
+    private async Task Save()
+    {
+        var callers = _callers.Split([',', ';', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        var bad = callers.Where(n => Twilio.Normalize(n) is null).ToList();
+        if (bad.Count > 0) { _message = $"Not a phone number: {string.Join(", ", bad)}"; return; }
+        if (_config.Number.Length > 0 && Twilio.Normalize(_config.Number) is null) { _message = "The Twilio number doesn't look right (use +1…)."; return; }
+        if (_config.PublicUrl.Length > 0 && !_config.PublicUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        { _message = "The public address must start with https:// (Twilio requires it)."; return; }
+        var c = _config;
+        await Store.UpdateAsync(x =>
+        {
+            x.Enabled = c.Enabled;
+            x.AccountSid = c.AccountSid.Trim();
+            x.Number = Twilio.Normalize(c.Number) ?? "";
+            x.PublicUrl = c.PublicUrl.Trim().TrimEnd('/');
+            x.AnswerBotId = string.IsNullOrEmpty(_answerBot) ? null : _answerBot;
+            x.AllowedCallers = callers.Select(n => Twilio.Normalize(n)!).Distinct().ToList();
+            x.Language = string.IsNullOrWhiteSpace(c.Language) ? "en-US" : c.Language.Trim();
+            x.TtsProvider = c.TtsProvider;
+            x.Voice = c.Voice.Trim();
+        });
+        if (_token.Length > 0) { await Store.SetAuthTokenAsync(_token); _token = ""; }
+        await LoadAsync();
+        _message = _missing ?? "Saved.";
+    }
+
+    private async Task Check()
+    {
+        _checking = true;
+        _message = null;
+        try
+        {
+            var token = await Store.AuthTokenAsync();
+            if (string.IsNullOrWhiteSpace(_config.AccountSid) || token is null) { _message = "Save your Account SID and Auth Token first."; return; }
+            var name = await Twilio.CheckAccountAsync(Http.CreateClient(Locus.Core.Llm.LlmClientFactory.HttpClientName), _config.AccountSid.Trim(), token, CancellationToken.None);
+            _message = $"Connected to Twilio account “{name}”." + (_missing is null ? "" : " Still needed: " + _missing);
+        }
+        catch (Exception ex) { _message = ex.Message; }
+        finally { _checking = false; }
+    }
+}

@@ -327,6 +327,9 @@ public sealed class ChatService(
                 }
             }
 
+            // On a phone call: speak briefly and plainly (and, on a call a bot placed, who it's talking to).
+            if (Phone.PhoneService.IsPhoneTurn(lastUser.RoutineName))
+                system.Append(Phone.PhoneService.Guide(conv));
             var skills = await skillStore.ActiveAsync();
             if (byName.ContainsKey("use_skill") && skills.Count > 0)
             {
@@ -682,7 +685,7 @@ public sealed class ChatService(
 
     /// <summary>Tasks, routines, heartbeat, bot checks and the bot inbox: nobody is waiting on the reply.</summary>
     public static bool IsBackgroundRun(ChatMessage lastUser, string? untrustedInput) =>
-        lastUser.RoutineName is not null and not ("Helper" or "API")
+        lastUser.RoutineName is not null and not ("Helper" or "API") && !Phone.PhoneService.IsPhoneTurn(lastUser.RoutineName)
         || untrustedInput?.StartsWith("an email") == true;
 
     /// <summary>
@@ -1166,7 +1169,11 @@ public sealed class ChatService(
                     text = $"{text}\n\n<attached_documents>\n{m.AttachmentText}\n</attached_documents>";
                 if (m.FromBotId is not null)
                     text = $"[Message from {allBots.FirstOrDefault(b => b.Id == m.FromBotId)?.Name ?? "another bot"}]: {text}";
-                else if (m.RoutineName is not null and not ("Helper" or "API"))
+                else if (m.RoutineName == Phone.PhoneService.CalleeName)
+                    text = $"[On the call]: {text}";
+                else if (m.RoutineName is Phone.PhoneService.TaskName or Phone.PhoneService.ResultName)
+                    text = $"[Locus] {text}";
+                else if (m.RoutineName is not null and not ("Helper" or "API" or Phone.PhoneService.CallerName))
                     text = $"[Scheduled routine \"{m.RoutineName}\"]: {text}";
                 yield return LlmMessage.User(text, m.Images);
             }
