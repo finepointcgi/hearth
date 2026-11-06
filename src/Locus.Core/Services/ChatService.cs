@@ -691,6 +691,8 @@ public sealed class ChatService(
         if (tools.ContainsKey("propose_new_bot"))
             sb.Append(" If a kind of work keeps coming up that no one on the team specialises in, suggest hiring a new bot for ")
               .Append("it with propose_new_bot (the user approves it first). Don't propose one for a one-off request.");
+        if (tools.ContainsKey("add_routine") && !unattended)
+            sb.Append(" When the user wants something done regularly (weekly, every morning), set it up with add_routine on the bot that does it.");
         return sb.ToString();
     }
 

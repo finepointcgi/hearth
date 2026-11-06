@@ -23,6 +23,7 @@ public sealed class ProactiveToolProvider(IServiceProvider services) : IToolProv
             new CancelFollowUpTool(followUps),
             new StartTaskTool(services),
             new ProposeBotTool(services.GetRequiredService<BotStore>()),
+            new AddRoutineTool(services.GetRequiredService<BotStore>()),
             new RenameChatTool(services.GetRequiredService<ConversationStore>()),
         ]);
     }
@@ -171,7 +172,8 @@ public sealed class ProposeBotTool(BotStore bots) : ITool, IPermissionInfo
     public string Description =>
         "Propose adding a new bot to the user's team, like hiring an employee, when a kind of work keeps coming up that " +
         "no current bot specialises in (check search_past_chats for how often it happens). The user sees your proposal " +
-        "and approves or declines it. Give it a clear role and instructions, and only the abilities it needs.";
+        "and approves or declines it. Give it a clear role and instructions, and only the abilities it needs. For " +
+        "scheduled work, add_routine after it joins.";
     public JsonObject Parameters => new()
     {
         ["type"] = "object",
@@ -228,6 +230,100 @@ public sealed class ProposeBotTool(BotStore bots) : ITool, IPermissionInfo
         if (node is JsonValue v && v.TryGetValue<string>(out var s) && s.TrimStart().StartsWith('[')) node = JsonNode.Parse(s);
         var list = node is JsonArray arr ? arr.Select(x => x?.ToString() ?? "") : (args.Str("abilities") ?? "").Split(',');
         return list.Select(x => x.Trim().ToLowerInvariant()).Where(AbilityNames.Contains).ToHashSet();
+    }
+}
+
+/// <summary>
+/// Sets up a scheduled routine for a bot (itself or a teammate): "every Sunday at 10:00, plan the week's meals".
+/// Always asks the user first. The routine runs in that bot's own chat without anyone there.
+/// </summary>
+public sealed class AddRoutineTool(BotStore bots) : ITool, IPermissionInfo
+{
+    public const int MaxRoutinesPerBot = 20;
+
+    public string Name => "add_routine";
+    public string DisplayName => "Add a routine";
+    public string Icon => "⏰";
+    public string Description =>
+        "Schedule a bot (you or a teammate) to run a prompt regularly, e.g. weekly meal plans. The user approves it. " +
+        "It runs unattended, so put every preference and constraint in the prompt.";
+    public JsonObject Parameters => new()
+    {
+        ["type"] = "object",
+        ["properties"] = new JsonObject
+        {
+            ["bot"] = new JsonObject { ["type"] = "string", ["description"] = "Bot name (default: you)" },
+            ["name"] = new JsonObject { ["type"] = "string" },
+            ["prompt"] = new JsonObject { ["type"] = "string" },
+            ["schedule"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("daily", "weekdays", "weekly", "every_minutes") },
+            ["time"] = new JsonObject { ["type"] = "string", ["description"] = "HH:mm" },
+            ["day"] = new JsonObject { ["type"] = "string", ["description"] = "weekly: e.g. Sunday" },
+            ["every_minutes"] = new JsonObject { ["type"] = "integer" },
+        },
+        ["required"] = new JsonArray("name", "prompt", "schedule"),
+    };
+    public bool RequiresApproval => true;
+    public string Area => "routines";
+    public string AreaTitle => "Routines";
+    public bool IsWrite => true;
+
+    public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct)
+    {
+        var team = await bots.ListAsync();
+        var who = args.Str("bot")?.Trim().TrimStart('@');
+        var bot = string.IsNullOrEmpty(who)
+            ? ctx.Bot is { } self ? team.FirstOrDefault(b => b.Id == self.Id) : null
+            : team.FirstOrDefault(b => b.Name.Equals(who, StringComparison.OrdinalIgnoreCase));
+        if (bot is null)
+            return ToolResult.Error(string.IsNullOrEmpty(who)
+                ? "Say which bot runs it (bot)."
+                : $"No bot named '{who}'. Bots: {string.Join(", ", team.Select(b => b.Name))}.");
+        if (bot.Routines.Count >= MaxRoutinesPerBot) return ToolResult.Error($"{bot.Name} already has {MaxRoutinesPerBot} routines.");
+
+        var name = args.Str("name")?.Trim();
+        var prompt = args.Str("prompt")?.Trim();
+        if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(prompt)) return ToolResult.Error("Give the routine a name and a prompt.");
+        if (Parse(args) is not { } when) return ToolResult.Error(
+            "Give schedule: daily, weekdays or weekly with time (HH:mm, e.g. 09:00) — weekly also needs day (e.g. Sunday) — or every_minutes with every_minutes (at least 5).");
+
+        var routine = new Routine
+        {
+            Name = name.Length > 60 ? name[..60] : name, Prompt = prompt, Trigger = TriggerKind.Schedule,
+            Schedule = when.schedule, TimeOfDay = when.time, Day = when.day, IntervalMinutes = when.minutes,
+        };
+        bot.Routines.Add(routine);
+        await bots.SaveAsync(bot);
+        var next = routine.NextRun(DateTimeOffset.Now);
+        return new ToolResult($"Routine \"{routine.Name}\" added to {bot.Name}: runs {routine.Describe()}" +
+            (next is { } n ? $", next {FollowUpTool.Describe(n, DateTimeOffset.Now)}" : "") +
+            $". Results appear in {bot.Name}'s own chat. The user can change or turn it off under Bots → {bot.Name} → Routines.");
+    }
+
+    /// <summary>The schedule from the arguments, or null when it's incomplete.</summary>
+    public static (RoutineSchedule schedule, string time, DayOfWeek day, int minutes)? Parse(JsonObject args)
+    {
+        var schedule = (args.Str("schedule") ?? "").Trim().ToLowerInvariant().Replace(' ', '_') switch
+        {
+            "daily" or "every_day" => RoutineSchedule.Daily,
+            "weekdays" => RoutineSchedule.Weekdays,
+            "weekly" or "every_week" => RoutineSchedule.Weekly,
+            "every_minutes" or "interval" => RoutineSchedule.EveryMinutes,
+            _ => (RoutineSchedule?)null,
+        };
+        if (schedule is null) return null;
+        if (schedule == RoutineSchedule.EveryMinutes)
+            return args.Num("every_minutes") is { } m && m >= 5 ? (schedule.Value, "08:00", DayOfWeek.Sunday, (int)m) : null;
+
+        if (!TimeOnly.TryParse(args.Str("time") ?? "", CultureInfo.InvariantCulture, out var t)) return null;
+        var day = DayOfWeek.Sunday;
+        if (schedule == RoutineSchedule.Weekly)
+        {
+            var d = (args.Str("day") ?? "").Trim();
+            var found = Enum.GetValues<DayOfWeek>().Where(x => d.Length >= 3 && x.ToString().StartsWith(d[..3], StringComparison.OrdinalIgnoreCase)).ToList();
+            if (found.Count != 1) return null;
+            day = found[0];
+        }
+        return (schedule.Value, t.ToString("HH:mm", CultureInfo.InvariantCulture), day, 60);
     }
 }
 

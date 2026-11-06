@@ -153,6 +153,23 @@ public sealed class SecurityTests : IDisposable
         Assert.True(ContentTrust.ShouldHold(remote, ctx));
         ctx.Settings.Tools.GuardUntrustedContent = false;
         Assert.False(ContentTrust.ShouldHold(remote, ctx));
+
+        // After reading the web: workspace files go ahead, memories and new bots still ask.
+        ctx.Settings.Tools.GuardUntrustedContent = true;
+        Assert.False(ContentTrust.IsSensitive(new WriteFileTool(null!), ctx));
+        Assert.True(ContentTrust.ShouldHold(new FakeTool("save_memory"), ctx));
+        Assert.True(ContentTrust.ShouldHold(new AddRoutineTool(null!), ctx));
+    }
+
+    private sealed class FakeTool(string name) : ITool
+    {
+        public string Name => name;
+        public string DisplayName => name;
+        public string Icon => "";
+        public string Description => "";
+        public System.Text.Json.Nodes.JsonObject Parameters => Schema.Object();
+        public bool RequiresApproval => false;
+        public Task<ToolResult> ExecuteAsync(System.Text.Json.Nodes.JsonObject args, ToolContext ctx, CancellationToken ct) => Task.FromResult(new ToolResult(""));
     }
 
     public void Dispose()

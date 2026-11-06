@@ -39,6 +39,7 @@ public static class PermissionCatalog
         new("images", "🎨", "Images", null, "Generate images"),
         new("inbox", "📮", "Bot inbox", null, "Reply to email sent to the bot"),
         new("hiring", "🧑‍💼", "New bots", null, "Add a bot to your team"),
+        new("routines", "⏰", "Routines", null, "Set up a bot's scheduled routines"),
         new("projects", "🛠️", "Project folders", null, "Change files in folders you made editable"),
     ];
 
@@ -120,6 +121,9 @@ public static class ContentTrust
     {
         // Own sandbox (desktop or code container): nothing on this computer changes.
         if (tool is Tools.IContextualApproval c && !c.RequiresApprovalFor(ctx) && (tool.Name.StartsWith("desktop_") || tool.Name is "run_python" or "run_command")) return false;
+        // Files in Locus's own workspace: nothing runs, nothing leaves, and the user can see and undo them. Asking
+        // about these after every web search was most of the approval prompts people saw.
+        if (tool.Name == "write_file") return false;
         var (area, write) = PermissionCatalog.Classify(tool);
         return write && area is not null && area is not ("images" or "teamwork");
     }

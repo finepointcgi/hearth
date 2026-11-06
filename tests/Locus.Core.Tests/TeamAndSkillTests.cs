@@ -212,6 +212,53 @@ public sealed class TeamAndSkillTests : IDisposable
     }
 
     [Fact]
+    public async Task BotsCanGiveATeammateAWeeklyRoutine()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        var chef = new Bot { Name = "Chef", Title = "Meal planner" };
+        foreach (var b in new[] { chief, chef }) await bots.SaveAsync(b);
+        var tool = new AddRoutineTool(bots);
+        Assert.True(tool.RequiresApproval); // the user OKs it, like hiring a bot
+        var ctx = new ToolContext
+        {
+            Conversation = new Conversation(), Reply = new ChatMessage(), Settings = _settings,
+            Client = _team.Create(_settings.Providers[0]), Model = "main-model", Bot = chief,
+        };
+
+        var result = await tool.ExecuteAsync(new JsonObject
+        {
+            ["bot"] = "@Chef", ["name"] = "Weekly meal plan", ["schedule"] = "weekly", ["day"] = "sun", ["time"] = "9:30",
+            ["prompt"] = "Plan 7 dinners for 2 people, no chicken, then a shopping list by store section.",
+        }, ctx, CancellationToken.None);
+
+        Assert.False(result.IsError, result.Text);
+        Assert.Contains("Sundays at 09:30", result.Text);
+        var routine = Assert.Single((await bots.GetAsync(chef.Id))!.Routines);
+        Assert.Equal((RoutineSchedule.Weekly, DayOfWeek.Sunday, "09:30"), (routine.Schedule, routine.Day, routine.TimeOfDay));
+        Assert.Empty((await bots.GetAsync(chief.Id))!.Routines);
+
+        // Incomplete or wrong input says what's needed.
+        var noDay = await tool.ExecuteAsync(new JsonObject { ["bot"] = "Chef", ["name"] = "x", ["prompt"] = "y", ["schedule"] = "weekly", ["time"] = "09:00" }, ctx, CancellationToken.None);
+        Assert.Contains("weekly also needs day", noDay.Text);
+        var nobody = await tool.ExecuteAsync(new JsonObject { ["bot"] = "Baker", ["name"] = "x", ["prompt"] = "y", ["schedule"] = "daily", ["time"] = "09:00" }, ctx, CancellationToken.None);
+        Assert.Contains("No bot named 'Baker'. Bots: Chief, Chef", nobody.Text);
+    }
+
+    [Fact]
+    public void WeeklyRoutinesRunOnTheirDayOnly()
+    {
+        var r = new Routine { Prompt = "plan meals", Schedule = RoutineSchedule.Weekly, Day = DayOfWeek.Sunday, TimeOfDay = "09:00" };
+        var sunday = new DateTimeOffset(2026, 11, 8, 9, 5, 0, TimeSpan.FromHours(-5));
+        Assert.True(r.IsDue(sunday));
+        Assert.False(r.IsDue(sunday.AddDays(1)));
+        r.LastRun = sunday;
+        Assert.False(r.IsDue(sunday.AddMinutes(30)));
+        Assert.Equal(sunday.AddDays(7).AddMinutes(-5), r.NextRun(sunday));
+        Assert.Equal("Sundays at 09:00", r.Describe());
+    }
+
+    [Fact]
     public async Task UnknownVersionTellsTheCoordinatorWhatExists()
     {
         var bots = _sp.GetRequiredService<BotStore>();

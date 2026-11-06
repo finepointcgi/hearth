@@ -96,7 +96,7 @@ public sealed class BotMemory
     public int MaxInPrompt { get; set; } = 40;
 }
 
-public enum RoutineSchedule { EveryMinutes, Daily, Weekdays }
+public enum RoutineSchedule { EveryMinutes, Daily, Weekdays, Weekly }
 
 /// <summary>What starts a routine.</summary>
 public enum TriggerKind
@@ -129,6 +129,8 @@ public sealed class Routine
     public int IntervalMinutes { get; set; } = 60;
     /// <summary>Local time, HH:mm.</summary>
     public string TimeOfDay { get; set; } = "08:00";
+    /// <summary>Weekly: the day it runs.</summary>
+    public DayOfWeek Day { get; set; } = DayOfWeek.Sunday;
     public bool Enabled { get; set; } = true;
     public DateTimeOffset? LastRun { get; set; }
 
@@ -165,6 +167,7 @@ public sealed class Routine
 
         if (!TimeOnly.TryParse(TimeOfDay, out var t)) return false;
         if (Schedule == RoutineSchedule.Weekdays && now.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) return false;
+        if (Schedule == RoutineSchedule.Weekly && now.DayOfWeek != Day) return false;
         var dueToday = new DateTimeOffset(now.Date + t.ToTimeSpan(), now.Offset);
         // Run once per day, at or after the time, but not if we're more than 6 hours late (app was closed).
         return now >= dueToday && now - dueToday < TimeSpan.FromHours(6) && (LastRun is null || LastRun < dueToday);
@@ -183,6 +186,7 @@ public sealed class Routine
         {
             RoutineSchedule.EveryMinutes => $"every {IntervalMinutes} min",
             RoutineSchedule.Weekdays => $"weekdays at {TimeOfDay}",
+            RoutineSchedule.Weekly => $"{Day}s at {TimeOfDay}",
             _ => $"daily at {TimeOfDay}",
         },
     };
@@ -200,6 +204,7 @@ public sealed class Routine
         {
             var day = now.Date.AddDays(d);
             if (Schedule == RoutineSchedule.Weekdays && day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) continue;
+            if (Schedule == RoutineSchedule.Weekly && day.DayOfWeek != Day) continue;
             var at = new DateTimeOffset(day + t.ToTimeSpan(), now.Offset);
             if (at > now && (LastRun is null || LastRun < at)) return at;
         }

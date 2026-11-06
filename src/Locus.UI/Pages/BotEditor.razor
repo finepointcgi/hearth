@@ -364,8 +364,16 @@
                             <select @bind="routine.Schedule">
                                 <option value="@RoutineSchedule.Daily">Every day at</option>
                                 <option value="@RoutineSchedule.Weekdays">Weekdays at</option>
+                                <option value="@RoutineSchedule.Weekly">Every week on</option>
                                 <option value="@RoutineSchedule.EveryMinutes">Every … minutes</option>
                             </select>
+                            @if (routine.Schedule == RoutineSchedule.Weekly)
+                            {
+                                <select @bind="routine.Day" aria-label="Day of the week">
+                                    @foreach (var day in Enum.GetValues<DayOfWeek>()) { <option value="@day">@day</option> }
+                                </select>
+                                <span class="muted">at</span>
+                            }
                             @if (routine.Schedule == RoutineSchedule.EveryMinutes)
                             {
                                 <input type="number" min="5" @bind="routine.IntervalMinutes" style="width:6rem" />
