@@ -74,6 +74,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Services.Microsoft.MicrosoftAuth>();
         services.AddSingleton<Services.Microsoft.GraphClient>();
         services.AddSingleton<IToolProvider, MicrosoftToolProvider>();
+        services.AddSingleton<Services.Google.DriveClient>();
+        services.AddSingleton<IToolProvider, GoogleDocsToolProvider>();
+        services.AddSingleton<IToolProvider, ContactsToolProvider>();
         services.AddSingleton<LinkedFolders>();
         services.AddSingleton<ProjectContext>();
         services.AddSingleton<OpenAiApi>();

@@ -717,6 +717,10 @@
             !_googleConnected ? "Connect Google on the Connections page" : !s.Google.GmailEnabled ? "Turn on Gmail on the Connections page" : null, "connections");
         yield return new("calendar", "Calendar", "Check your schedule and add events", () => a.Calendar, v => a.Calendar = v,
             !_googleConnected ? "Connect Google on the Connections page" : !s.Google.CalendarEnabled ? "Turn on Calendar on the Connections page" : null, "connections");
+        yield return new("file-text", "Google Docs & Drive", "Find, read and write Google Docs and Drive files", () => a.GoogleDocs, v => a.GoogleDocs = v,
+            !_googleConnected ? "Connect Google on the Connections page" : !s.Google.DocsEnabled ? "Turn on Docs & Drive on the Connections page" : null, "connections");
+        yield return new("users", "Contacts", "Look up people's emails and phone numbers", () => a.Contacts, v => a.Contacts = v,
+            !_googleConnected && !_microsoftConnected ? "Connect Google or Microsoft on the Connections page" : null, "connections");
         yield return new("folder", "Microsoft 365", "Outlook mail and calendar, OneDrive, Word, Excel and To Do", () => a.Microsoft365, v => a.Microsoft365 = v,
             _microsoftConnected ? null : "Connect Microsoft on the Connections page", "connections");
         yield return new("plug", "MCP tools", "Tools from your MCP servers", () => a.Mcp, v => a.Mcp = v,

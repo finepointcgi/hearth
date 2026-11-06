@@ -38,6 +38,10 @@ public sealed class BotAbilities
     public bool Calendar { get; set; } = true;
     /// <summary>Outlook mail and calendar, OneDrive, Word, Excel and To Do (off by default, like Gmail: it's your email).</summary>
     public bool Microsoft365 { get; set; }
+    /// <summary>Google Docs and Drive: find, read and create documents.</summary>
+    public bool GoogleDocs { get; set; } = true;
+    /// <summary>Look up people in your contacts (off by default: it's personal data).</summary>
+    public bool Contacts { get; set; }
 
     /// <summary>The switch a tool belongs to (null = always allowed, e.g. the calculator).</summary>
     public static string? GroupOf(string tool) => tool switch
@@ -60,6 +64,8 @@ public sealed class BotAbilities
         _ when tool.StartsWith("sheets_") => nameof(GoogleSheets),
         _ when tool.StartsWith("gmail_") => nameof(Gmail),
         _ when tool.StartsWith("calendar_") => nameof(Calendar),
+        _ when tool.StartsWith("drive_") || tool.StartsWith("docs_") => nameof(GoogleDocs),
+        "find_contact" => nameof(Contacts),
         _ when tool.StartsWith("outlook_") || tool.StartsWith("onedrive_") || tool.StartsWith("excel_") || tool == "todo" => nameof(Microsoft365),
         _ => nameof(Mcp),
     };
@@ -81,6 +87,8 @@ public sealed class BotAbilities
         nameof(Gmail) => Gmail,
         nameof(Calendar) => Calendar,
         nameof(Microsoft365) => Microsoft365,
+        nameof(GoogleDocs) => GoogleDocs,
+        nameof(Contacts) => Contacts,
         _ => Mcp,
     };
 }

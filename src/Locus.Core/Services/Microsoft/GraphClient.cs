@@ -207,6 +207,21 @@ public sealed class GraphClient(MicrosoftAuth auth, IHttpClientFactory http)
         return $"Wrote {values.Count} row(s) to {sheet}!{r?["address"]?.ToString().Split('!').Last() ?? range}.";
     }
 
+    // ------------------------------------------------------------------ contacts
+
+    public async Task<List<Google.Contact>> FindContactsAsync(string query, CancellationToken ct)
+    {
+        var q = query.Replace("'", "''");
+        var filter = $"startswith(displayName,'{q}') or startswith(givenName,'{q}') or startswith(surname,'{q}') or startswith(companyName,'{q}')";
+        var json = await GetJsonAsync($"/me/contacts?$filter={Q(filter)}&$top=10&$select=displayName,emailAddresses,mobilePhone,businessPhones,homePhones,companyName", ct);
+        return (json["value"]?.AsArray() ?? []).OfType<JsonNode>().Select(c => new Google.Contact(
+            c["displayName"]?.ToString() ?? "",
+            (c["emailAddresses"]?.AsArray() ?? []).Select(e => e?["address"]?.ToString()).OfType<string>().ToList(),
+            new[] { c["mobilePhone"]?.ToString() }.Concat((c["businessPhones"]?.AsArray() ?? []).Select(p => p?.ToString()))
+                .Concat((c["homePhones"]?.AsArray() ?? []).Select(p => p?.ToString())).OfType<string>().Where(p => p.Length > 0).ToList(),
+            c["companyName"]?.ToString(), "Outlook")).ToList();
+    }
+
     // ------------------------------------------------------------------ To Do
 
     private async Task<string> DefaultListAsync(CancellationToken ct)

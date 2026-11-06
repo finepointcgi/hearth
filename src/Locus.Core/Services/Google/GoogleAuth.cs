@@ -39,6 +39,10 @@ public sealed class GoogleAuth(IAppPaths paths, IHttpClientFactory http, Setting
     public const string DriveListScope = "https://www.googleapis.com/auth/drive.metadata.readonly";
     public const string GmailScope = "https://www.googleapis.com/auth/gmail.modify";
     public const string CalendarScope = "https://www.googleapis.com/auth/calendar.events";
+    /// <summary>Read any Drive file (Docs, PDFs, Word…) and create new ones (drive.file covers only files Locus made).</summary>
+    public const string DriveReadScope = "https://www.googleapis.com/auth/drive.readonly";
+    public const string DriveFileScope = "https://www.googleapis.com/auth/drive.file";
+    public const string ContactsScope = "https://www.googleapis.com/auth/contacts.readonly";
 
     /// <summary>The scopes to ask for, from the switches on the Connections page.</summary>
     public static List<string> ScopesFor(GoogleSettings g, bool serviceAccount = false)
@@ -47,6 +51,8 @@ public sealed class GoogleAuth(IAppPaths paths, IHttpClientFactory http, Setting
         if (g.SheetsEnabled) s.AddRange([SheetsScope, DriveListScope]);
         if (g.GmailEnabled && !serviceAccount) s.Add(GmailScope); // Gmail needs a real user account
         if (g.CalendarEnabled) s.Add(CalendarScope);
+        if (g.DocsEnabled) s.AddRange([DriveReadScope, DriveFileScope]);
+        if (g.ContactsEnabled && !serviceAccount) s.Add(ContactsScope); // a service account has no contacts
         if (s.Count == 0) s.AddRange([SheetsScope, DriveListScope]);
         return s;
     }
@@ -91,6 +97,15 @@ public sealed class GoogleAuth(IAppPaths paths, IHttpClientFactory http, Setting
             ? ("https://sheets.googleapis.com/v4", "https://www.googleapis.com/drive/v3",
                "https://oauth2.googleapis.com/token", "https://accounts.google.com/o/oauth2/v2/auth")
             : ($"{o}/v4", $"{o}/drive/v3", $"{o}/token", $"{o}/auth");
+    }
+
+    /// <summary>Drive file upload and People (contacts) endpoints (overridable for tests).</summary>
+    public async Task<(string upload, string people)> MoreEndpointsAsync()
+    {
+        var o = (await settingsStore.GetAsync()).Google.ApiBaseOverride?.TrimEnd('/');
+        return string.IsNullOrWhiteSpace(o)
+            ? ("https://www.googleapis.com/upload/drive/v3", "https://people.googleapis.com/v1")
+            : ($"{o}/upload/drive/v3", $"{o}/people/v1");
     }
 
     public async Task<(string gmail, string calendar)> WorkspaceEndpointsAsync()

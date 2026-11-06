@@ -227,6 +227,10 @@ public sealed class GoogleSettings
     public bool GmailEnabled { get; set; }
     /// <summary>Offer Google Calendar tools once connected with Calendar access.</summary>
     public bool CalendarEnabled { get; set; }
+    /// <summary>Offer Google Docs and Drive tools (search and read any file; create Google Docs) once connected with that access.</summary>
+    public bool DocsEnabled { get; set; }
+    /// <summary>Let bots look up your Google contacts (names, emails, phone numbers; read-only).</summary>
+    public bool ContactsEnabled { get; set; }
     /// <summary>Let bots send email without asking (off: every send asks, even with other auto-approvals on).</summary>
     public bool AutoApproveSend { get; set; }
     /// <summary>Let bots change sheets/labels/events (write, append, create, clear) without asking each time.</summary>

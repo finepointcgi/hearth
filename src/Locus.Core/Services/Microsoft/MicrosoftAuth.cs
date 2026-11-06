@@ -25,8 +25,8 @@ public sealed record MicrosoftSignIn(string UserCode, string VerificationUri, st
 /// </summary>
 public sealed class MicrosoftAuth(IAppPaths paths, IHttpClientFactory http)
 {
-    /// <summary>What Locus asks for: mail, calendar, files (OneDrive, Word, Excel), To Do and the profile.</summary>
-    public const string Scopes = "offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.ReadWrite Tasks.ReadWrite";
+    /// <summary>What Locus asks for: mail, calendar, files (OneDrive, Word, Excel), To Do, contacts and the profile.</summary>
+    public const string Scopes = "offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.ReadWrite Tasks.ReadWrite Contacts.Read";
 
     private readonly SecretBox _box = new(paths);
     private readonly SemaphoreSlim _lock = new(1, 1);

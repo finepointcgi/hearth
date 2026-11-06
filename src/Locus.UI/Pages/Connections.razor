@@ -146,6 +146,8 @@
             <label class="check"><input type="checkbox" @bind="_s.Google.SheetsEnabled" @bind:after="Save" /> <span>📊 <b>Sheets</b> — find, read, write, append, create spreadsheets</span></label>
             <label class="check"><input type="checkbox" @bind="_s.Google.GmailEnabled" @bind:after="Save" /> <span>📧 <b>Gmail</b> — search, read, draft, send and organize email (sign-in only, not service accounts)</span></label>
             <label class="check"><input type="checkbox" @bind="_s.Google.CalendarEnabled" @bind:after="Save" /> <span>📅 <b>Calendar</b> — check your schedule, add and remove events</span></label>
+            <label class="check"><input type="checkbox" @bind="_s.Google.DocsEnabled" @bind:after="Save" /> <span>📄 <b>Docs &amp; Drive</b> — find and read any file in your Drive, and write new Google Docs</span></label>
+            <label class="check"><input type="checkbox" @bind="_s.Google.ContactsEnabled" @bind:after="Save" /> <span>👥 <b>Contacts</b> — look up names, emails and phone numbers (read-only; sign-in only)</span></label>
             @if (_missing.Count > 0 && _conn.Mode == Locus.Core.Services.Google.GoogleAuthMode.OAuth)
             {
                 <div class="notice">
@@ -206,6 +208,8 @@
         if (_s.Google.SheetsEnabled && !await Google.HasScopeAsync(Locus.Core.Services.Google.GoogleAuth.SheetsScope)) _missing.Add("Sheets");
         if (_s.Google.GmailEnabled && !await Google.HasScopeAsync(Locus.Core.Services.Google.GoogleAuth.GmailScope)) _missing.Add("Gmail");
         if (_s.Google.CalendarEnabled && !await Google.HasScopeAsync(Locus.Core.Services.Google.GoogleAuth.CalendarScope)) _missing.Add("Calendar");
+        if (_s.Google.DocsEnabled && !await Google.HasScopeAsync(Locus.Core.Services.Google.GoogleAuth.DriveReadScope)) _missing.Add("Docs & Drive");
+        if (_s.Google.ContactsEnabled && !await Google.HasScopeAsync(Locus.Core.Services.Google.GoogleAuth.ContactsScope)) _missing.Add("Contacts");
     }
 
     private async Task Regrant()
@@ -297,6 +301,8 @@
         current.Google.SheetsEnabled = _s.Google.SheetsEnabled;
         current.Google.GmailEnabled = _s.Google.GmailEnabled;
         current.Google.CalendarEnabled = _s.Google.CalendarEnabled;
+        current.Google.DocsEnabled = _s.Google.DocsEnabled;
+        current.Google.ContactsEnabled = _s.Google.ContactsEnabled;
         current.Google.AutoApproveEdits = _s.Google.AutoApproveEdits;
         current.Google.AutoApproveSend = _s.Google.AutoApproveSend;
         await Store.SaveAsync(current);
