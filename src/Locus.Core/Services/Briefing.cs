@@ -61,6 +61,7 @@ public sealed class Briefing(SettingsStore settingsStore, BotStore bots)
             routine.Schedule = b.WeekdaysOnly ? RoutineSchedule.Weekdays : RoutineSchedule.Daily;
             routine.TimeOfDay = TimeOnly.TryParse(b.Time, out var t) ? t.ToString("HH:mm") : "07:00";
             routine.Enabled = true;
+            routine.NotifyChannels = true; // the brief is meant to reach you
             if (existing is null) target.Routines.Add(routine);
             await bots.SaveAsync(target);
             b.RoutineId = routine.Id;

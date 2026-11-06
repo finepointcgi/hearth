@@ -169,6 +169,44 @@ public sealed class TelegramHubTests : IDisposable
         Assert.True(await tcs.Task.WaitAsync(TimeSpan.FromSeconds(10)));
     }
 
+    [Fact]
+    public async Task NotificationsCanBeNarrowedPerChatAndPerRoutine()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var brief = new Routine { Name = "Morning brief", Prompt = "ping" };
+        var noisy = new Routine { Name = "Price watch", Prompt = "ping", NotifyChannels = false };
+        var bot = new Bot { Name = "Researcher", Memory = new() { AutoLearn = false }, Routines = [brief, noisy] };
+        await bots.SaveAsync(bot);
+        var channels = _sp.GetRequiredService<ChannelStore>();
+        await channels.UpdateAsync(c => c.TelegramApiBase = _server.Url + "/tg");
+        await channels.SetTokenAsync("telegram", "123:ABC");
+        var hub = _sp.GetRequiredService<ChannelHub>();
+        await hub.EnsureStartedAsync();
+        await _server.UserSays(hub.NewPairingCode());
+        Assert.Contains("Linked to Locus", await _server.NextReply());
+        var runner = _sp.GetRequiredService<RoutineRunner>();
+
+        await _server.UserSays("/notify approvals");
+        Assert.Contains("Only approval requests", await _server.NextReply());
+        await runner.RunAsync(bot, brief, null, default);           // not sent: routines are off for this chat
+        await _server.UserSays("/notify");
+        var summary = await _server.NextReply();
+        Assert.Contains("✅ approval requests", summary);
+        Assert.Contains("▫️ routine results", summary);
+
+        await _server.UserSays("/notify on");
+        Assert.Contains("You'll get routine results", await _server.NextReply());
+        await runner.RunAsync(bot, noisy, null, default);           // not sent: this routine keeps its results in Locus
+        await runner.RunAsync(bot, brief, null, default);
+        Assert.Contains("Morning brief", await _server.NextReply()); // the first thing sent is the brief
+
+        await _server.UserSays("/quiet 00:00-23:59");
+        Assert.Contains("Quiet from 00:00 to 23:59", await _server.NextReply());
+        await runner.RunAsync(bot, brief, null, default);           // held: quiet hours
+        await _server.UserSays("/quiet off");
+        Assert.Equal("Quiet hours off.", await _server.NextReply());
+    }
+
     public void Dispose()
     {
         _server.Dispose();

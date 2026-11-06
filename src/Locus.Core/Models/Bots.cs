@@ -144,6 +144,8 @@ public sealed class Routine
     /// <summary>Weekly: the day it runs.</summary>
     public DayOfWeek Day { get; set; } = DayOfWeek.Sunday;
     public bool Enabled { get; set; } = true;
+    /// <summary>Also send results to linked chat apps (Telegram, Discord…) that have routine notifications on.</summary>
+    public bool NotifyChannels { get; set; } = true;
     public DateTimeOffset? LastRun { get; set; }
 
     public TriggerKind Trigger { get; set; } = TriggerKind.Schedule;

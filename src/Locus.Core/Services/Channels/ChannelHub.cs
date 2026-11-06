@@ -322,9 +322,40 @@ public sealed class ChannelHub
                 await a.SendTextAsync(link.ChatId, "Stopped.");
                 break;
             case "/notify":
-                var on = !arg.Equals("off", StringComparison.OrdinalIgnoreCase);
-                await _store.UpdateAsync(c => { var l = Find(c, link)!; l.NotifyRoutines = on; l.NotifyApprovals = on; });
-                await a.SendTextAsync(link.ChatId, on ? "🔔 You'll get routine results, approval requests and status alerts here." : "🔕 Notifications off.");
+                var mode = arg.Trim().ToLowerInvariant();
+                if (mode is not ("on" or "off" or "approvals" or ""))
+                {
+                    await a.SendTextAsync(link.ChatId, "Use /notify on, /notify off, or /notify approvals (only approval requests).");
+                    break;
+                }
+                if (mode == "") { await a.SendTextAsync(link.ChatId, NotifySummary(link)); break; }
+                var everything = mode == "on";
+                await _store.UpdateAsync(c =>
+                {
+                    var l = Find(c, link)!;
+                    l.NotifyRoutines = l.NotifyTasks = l.NotifyHeartbeat = l.NotifyHealth = everything;
+                    l.NotifyApprovals = mode != "off";
+                });
+                await a.SendTextAsync(link.ChatId, mode switch
+                {
+                    "on" => "🔔 You'll get routine results, task updates, check-ins, alerts and approval requests here.",
+                    "approvals" => "🔕 Only approval requests from now on. (/notify on for everything again.)",
+                    _ => "🔕 Notifications off. Replies to your own messages still come here.",
+                });
+                break;
+            case "/quiet":
+                var range = arg.Replace(" ", "").Split('-', 2);
+                if (arg.Trim().Equals("off", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _store.UpdateAsync(c => { var l = Find(c, link)!; l.QuietFrom = l.QuietTo = ""; });
+                    await a.SendTextAsync(link.ChatId, "Quiet hours off.");
+                }
+                else if (range.Length == 2 && TimeOnly.TryParse(range[0], out var qf) && TimeOnly.TryParse(range[1], out var qt))
+                {
+                    await _store.UpdateAsync(c => { var l = Find(c, link)!; l.QuietFrom = qf.ToString("HH:mm"); l.QuietTo = qt.ToString("HH:mm"); });
+                    await a.SendTextAsync(link.ChatId, $"🌙 Quiet from {qf:HH:mm} to {qt:HH:mm}: only approval requests come through then.");
+                }
+                else await a.SendTextAsync(link.ChatId, "Use /quiet 22:00-07:00, or /quiet off.");
                 break;
             default:
                 await a.SendTextAsync(link.ChatId, await HelpAsync(link));
@@ -345,7 +376,18 @@ public sealed class ChannelHub
                "/groups, /group Name — talk to a group of bots\n" +
                "@Name your message — ask one bot once\n/new — fresh conversation\n/stop — stop the current reply\n" +
                "/task goal — start a long-running task; /tasks — progress; /answer … — reply to a task's question\n" +
-               "/notify on|off — routine results, approvals and alerts here";
+               "/notify on|off|approvals — what Locus sends here on its own\n" +
+               "/quiet 22:00-07:00 (or off) — hold everything but approvals overnight";
+    }
+
+    /// <summary>What this chat gets, for /notify with no argument.</summary>
+    private static string NotifySummary(ChannelLink l)
+    {
+        string Mark(bool on) => on ? "✅" : "▫️";
+        return $"Notifications here:\n{Mark(l.NotifyApprovals)} approval requests\n{Mark(l.NotifyRoutines)} routine results\n" +
+               $"{Mark(l.NotifyTasks)} task updates\n{Mark(l.NotifyHeartbeat)} heartbeat check-ins\n{Mark(l.NotifyHealth)} model server alerts\n" +
+               (l.QuietFrom.Length > 0 ? $"🌙 quiet {l.QuietFrom}–{l.QuietTo}\n" : "") +
+               "Change with /notify on|off|approvals and /quiet 22:00-07:00, or in Locus → Connections → Chat apps.";
     }
 
     private static ChannelLink? Find(ChannelConfig c, ChannelLink l) =>
@@ -460,7 +502,7 @@ public sealed class ChannelHub
                 await _adapters[origin.channel].SendApprovalAsync(origin.chatId, p.Id, text);
                 return;
             }
-            foreach (var l in (await _store.GetAsync()).Links.Where(l => l.NotifyApprovals))
+            foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Approval, DateTimeOffset.Now)))
                 if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendApprovalAsync(l.ChatId, p.Id, text);
         }
         catch { /* best effort */ }
@@ -502,7 +544,7 @@ public sealed class ChannelHub
             var links = (await _store.GetAsync()).Links;
             var targets = task.Origin is { } o && o.Contains(':')
                 ? links.Where(l => $"{l.Channel}:{l.ChatId}" == o)
-                : links.Where(l => l.NotifyRoutines);
+                : links.Where(l => l.Wants(ChannelLink.Kind.Task, DateTimeOffset.Now));
             var text = message + (task.State == TaskState.WaitingForYou ? "\n\nReply with /answer your answer" : "");
             foreach (var l in targets)
                 if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendTextAsync(l.ChatId, text);
@@ -514,7 +556,7 @@ public sealed class ChannelHub
     {
         try
         {
-            foreach (var l in (await _store.GetAsync()).Links.Where(l => l.NotifyRoutines))
+            foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Health, DateTimeOffset.Now)))
                 if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendTextAsync(l.ChatId, message);
         }
         catch { /* best effort */ }
@@ -524,7 +566,7 @@ public sealed class ChannelHub
     {
         try
         {
-            foreach (var l in (await _store.GetAsync()).Links.Where(l => l.NotifyRoutines))
+            foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Heartbeat, DateTimeOffset.Now)))
                 if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendTextAsync(l.ChatId, "💓 " + text);
         }
         catch { /* best effort */ }
@@ -539,8 +581,10 @@ public sealed class ChannelHub
             var trigger = conv?.Messages.LastOrDefault(m => m.Role == ChatRole.User)?.RoutineName;
             if (conv is null || reply is null || trigger is null) return;
             var bot = await _bots.GetAsync(conv.BotIds.FirstOrDefault() ?? "");
+            // Each routine can keep its results in Locus (Bots → bot → Routines → "Send results to chat apps").
+            if (bot?.Routines.FirstOrDefault(r => r.Name == trigger) is { NotifyChannels: false }) return;
             var text = $"⏰ {bot?.Emoji} {bot?.Name ?? "Locus"} · {trigger}\n\n{(reply.Error is not null ? "⚠ " + reply.Error : reply.Content)}";
-            foreach (var l in (await _store.GetAsync()).Links.Where(l => l.NotifyRoutines))
+            foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Routine, DateTimeOffset.Now)))
             {
                 if (!_adapters[l.Channel].Running) continue;
                 foreach (var img in reply.GeneratedImages) await _adapters[l.Channel].SendImageAsync(l.ChatId, img, null);

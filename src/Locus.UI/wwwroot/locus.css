@@ -739,3 +739,10 @@ table.selfcheck th, table.selfcheck td { text-align: left; padding: .3rem .4rem;
 table.selfcheck tr.bad td:nth-child(3) { color: var(--danger, #e5484d); font-weight: 600; }
 .version-row label.grow { flex: 1 1 15rem; }
 .version-row .icon-btn, .version-row .btn.small { align-self: flex-end; }
+
+/* Chat apps: per-chat notification choices */
+.notify-prefs { margin: -.2rem 0 .6rem 0; padding: .3rem .1rem; }
+.notify-prefs > summary { cursor: pointer; font-size: .85rem; }
+.notify-grid { display: flex; flex-direction: column; gap: .2rem; margin: .4rem 0; }
+.notify-prefs .row.small { font-size: .85rem; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.notify-prefs input[type=time] { width: 7.5rem; }

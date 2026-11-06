@@ -61,3 +61,23 @@ public sealed class HarnessSpeedTests
         Assert.False(ModelQueue.InBackground); // marking stays inside the background run
     }
 }
+
+public sealed class QuietHoursTests
+{
+    [Fact]
+    public void QuietHoursCanRunPastMidnightAndApprovalsStillComeThrough()
+    {
+        var link = new Locus.Core.Services.Channels.ChannelLink { QuietFrom = "22:00", QuietTo = "07:00" };
+        var night = new DateTimeOffset(2026, 11, 7, 23, 30, 0, TimeSpan.FromHours(-5));
+        var morning = night.AddHours(8); // 7:30
+        Assert.True(link.IsQuiet(night));
+        Assert.True(link.IsQuiet(night.AddHours(5)));  // 4:30
+        Assert.False(link.IsQuiet(morning));
+        Assert.False(link.Wants(Locus.Core.Services.Channels.ChannelLink.Kind.Routine, night));
+        Assert.True(link.Wants(Locus.Core.Services.Channels.ChannelLink.Kind.Approval, night));
+        Assert.True(link.Wants(Locus.Core.Services.Channels.ChannelLink.Kind.Routine, morning));
+        link.NotifyRoutines = false;
+        Assert.False(link.Wants(Locus.Core.Services.Channels.ChannelLink.Kind.Routine, morning));
+        Assert.False(new Locus.Core.Services.Channels.ChannelLink().IsQuiet(night)); // none set
+    }
+}

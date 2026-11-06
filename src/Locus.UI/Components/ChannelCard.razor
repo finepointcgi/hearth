@@ -119,9 +119,27 @@
                     <option value="">💬 Locus</option>
                     @foreach (var b in State.Bots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
                 </select>
-                <label class="check small" title="Routine results and approval requests"><input type="checkbox" checked="@link.NotifyRoutines" @onchange="e => SetNotify(link, (bool)e.Value!)" /> notify</label>
                 <button class="icon-btn" title="Unlink" @onclick="() => Unlink(link)">🗑</button>
             </div>
+            <details class="notify-prefs">
+                <summary>🔔 What Locus sends here on its own <span class="muted small">(@Summary(link))</span></summary>
+                <div class="notify-grid">
+                    <label class="check small"><input type="checkbox" checked="@link.NotifyApprovals" @onchange="e => Set(link, l => l.NotifyApprovals = (bool)e.Value!)" /> Approval requests (Allow/Deny buttons)</label>
+                    <label class="check small"><input type="checkbox" checked="@link.NotifyRoutines" @onchange="e => Set(link, l => l.NotifyRoutines = (bool)e.Value!)" /> Routine results <span class="muted">(each routine can opt out on its bot's Routines tab)</span></label>
+                    <label class="check small"><input type="checkbox" checked="@link.NotifyTasks" @onchange="e => Set(link, l => l.NotifyTasks = (bool)e.Value!)" /> Background task updates</label>
+                    <label class="check small"><input type="checkbox" checked="@link.NotifyHeartbeat" @onchange="e => Set(link, l => l.NotifyHeartbeat = (bool)e.Value!)" /> Heartbeat check-ins</label>
+                    <label class="check small"><input type="checkbox" checked="@link.NotifyHealth" @onchange="e => Set(link, l => l.NotifyHealth = (bool)e.Value!)" /> Model server down / back up</label>
+                </div>
+                <div class="row small">
+                    <span>🌙 Quiet hours</span>
+                    <input type="time" value="@link.QuietFrom" @onchange="e => Set(link, l => l.QuietFrom = e.Value?.ToString() ?? string.Empty)" aria-label="Quiet from" />
+                    <span>to</span>
+                    <input type="time" value="@link.QuietTo" @onchange="e => Set(link, l => l.QuietTo = e.Value?.ToString() ?? string.Empty)" aria-label="Quiet until" />
+                    @if (link.QuietFrom.Length > 0) { <button class="btn ghost small" @onclick="() => Set(link, l => l.QuietFrom = l.QuietTo = string.Empty)">Clear</button> }
+                    <span class="muted">only approval requests come through then</span>
+                </div>
+                <span class="muted small">Replies to messages you send always come back here. From the chat itself: /notify on|off|approvals, /quiet 22:00-07:00.</span>
+            </details>
         }
         @if (_links.Count == 0) { <p class="muted small">No chats linked yet. Get a pairing code and send it to the bot.</p> }
     }
@@ -221,8 +239,16 @@ settings:
     private Task SetBot(ChannelLink link, string? botId) =>
         Store.UpdateAsync(c => { if (Match(c, link) is { } l) l.ActiveBotId = string.IsNullOrEmpty(botId) ? null : botId; });
 
-    private Task SetNotify(ChannelLink link, bool on) =>
-        Store.UpdateAsync(c => { if (Match(c, link) is { } l) { l.NotifyRoutines = on; l.NotifyApprovals = on; } });
+    private Task Set(ChannelLink link, Action<ChannelLink> change) =>
+        Store.UpdateAsync(c => { if (Match(c, link) is { } l) change(l); });
+
+    private static string Summary(ChannelLink l)
+    {
+        var on = new[] { (l.NotifyApprovals, "approvals"), (l.NotifyRoutines, "routines"), (l.NotifyTasks, "tasks"), (l.NotifyHeartbeat, "check-ins"), (l.NotifyHealth, "alerts") }
+            .Where(x => x.Item1).Select(x => x.Item2).ToList();
+        var what = on.Count == 0 ? "nothing" : on.Count == 5 ? "everything" : string.Join(", ", on);
+        return l.QuietFrom.Length > 0 ? $"{what}; quiet {l.QuietFrom}–{l.QuietTo}" : what;
+    }
 
     private Task Unlink(ChannelLink link) =>
         Store.UpdateAsync(c => c.Links.RemoveAll(x => x.Channel == link.Channel && x.ChatId == link.ChatId && x.UserId == link.UserId));

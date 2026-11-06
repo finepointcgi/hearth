@@ -341,6 +341,7 @@
             <div class="provider">
                 <div class="row">
                     <label class="check"><input type="checkbox" @bind="routine.Enabled" /> On</label>
+                    <label class="check" title="Also send results to linked Telegram/Discord/Slack chats that have routine notifications on"><input type="checkbox" @bind="routine.NotifyChannels" /> Send to chat apps</label>
                     <input class="grow" @bind="routine.Name" placeholder="Name, e.g. Morning briefing" />
                     <button class="icon-btn" title="Remove" @onclick="() => _bot.Routines.Remove(routine)">🗑</button>
                 </div>

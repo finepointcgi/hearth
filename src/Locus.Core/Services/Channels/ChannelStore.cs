@@ -14,9 +14,41 @@ public sealed class ChannelLink
     public string? ActiveGroupId { get; set; }
     /// <summary>bot id (or "locus") → conversation id used for this chat.</summary>
     public Dictionary<string, string> Conversations { get; set; } = [];
+    /// <summary>Results of routines (each routine can also opt out).</summary>
     public bool NotifyRoutines { get; set; } = true;
+    /// <summary>"A bot wants to run…" with Allow/Deny buttons.</summary>
     public bool NotifyApprovals { get; set; } = true;
+    /// <summary>Background task progress (tasks started from this chat always report here).</summary>
+    public bool NotifyTasks { get; set; } = true;
+    /// <summary>Heartbeat check-ins that found something.</summary>
+    public bool NotifyHeartbeat { get; set; } = true;
+    /// <summary>"The model server is down / back up".</summary>
+    public bool NotifyHealth { get; set; } = true;
+    /// <summary>Quiet hours, local HH:mm (empty = none): nothing is sent on its own then, except approval requests.</summary>
+    public string QuietFrom { get; set; } = "";
+    public string QuietTo { get; set; } = "";
     public DateTimeOffset LinkedAt { get; set; } = DateTimeOffset.Now;
+
+    public enum Kind { Routine, Approval, Task, Heartbeat, Health }
+
+    /// <summary>Whether to send this kind of message to this chat now.</summary>
+    public bool Wants(Kind kind, DateTimeOffset now)
+    {
+        var on = kind switch
+        {
+            Kind.Routine => NotifyRoutines, Kind.Approval => NotifyApprovals, Kind.Task => NotifyTasks,
+            Kind.Heartbeat => NotifyHeartbeat, _ => NotifyHealth,
+        };
+        return on && (kind == Kind.Approval || !IsQuiet(now));
+    }
+
+    /// <summary>Inside quiet hours (which may run past midnight, e.g. 22:00–07:00).</summary>
+    public bool IsQuiet(DateTimeOffset now)
+    {
+        if (!TimeOnly.TryParse(QuietFrom, out var from) || !TimeOnly.TryParse(QuietTo, out var to) || from == to) return false;
+        var t = TimeOnly.FromDateTime(now.DateTime);
+        return from < to ? t >= from && t < to : t >= from || t < to;
+    }
 }
 
 public sealed class ChannelConfig
