@@ -112,7 +112,7 @@ public sealed class ToolSettings
     public bool AutoApproveAll { get; set; }
     public bool PythonEnabled { get; set; }
     public string PythonPath { get; set; } = "";
-    public int MaxRounds { get; set; } = 8;
+    public int MaxRounds { get; set; } = 12;
     /// <summary>Tool rounds per reply in code sessions (exploring and fixing code takes many steps).</summary>
     public int CodeMaxRounds { get; set; } = 60;
     public SandboxSettings Sandbox { get; set; } = new();
