@@ -14,6 +14,7 @@
 @inject BotCheckRunner CheckRunner
 @inject Locus.Core.Llm.ILlmClientFactory Llms
 @inject Locus.Core.Services.Google.GoogleAuth GoogleAuth
+@inject Locus.Core.Services.Microsoft.MicrosoftAuth MicrosoftAuth
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
@@ -542,6 +543,7 @@
         _memories = _isNew ? [] : await Memories.ListAsync(_bot.Id);
         foreach (var r in _bot.Routines) _states[r.Id] = await TriggerStates.GetAsync(r.Id);
         _googleConnected = await GoogleAuth.IsConnectedAsync();
+        _microsoftConnected = await MicrosoftAuth.IsConnectedAsync();
         await LoadServerModelsAsync();
         foreach (var v in _bot.Versions) await LoadVersionModelsAsync(v);
     }
@@ -682,7 +684,7 @@
     }
 
     private bool _busy;
-    private bool _googleConnected;
+    private bool _googleConnected, _microsoftConnected;
     private string _newMemory = "";
     private string _memoryFilter = "";
     private string? _editingMemory;
@@ -715,6 +717,8 @@
             !_googleConnected ? "Connect Google on the Connections page" : !s.Google.GmailEnabled ? "Turn on Gmail on the Connections page" : null, "connections");
         yield return new("calendar", "Calendar", "Check your schedule and add events", () => a.Calendar, v => a.Calendar = v,
             !_googleConnected ? "Connect Google on the Connections page" : !s.Google.CalendarEnabled ? "Turn on Calendar on the Connections page" : null, "connections");
+        yield return new("folder", "Microsoft 365", "Outlook mail and calendar, OneDrive, Word, Excel and To Do", () => a.Microsoft365, v => a.Microsoft365 = v,
+            _microsoftConnected ? null : "Connect Microsoft on the Connections page", "connections");
         yield return new("plug", "MCP tools", "Tools from your MCP servers", () => a.Mcp, v => a.Mcp = v,
             s.McpServers.Count == 0 ? "No MCP servers added yet" : null, "tools");
     }

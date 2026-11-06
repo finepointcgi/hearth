@@ -71,6 +71,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Services.Phone.PhoneStore>();
         services.AddSingleton<Services.Phone.PhoneService>();
         services.AddSingleton<IToolProvider, PhoneToolProvider>();
+        services.AddSingleton<Services.Microsoft.MicrosoftAuth>();
+        services.AddSingleton<Services.Microsoft.GraphClient>();
+        services.AddSingleton<IToolProvider, MicrosoftToolProvider>();
         services.AddSingleton<LinkedFolders>();
         services.AddSingleton<ProjectContext>();
         services.AddSingleton<OpenAiApi>();

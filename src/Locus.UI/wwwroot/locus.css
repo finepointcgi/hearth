@@ -726,3 +726,7 @@ iframe.code-preview { height: 360px; background: #fff; }
 /* Memory page: long-term storage */
 .memory-archive { margin-top: .8rem; }
 .memory-archive > summary { cursor: pointer; padding: .3rem 0; }
+
+/* Microsoft sign-in: the device code to type in */
+.device-code { display: flex; flex-direction: column; align-items: flex-start; gap: .35rem; margin: .6rem 0; padding: .7rem .9rem; border: 1px dashed var(--line-strong); border-radius: 10px; }
+.code-big { font-size: 1.5rem; letter-spacing: .15em; font-weight: 700; padding: .1rem .5rem; }
