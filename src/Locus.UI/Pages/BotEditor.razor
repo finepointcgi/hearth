@@ -253,7 +253,7 @@
             <label class="check"><input type="checkbox" @bind="_bot.Memory.AutoLearn" /> <span><b>Learn automatically</b> — after each reply, quietly saves anything worth remembering</span></label>
             <label class="check"><input type="checkbox" @bind="_bot.Memory.UseSharedMemory" /> <span><b>Know what other bots know about you</b> — reads the shared memory</span></label>
             <label class="check"><input type="checkbox" @bind="_bot.Memory.ShareWhatItLearns" /> <span><b>Share what it learns about you</b> — adds facts about you to the shared memory</span></label>
-            <label>Memories in each prompt <input type="number" min="5" max="200" @bind="_bot.Memory.MaxInPrompt" style="width:5.5rem" /> <span class="muted small">older ones are found with recall</span></label>
+            <label>Memories in each prompt <input type="number" min="5" max="200" @bind="_bot.Memory.MaxInPrompt" style="width:5.5rem" /> <span class="muted small">older ones stay in long-term storage and come up when relevant</span></label>
 
             @if (!_isNew)
             {

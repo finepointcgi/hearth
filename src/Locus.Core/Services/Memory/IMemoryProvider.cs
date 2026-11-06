@@ -21,6 +21,8 @@ public interface IMemoryProvider
     Task ClearAsync(string? scope);
     /// <summary>Best matches by keywords and (when available) by meaning.</summary>
     Task<List<Memory>> SearchAsync(string query, string? scope, int max);
+    /// <summary>Moves memories to long-term storage (archived = true) or back to the recent list.</summary>
+    Task SetArchivedAsync(IReadOnlyCollection<string> ids, bool archived, string? scope);
 
     Task<UserProfile> GetProfileAsync();
     Task SaveProfileAsync(UserProfile profile);

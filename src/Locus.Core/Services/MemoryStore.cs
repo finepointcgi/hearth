@@ -1,6 +1,8 @@
 namespace Locus.Core.Services;
 
-public sealed record Memory(string Id, string Text, DateTimeOffset CreatedAt);
+/// <param name="Archived">Long-term: folded into the profile or past the recent list. Not listed in every prompt, but
+/// brought up when relevant to what the user asks, and found with recall_memory. Never deleted automatically.</param>
+public sealed record Memory(string Id, string Text, DateTimeOffset CreatedAt, bool Archived = false);
 
 /// <summary>Long-term facts about the user and each bot's own notes. Stored by the memory provider (SQLite by default).</summary>
 public sealed class MemoryStore
@@ -33,6 +35,14 @@ public sealed class MemoryStore
 
     /// <summary>Best matches by keywords and, when an embedding model is available, by meaning.</summary>
     public Task<List<Memory>> SearchAsync(string query, string? scope, int max) => _provider.SearchAsync(query, scope, max);
+
+    /// <summary>Moves memories to long-term storage (or back to the recent list).</summary>
+    public async Task SetArchivedAsync(IReadOnlyCollection<string> ids, bool archived, string? scope = null)
+    {
+        if (ids.Count == 0) return;
+        await _provider.SetArchivedAsync(ids, archived, scope);
+        Changed?.Invoke();
+    }
 
     /// <summary>True when an equivalent memory already exists (case/punctuation-insensitive containment).</summary>
     public async Task<bool> KnowsAsync(string text, string? scope)

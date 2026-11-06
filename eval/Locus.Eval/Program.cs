@@ -15,6 +15,8 @@ using Microsoft.Extensions.DependencyInjection;
 //   dotnet run --project eval/Locus.Eval -- [case …] [--provider=oMLX] [--model=…] [--think] [--repeat=N] [--timeout=MIN]
 //   dotnet run --project eval/Locus.Eval -- probe        raw requests to the server (tool calls, thinking switch, cut-offs)
 //
+//   dotnet run --project eval/Locus.Eval -- memory       fold sample memories into a profile, then ask a related question
+//
 // Cases: math datetime no-tools parallel-convert web web+math files bad-url follow-up handoff direct unit-trap
 // (none named = all). Full answers go to eval/answers/ (git-ignored).
 var real = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library/Application Support/Locus");
@@ -39,6 +41,7 @@ var model = args.FirstOrDefault(a => a.StartsWith("--model="))?.Split('=', 2)[1]
 Console.WriteLine($"provider={provider.Name} model={model} temp={s.Temperature} maxTokens={s.MaxTokens} think={think} data={data}");
 
 if (args.Contains("probe")) { await Probe(); return; }
+if (args.Contains("memory")) { await MemoryCheck(); return; }
 
 var cases = new List<Case>
 {
@@ -132,6 +135,29 @@ try { Directory.Delete(data, true); } catch { }
 static bool Has(string s, params string[] any) => any.Any(a => s.Contains(a));
 static bool Leak(string s) => s.Contains("<tool_call") || s.Contains("function_call") || s.Contains("<tool_result") || s.Contains("\"arguments\"");
 static string Short(string? s, int n) => s is null ? "" : (s.Length > n ? s[..n] + "…" : s).Replace("\n", " ⏎ ");
+
+async Task MemoryCheck()
+{
+    // Long-term memory: fold sample memories into the profile, then see what a later question brings back.
+    var mem = sp.GetRequiredService<MemoryStore>();
+    foreach (var f in new[]
+    {
+        "Director of Advanced Software at Detroit Defense", "Job hunting; salary floor $230k",
+        "Target sectors: defense tech, national security, automotive/mobility AI", "Doesn't eat chicken",
+        "Cooks dinner for 2 people and is a good cook; fine with longer recipes", "Prefers short, direct answers",
+        "Asked once what the weather was in Detroit", "Has a résumé draft for a Shield AI Director role",
+    }) await mem.AddAsync(f);
+    var curator = sp.GetRequiredService<MemoryCurator>();
+    var sw = Stopwatch.StartNew();
+    var (folded, updated) = await curator.ConsolidateAsync();
+    Console.WriteLine($"fold: {folded} folded, updated={updated}, {sw.Elapsed.TotalSeconds:F0}s\n--- profile ---\n{(await curator.ProfileAsync()).Text}\n--- still recent ---");
+    foreach (var m in (await mem.ListAsync()).Where(m => !m.Archived)) Console.WriteLine("  " + m.Text);
+    var conv = new Conversation();
+    conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "Plan three dinners for this week." });
+    await sp.GetRequiredService<ConversationStore>().SaveAsync(conv);
+    await sp.GetRequiredService<ChatRuns>().ReplyAsync(conv, new SendOptions(model, think, false, false));
+    Console.WriteLine($"--- dinner answer ---\n{Short(conv.Messages.Last().Content, 700)}");
+}
 
 async Task Probe()
 {

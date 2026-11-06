@@ -43,11 +43,15 @@
         <section class="card">
             <div class="row">
                 <h3 class="grow">Your profile</h3>
-                <button class="btn ghost" @onclick="Tidy" disabled="@_tidying">@(_tidying ? "Thinking…" : "🧹 Tidy up now")</button>
+                <button class="btn ghost" @onclick="Fold" disabled="@(_tidying || Recent.Count == 0)" title="Fold the recent memories into your profile now (it also happens overnight)">@(_tidying ? "Thinking…" : "⤵ Update from new memories")</button>
+                <button class="btn ghost" @onclick="Tidy" disabled="@_tidying">🧹 Tidy up</button>
             </div>
-            <p class="muted small">A short summary of you that every chat starts with (bots that use shared memory too). Locus keeps it up to date from what it learns, with your OK.</p>
+            <p class="muted small">A short summary of you that every chat starts with (bots that use shared memory too). Each night Locus folds new memories into it and moves them to long-term storage.@(_profileInfo is { ConsolidatedAt: { } at } ? $" Last updated {at:MMM d, h:mm tt}." : "")</p>
             <textarea rows="4" @bind="_profile" placeholder="Nothing yet — click Tidy up now, or write a few sentences about yourself."></textarea>
-            <div class="row end"><button class="btn ghost" @onclick="SaveProfile">Save profile</button></div>
+            <div class="row end">
+                @if (_profileInfo?.PreviousText is not null) { <button class="btn ghost" @onclick="UndoProfile" title="Put back the profile from before the last automatic update">↶ Undo last update</button> }
+                <button class="btn ghost" @onclick="SaveProfile">Save profile</button>
+            </div>
             @if (_tidyMessage is not null) { <div class="muted small">@_tidyMessage</div> }
         </section>
 
@@ -81,26 +85,19 @@
     }
 
     <section class="card">
-        <h3>@_items.Count memories</h3>
-        @foreach (var m in _items)
-        {
-            var mem = m;
-            <div class="memory-row">
-                @if (_editing == mem.Id)
-                {
-                    <input class="grow" @bind="_editText" @onkeydown="e => EditKey(e, mem.Id)" />
-                    <button class="btn primary" @onclick="() => SaveEdit(mem.Id)">Save</button>
-                }
-                else
-                {
-                    <span class="grow">@mem.Text</span>
-                    <span class="muted small">@mem.CreatedAt.ToString("MMM d")</span>
-                    <button class="icon-btn" title="Edit" @onclick="() => { _editing = mem.Id; _editText = mem.Text; }">✎</button>
-                    <button class="icon-btn" title="Delete" @onclick="() => Store.DeleteAsync(mem.Id)">🗑</button>
-                }
-            </div>
-        }
+        <h3>Recent memories <span class="muted small">(@Recent.Count, in every reply)</span></h3>
+        <p class="muted small">New things Locus learned. Once they're folded into your profile they move to long-term storage.</p>
+        @foreach (var m in Recent) { @Row(m) }
         @if (_items.Count == 0) { <p class="muted">Nothing remembered yet.</p> }
+        else if (Recent.Count == 0) { <p class="muted small">None: everything is in your profile and long-term storage.</p> }
+
+        @if (LongTerm.Count > 0)
+        {
+            <details class="memory-archive">
+                <summary><b>Long-term storage</b> <span class="muted small">(@LongTerm.Count, brought into a reply when relevant to what you ask)</span></summary>
+                @foreach (var m in LongTerm) { @Row(m) }
+            </details>
+        }
         @if (_items.Count > 0)
         {
             <button class="btn danger" @onclick="() => Store.ClearAsync()">Forget everything</button>
@@ -169,11 +166,54 @@
 
     private string Text(string id) => _items.FirstOrDefault(m => m.Id == id)?.Text ?? id;
 
+    private UserProfile? _profileInfo;
+    private List<Locus.Core.Services.Memory> Recent => _items.Where(m => !m.Archived).OrderByDescending(m => m.CreatedAt).ToList();
+    private List<Locus.Core.Services.Memory> LongTerm => _items.Where(m => m.Archived).OrderByDescending(m => m.CreatedAt).ToList();
+
+    private RenderFragment Row(Locus.Core.Services.Memory mem) => @<div class="memory-row">
+        @if (_editing == mem.Id)
+        {
+            <input class="grow" @bind="_editText" @onkeydown="e => EditKey(e, mem.Id)" />
+            <button class="btn primary" @onclick="() => SaveEdit(mem.Id)">Save</button>
+        }
+        else
+        {
+            <span class="grow">@mem.Text</span>
+            <span class="muted small">@mem.CreatedAt.ToString("MMM d")</span>
+            <button class="icon-btn" title="@(mem.Archived ? "Move back to recent (in every reply)" : "Move to long-term storage")" @onclick="() => Store.SetArchivedAsync([mem.Id], !mem.Archived)">@(mem.Archived ? "↑" : "↓")</button>
+            <button class="icon-btn" title="Edit" @onclick="() => { _editing = mem.Id; _editText = mem.Text; }">✎</button>
+            <button class="icon-btn" title="Delete" @onclick="() => Store.DeleteAsync(mem.Id)">🗑</button>
+        }
+    </div>;
+
+    private async Task Fold()
+    {
+        _tidying = true;
+        _tidyMessage = null;
+        try
+        {
+            var (folded, updated) = await Curator.ConsolidateAsync();
+            await LoadCurationAsync();
+            _items = await Store.ListAsync();
+            _tidyMessage = updated || folded > 0 ? $"Profile updated; {folded} memories moved to long-term storage." : "Nothing to fold in.";
+        }
+        catch (Exception ex) { _tidyMessage = ex.Message; }
+        finally { _tidying = false; }
+    }
+
+    private async Task UndoProfile()
+    {
+        await Curator.UndoProfileAsync();
+        await LoadCurationAsync();
+        _tidyMessage = "Profile put back.";
+    }
+
     private static void Toggle<T>(HashSet<T> skip, T item, bool keep) { if (keep) skip.Remove(item); else skip.Add(item); }
 
     private async Task LoadCurationAsync()
     {
-        _profile = (await Curator.ProfileAsync()).Text;
+        _profileInfo = await Curator.ProfileAsync();
+        _profile = _profileInfo.Text;
         _cleanup = await Curator.PendingAsync();
         _skipMerges.Clear();
         _skipDrops.Clear();

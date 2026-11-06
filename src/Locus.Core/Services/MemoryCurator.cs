@@ -24,6 +24,10 @@ public sealed class UserProfile
     public string Text { get; set; } = "";
     public DateTimeOffset UpdatedAt { get; set; }
     public int FactsAtLastCleanup { get; set; }
+    /// <summary>The profile before the last automatic update, so it can be undone.</summary>
+    public string? PreviousText { get; set; }
+    /// <summary>When new memories were last folded into the profile.</summary>
+    public DateTimeOffset? ConsolidatedAt { get; set; }
 }
 
 /// <summary>
@@ -51,18 +55,123 @@ public sealed class MemoryCurator(MemoryStore memories, SettingsStore settingsSt
         Changed?.Invoke();
     }
 
-    /// <summary>Checks a few times a day; proposes a cleanup once 15+ facts were added since the last one.</summary>
-    public void EnsureStarted() => _timer ??= new Timer(_ => _ = AutoAsync(), null, TimeSpan.FromMinutes(2), TimeSpan.FromHours(6));
+    /// <summary>Checks hourly: folds new memories into the profile overnight, and proposes a tidy-up once 15+ facts were
+    /// added since the last one.</summary>
+    public void EnsureStarted() => _timer ??= new Timer(_ => _ = AutoAsync(), null, TimeSpan.FromMinutes(2), TimeSpan.FromHours(1));
 
     private async Task AutoAsync()
     {
         try
         {
-            if (!(await settingsStore.GetAsync()).MemoryEnabled || await PendingAsync() is not null) return;
+            if (!(await settingsStore.GetAsync()).MemoryEnabled) return;
+            if (ConsolidationDue(await ProfileAsync(), await memories.ListAsync(), DateTimeOffset.Now)) await ConsolidateAsync();
+            if (await PendingAsync() is not null) return;
             var count = (await memories.ListAsync()).Count;
             if (count - (await ProfileAsync()).FactsAtLastCleanup >= 15) await ProposeAsync();
         }
         catch { /* best effort */ }
+    }
+
+    /// <summary>Recent memories listed in every prompt beyond this many get folded in even if it's not night yet.</summary>
+    public const int FoldWhenRecentReach = 40;
+
+    /// <summary>
+    /// Fold new memories into the profile: once a night (between 2 and 6 am) when there are any, or any time the recent
+    /// list gets long, or when it's been two days.
+    /// </summary>
+    public static bool ConsolidationDue(UserProfile profile, IReadOnlyList<Memory> facts, DateTimeOffset now)
+    {
+        var fresh = facts.Count(f => !f.Archived);
+        if (fresh == 0) return false;
+        if (fresh >= FoldWhenRecentReach) return true;
+        var last = profile.ConsolidatedAt;
+        if (last is null || now - last.Value >= TimeSpan.FromHours(48)) return fresh >= 3 || last is null && fresh >= 10;
+        return now.Hour is >= 2 and < 6 && now - last.Value >= TimeSpan.FromHours(20);
+    }
+
+    /// <summary>
+    /// Long-term memory: rewrites the profile to include the memories added since the last time, and moves the ones it
+    /// now covers to long-term storage (archived: still searchable, brought up when relevant, never deleted). The old
+    /// profile is kept so the update can be undone.
+    /// </summary>
+    public async Task<(int folded, bool updated)> ConsolidateAsync(CancellationToken ct = default)
+    {
+        if (Interlocked.Exchange(ref _busy, 1) == 1) return (0, false);
+        using var usageScope = UsageScope.Begin("Memory tidy-up");
+        try
+        {
+            var facts = await memories.ListAsync();
+            var fresh = facts.Where(f => !f.Archived).ToList();
+            var profile = await ProfileAsync();
+            if (fresh.Count == 0) return (0, false);
+            var settings = await settingsStore.GetAsync();
+            var model = await models.PickAsync(null) ?? throw new InvalidOperationException("No model is available.");
+            var prompt = new List<LlmMessage>
+            {
+                LlmMessage.System(
+                    "You maintain an AI assistant's long-term profile of its user. Update the profile with the new memories: " +
+                    "who they are, their work and goals, preferences (food, tools, how they like answers), key people, " +
+                    "ongoing projects and constraints. Keep everything still true from the current profile, replace what newer " +
+                    "memories contradict (newer date wins), keep exact names and numbers. At most 250 words, short plain " +
+                    "sentences or bullets grouped by topic. Then list the ids of the new memories the profile now fully covers; " +
+                    "leave out one-off details it doesn't cover. Reply in exactly this format:\n" +
+                    "PROFILE:\n<text>\nFOLDED: id1, id2, …"),
+                LlmMessage.User((profile.Text.Length > 0 ? $"Current profile:\n{profile.Text}\n\n" : "Current profile: (none yet)\n\n") +
+                    "New memories (id | date | memory):\n" + string.Join("\n", fresh.Select(f => $"{f.Id} | {f.CreatedAt:yyyy-MM-dd} | {f.Text}"))),
+            };
+            // Background work: let chats go first on a local model server.
+            ModelQueue.MarkBackground();
+            await ModelQueue.WaitForChatsAsync(settings.ActiveProvider, ct);
+            var sb = new StringBuilder();
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromMinutes(5));
+            await foreach (var c in factory.CreateForChat(settings).StreamChatAsync(new LlmRequest(model, prompt, 0.2, 1200, 16384, false), cts.Token))
+                sb.Append(c.Content);
+
+            var (text, folded) = ParseConsolidation(sb.ToString(), fresh.Select(f => f.Id).ToHashSet());
+            if (text is null) return (0, false);
+            var updated = text != profile.Text;
+            if (updated)
+            {
+                profile.PreviousText = profile.Text;
+                profile.Text = text;
+                profile.UpdatedAt = DateTimeOffset.Now;
+            }
+            profile.ConsolidatedAt = DateTimeOffset.Now;
+            await memories.Provider.SaveProfileAsync(profile);
+            await memories.SetArchivedAsync(folded, true);
+            await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Message, "Memory: profile updated",
+                $"{folded.Count} memories folded into your profile and moved to long-term storage."));
+            Changed?.Invoke();
+            return (folded.Count, updated);
+        }
+        finally { Interlocked.Exchange(ref _busy, 0); }
+    }
+
+    /// <summary>The new profile (null if the reply had none) and the ids of memories it covers.</summary>
+    public static (string? profile, List<string> folded) ParseConsolidation(string reply, IReadOnlySet<string> freshIds)
+    {
+        var text = reply.Replace("\r", "");
+        var p = text.IndexOf("PROFILE:", StringComparison.OrdinalIgnoreCase);
+        var f = text.LastIndexOf("FOLDED:", StringComparison.OrdinalIgnoreCase);
+        if (p < 0) return (null, []);
+        var profile = (f > p ? text[(p + 8)..f] : text[(p + 8)..]).Trim();
+        if (profile.Length < 20) return (null, []);
+        if (profile.Length > 2500) profile = profile[..2500];
+        var folded = f < 0 ? [] : text[(f + 7)..].Split([',', '\n', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(id => id.Trim('`', '"', '.', '*')).Where(freshIds.Contains).Distinct().ToList();
+        return (profile, folded);
+    }
+
+    /// <summary>Puts back the profile from before the last automatic update.</summary>
+    public async Task UndoProfileAsync()
+    {
+        var p = await ProfileAsync();
+        if (p.PreviousText is null) return;
+        (p.Text, p.PreviousText) = (p.PreviousText, null);
+        p.UpdatedAt = DateTimeOffset.Now;
+        await memories.Provider.SaveProfileAsync(p);
+        Changed?.Invoke();
     }
 
     /// <summary>Asks the model for a tidy-up and stores it for review. Returns null when nothing needs changing.</summary>

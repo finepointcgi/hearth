@@ -65,11 +65,22 @@ public sealed class SqliteMemoryProvider : IMemoryProvider, IDisposable
                 CREATE VIRTUAL TABLE IF NOT EXISTS chat_fts USING fts5(text, chat_id UNINDEXED, idx UNINDEXED, tokenize='porter unicode61');
                 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
                 """);
+            await AddColumnAsync(c, "memories", "archived", "INTEGER NOT NULL DEFAULT 0");
+            await AddColumnAsync(c, "profile", "prev_text", "TEXT");
+            await AddColumnAsync(c, "profile", "consolidated", "TEXT");
             await ImportJsonOnceAsync(c);
             _ready = true;
             _embedTimer = new Timer(_ => _ = EmbedBacklogAsync(wait: false), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
         }
         finally { _initLock.Release(); }
+    }
+
+    /// <summary>Adds a column to a table from an older version of Locus (no-op when it's there).</summary>
+    private static async Task AddColumnAsync(SqliteConnection c, string table, string column, string type)
+    {
+        await using (var info = Cmd(c, $"SELECT 1 FROM pragma_table_info('{table}') WHERE name = $n", ("$n", column)))
+            if (await info.ExecuteScalarAsync() is not null) return;
+        await ExecAsync(c, $"ALTER TABLE {table} ADD COLUMN {column} {type}");
     }
 
     private static async Task ExecAsync(SqliteConnection c, string sql, params (string name, object? value)[] args)
@@ -138,12 +149,18 @@ public sealed class SqliteMemoryProvider : IMemoryProvider, IDisposable
     public async Task<List<Memory>> ListAsync(string? scope)
     {
         await using var c = await OpenAsync();
-        await using var cmd = Cmd(c, "SELECT id, text, created FROM memories WHERE scope = $s ORDER BY created, rowid", ("$s", S(scope)));
+        await using var cmd = Cmd(c, "SELECT id, text, created, archived FROM memories WHERE scope = $s ORDER BY created, rowid", ("$s", S(scope)));
         var list = new List<Memory>();
         await using var r = await cmd.ExecuteReaderAsync();
-        while (await r.ReadAsync()) list.Add(new Memory(r.GetString(0), r.GetString(1), DateTimeOffset.Parse(r.GetString(2))));
+        while (await r.ReadAsync()) list.Add(new Memory(r.GetString(0), r.GetString(1), DateTimeOffset.Parse(r.GetString(2)), r.GetInt64(3) != 0));
         return list;
     }
+
+    public Task SetArchivedAsync(IReadOnlyCollection<string> ids, bool archived, string? scope) => WriteAsync(async c =>
+    {
+        foreach (var id in ids)
+            await ExecAsync(c, "UPDATE memories SET archived = $a WHERE id = $id AND scope = $s", ("$a", archived ? 1 : 0), ("$id", id), ("$s", S(scope)));
+    }, scope);
 
     public async Task<Memory> AddAsync(string text, string? scope)
     {
@@ -279,7 +296,7 @@ public sealed class SqliteMemoryProvider : IMemoryProvider, IDisposable
     public async Task<UserProfile> GetProfileAsync()
     {
         await using var c = await OpenAsync();
-        await using var cmd = Cmd(c, "SELECT text, updated, facts_at_cleanup FROM profile WHERE id = 1");
+        await using var cmd = Cmd(c, "SELECT text, updated, facts_at_cleanup, prev_text, consolidated FROM profile WHERE id = 1");
         await using var r = await cmd.ExecuteReaderAsync();
         if (!await r.ReadAsync()) return new UserProfile();
         return new UserProfile
@@ -287,12 +304,15 @@ public sealed class SqliteMemoryProvider : IMemoryProvider, IDisposable
             Text = r.GetString(0),
             UpdatedAt = r.IsDBNull(1) ? default : DateTimeOffset.Parse(r.GetString(1)),
             FactsAtLastCleanup = r.GetInt32(2),
+            PreviousText = r.IsDBNull(3) ? null : r.GetString(3),
+            ConsolidatedAt = r.IsDBNull(4) ? null : DateTimeOffset.Parse(r.GetString(4)),
         };
     }
 
     public Task SaveProfileAsync(UserProfile p) => WriteAsync(c => ExecAsync(c,
-        "INSERT OR REPLACE INTO profile(id, text, updated, facts_at_cleanup) VALUES (1, $t, $u, $f)",
-        ("$t", p.Text), ("$u", p.UpdatedAt.ToString("o")), ("$f", p.FactsAtLastCleanup)), null);
+        "INSERT OR REPLACE INTO profile(id, text, updated, facts_at_cleanup, prev_text, consolidated) VALUES (1, $t, $u, $f, $p, $c)",
+        ("$t", p.Text), ("$u", p.UpdatedAt.ToString("o")), ("$f", p.FactsAtLastCleanup), ("$p", p.PreviousText),
+        ("$c", p.ConsolidatedAt?.ToString("o"))), null);
 
     // ------------------------------------------------------------------ chat history
 

@@ -722,3 +722,7 @@ iframe.code-preview { height: 360px; background: #fff; }
 .handoff-request .md { margin: .3rem 0 .2rem 1rem; color: var(--text); }
 .handoff-reply > .msg { padding: 0; margin: .2rem 0 0; }
 .handoff-reply > .msg .msg-author { display: none; }
+
+/* Memory page: long-term storage */
+.memory-archive { margin-top: .8rem; }
+.memory-archive > summary { cursor: pointer; padding: .3rem 0; }

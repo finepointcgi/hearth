@@ -351,6 +351,18 @@ public sealed class ChatService(
             var toolTokens = available.Sum(t => ContextWindow.Tokens(t.Name + t.Description + t.Parameters.ToJsonString()) + 10);
             var historyRoom = budget - toolTokens - ContextWindow.Tokens(system.ToString());
             baseMessages.AddRange(await FitHistoryAsync(conv, window, bot, allBots, skills, client, model, historyRoom, reply, onUpdate, ct));
+            // Long-term memories that match this message ride along with it rather than in the system prompt, so the
+            // start of the prompt stays the same from message to message (local servers reuse it).
+            if (settings.MemoryEnabled && baseMessages.FindLastIndex(m => m.Role == "user") is var ask and >= 0
+                && await RelevantMemoriesAsync(bot, lastUser.Content, Math.Max(5, bot?.Memory.MaxInPrompt ?? 60)) is { Count: > 0 } recalled)
+            {
+                var m = baseMessages[ask];
+                baseMessages[ask] = new LlmMessage
+                {
+                    Role = "user", Images = m.Images,
+                    Content = m.Content + "\n\n[From long-term memory, possibly relevant:\n" + string.Join("\n", recalled.Select(r => "- " + r.Text)) + "]",
+                };
+            }
 
             var ctx = new ToolContext
             {
@@ -642,6 +654,32 @@ public sealed class ChatService(
         "when it's quick (a fact you know, a calculation, a date). When the specialists' results are in, reply once with " +
         "the combined answer for the user.";
 
+    /// <summary>The memories listed in every prompt: not yet in long-term storage, newest <paramref name="max"/>, oldest first.</summary>
+    public static List<Memory> RecentMemories(IReadOnlyList<Memory> all, int max) =>
+        all.Where(m => !m.Archived).OrderByDescending(m => m.CreatedAt).Take(max).Reverse().ToList();
+
+    /// <summary>How many long-term memories may ride along with a message.</summary>
+    public const int RecalledPerMessage = 6;
+
+    /// <summary>Memories not listed in the prompt (long-term, or past the recent list) that match the user's message.</summary>
+    private async Task<List<Memory>> RelevantMemoriesAsync(Bot? bot, string message, int max)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return [];
+        var found = new List<Memory>();
+        var scopes = new List<string?>();
+        if (bot is null || bot.Memory.UseSharedMemory) scopes.Add(null);
+        if (bot is { Memory.Enabled: true }) scopes.Add(bot.Id);
+        foreach (var scope in scopes)
+        {
+            var all = await memories.ListAsync(scope);
+            if (all.Count == 0) continue;
+            var listed = RecentMemories(all, max).Select(m => m.Id).ToHashSet();
+            if (listed.Count == all.Count) continue;
+            found.AddRange((await memories.SearchAsync(message, scope, 20)).Where(m => !listed.Contains(m.Id)));
+        }
+        return found.DistinctBy(m => m.Text).Take(RecalledPerMessage).ToList();
+    }
+
     /// <summary>Tasks, routines, heartbeat, bot checks and the bot inbox: nobody is waiting on the reply.</summary>
     public static bool IsBackgroundRun(ChatMessage lastUser, string? untrustedInput) =>
         lastUser.RoutineName is not null and not ("Helper" or "API")
@@ -723,6 +761,8 @@ public sealed class ChatService(
 
         if (settings.MemoryEnabled)
         {
+            // Three layers: the profile (always), recent memories not yet folded into it (listed here), and long-term
+            // memories (archived), which are attached to the user's message when relevant (see RelevantMemoriesAsync).
             var max = Math.Max(5, bot?.Memory.MaxInPrompt ?? 60);
             var hidden = 0;
             if (bot is null || bot.Memory.UseSharedMemory)
@@ -730,23 +770,27 @@ public sealed class ChatService(
                 if ((await curator.ProfileAsync()).Text is { Length: > 0 } profile)
                     system.AppendLine().AppendLine().AppendLine("Who the user is (their profile):").AppendLine(profile);
                 var shared = await memories.ListAsync();
-                hidden += Math.Max(0, shared.Count - max);
-                if (shared.Count > 0)
+                var recent = RecentMemories(shared, max);
+                hidden += shared.Count - recent.Count;
+                if (recent.Count > 0)
                 {
                     system.AppendLine().AppendLine().AppendLine("What you remember about the user (id: fact):");
-                    foreach (var m in shared.OrderByDescending(m => m.CreatedAt).Take(max).Reverse())
-                        system.AppendLine($"- {m.Id}: {m.Text}");
+                    foreach (var m in recent) system.AppendLine($"- {m.Id}: {m.Text}");
                 }
             }
             if (bot is { Memory.Enabled: true } && await memories.ListAsync(bot.Id) is { Count: > 0 } own)
             {
-                hidden += Math.Max(0, own.Count - max);
-                system.AppendLine().AppendLine($"Your own notes as {bot.Name} (id: note):");
-                foreach (var m in own.OrderByDescending(m => m.CreatedAt).Take(max).Reverse())
-                    system.AppendLine($"- {m.Id}: {m.Text}");
+                var recent = RecentMemories(own, max);
+                hidden += own.Count - recent.Count;
+                if (recent.Count > 0)
+                {
+                    system.AppendLine().AppendLine($"Your own notes as {bot.Name} (id: note):");
+                    foreach (var m in recent) system.AppendLine($"- {m.Id}: {m.Text}");
+                }
             }
-            if (hidden > 0 && byName.ContainsKey("recall_memory"))
-                system.AppendLine($"({hidden} older memories aren't listed; search them with recall_memory.)");
+            if (hidden > 0)
+                system.AppendLine($"({hidden} more memories are in long-term storage. Ones that look relevant are attached to the user's " +
+                    $"message as \"From long-term memory\"{(byName.ContainsKey("recall_memory") ? "; search the rest with recall_memory" : "")}.)");
         }
 
         if (bot is not null && members.Count > 1)
