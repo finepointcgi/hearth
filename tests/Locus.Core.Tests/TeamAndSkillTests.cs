@@ -122,6 +122,89 @@ public sealed class TeamAndSkillTests : IDisposable
     }
 
     [Fact]
+    public async Task CoordinatorPicksABotVersionOnAnotherModel()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        var researcher = new Bot
+        {
+            Name = "Researcher", Title = "Research",
+            Versions = [new BotVersion { Name = "strong", ProviderId = _settings.Providers[1].Id, Model = "cloud-model", Note = "hard research" }],
+        };
+        foreach (var b in new[] { chief, researcher }) await bots.SaveAsync(b);
+        string? chiefSystem = null;
+        JsonObject? schema = null;
+        _team.Script = (bot, messages, req) =>
+        {
+            if (bot != "Chief") return new LlmChunk("FACTS from " + req.Model);
+            chiefSystem ??= messages[0].Content;
+            schema ??= req.Tools?.First(t => t.Name == "message_bot").Parameters;
+            return ToolResults(messages, "message_bot") == 0
+                ? ScriptedTeam.Call("message_bot", new { bot = "Researcher", message = "Dig into the merger.", version = "strong" })
+                : new LlmChunk("DONE — " + messages.Last(m => m.Role == "tool").Content);
+        };
+
+        var conv = new Conversation { BotIds = [chief.Id] };
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "@Chief look into the merger" });
+        await _sp.GetRequiredService<ChatService>().GenerateAsync(conv, new SendOptions("main-model", false, false, true), () => Task.CompletedTask, CancellationToken.None);
+
+        Assert.Contains("version \"strong\": cloud-model on cloud — hard research", chiefSystem);
+        Assert.Contains("Researcher: usually default model on main", chiefSystem);
+        Assert.NotNull(schema!["properties"]!["version"]);
+        Assert.Contains(_team.Calls, c => c is { bot: "Researcher", server: "cloud", model: "cloud-model" });
+        Assert.Contains("Researcher (strong) replied:\n\nFACTS from cloud-model", conv.Messages.Last().Content);
+        // The saved bot is unchanged: the version only applied to that hand-off.
+        Assert.Null((await bots.GetAsync(researcher.Id))!.ProviderId);
+    }
+
+    [Fact]
+    public async Task UnknownVersionTellsTheCoordinatorWhatExists()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        var researcher = new Bot { Name = "Researcher", Title = "Research", Versions = [new BotVersion { Name = "strong" }] };
+        foreach (var b in new[] { chief, researcher }) await bots.SaveAsync(b);
+        _team.Script = (bot, messages, _) => bot != "Chief" ? new LlmChunk("x")
+            : ToolResults(messages, "message_bot") == 0
+                ? ScriptedTeam.Call("message_bot", new { bot = "Researcher", message = "hi", version = "turbo" })
+                : new LlmChunk("seen: " + messages.Last(m => m.Role == "tool").Content);
+        var conv = new Conversation { BotIds = [chief.Id] };
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "@Chief ask" });
+        await _sp.GetRequiredService<ChatService>().GenerateAsync(conv, new SendOptions("main-model", false, false, true), () => Task.CompletedTask, CancellationToken.None);
+        Assert.Contains("no version 'turbo'. Versions: strong", conv.Messages.Last().Content);
+        Assert.DoesNotContain(_team.Calls, c => c.bot == "Researcher");
+    }
+
+    [Fact]
+    public async Task ClearSpecialistWorkSkipsALoneCoordinator()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        var researcher = new Bot { Name = "Researcher", Title = "Research" };
+        foreach (var b in new[] { chief, researcher }) await bots.SaveAsync(b);
+        _team.Script = (bot, messages, _) =>
+            messages[0].Content.StartsWith("You route") ? new LlmChunk(messages[^1].Content.Contains("stock") ? "Researcher" : "Chief")
+            : new LlmChunk(bot + " answered");
+        var chat = _sp.GetRequiredService<ChatService>();
+        var opts = new SendOptions("main-model", false, false, true);
+
+        var conv = new Conversation { BotIds = [chief.Id] };
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "research Google's stock" });
+        await chat.GenerateAsync(conv, opts, () => Task.CompletedTask, CancellationToken.None);
+        var replies = conv.Messages.Where(m => m.Role == ChatRole.Assistant && m.Notice is null).ToList();
+        Assert.Equal("Researcher answered", Assert.Single(replies).Content); // no Chief call at all
+        Assert.DoesNotContain(_team.Calls, c => c.bot == "Chief");
+        Assert.Contains(conv.Messages, m => m.Notice?.Contains("added") == true && m.Notice.Contains("Researcher"));
+
+        // Chat and anything unclear stay with the coordinator.
+        var other = new Conversation { BotIds = [chief.Id] };
+        other.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "morning! what's on today?" });
+        await chat.GenerateAsync(other, opts, () => Task.CompletedTask, CancellationToken.None);
+        Assert.Equal("Chief answered", other.Messages.Last().Content);
+        Assert.Equal([chief.Id], other.BotIds);
+    }
+
+    [Fact]
     public async Task CoordinatorOnItsOwnServerDelegatesToTwoBotsAndCombinesTheirWork()
     {
         var bots = _sp.GetRequiredService<BotStore>();

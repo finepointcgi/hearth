@@ -320,6 +320,21 @@ public class OpenAICompatTests
         Assert.Equal(2, strict.Requests.Count);
         Assert.Null(strict.Requests[1]["chat_template_kwargs"]);
     }
+
+    [Fact]
+    public async Task LastStepKeepsToolsListedButSwitchesCallsOff()
+    {
+        // The model calls a tool anyway: on a no-more-tools step it doesn't come back as a call.
+        var handler = new Sse("data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"calculate\",\"arguments\":\"{}\"}}]}}]}\n\ndata: [DONE]\n\n");
+        var client = new OpenAICompatibleClient(new HttpClient(handler), new ProviderProfile { BaseUrl = "http://mlx.test/v1" });
+        var tools = new List<ToolDefinition> { new("calculate", "math", Locus.Core.Tools.Schema.Object()) };
+        var calls = new List<LlmToolCall>();
+        await foreach (var c in client.StreamChatAsync(new LlmRequest("qwen", [LlmMessage.User("hi")], 0.7, 0, 0, false, tools) { NoToolCalls = true }))
+            if (c.ToolCalls is not null) calls.AddRange(c.ToolCalls);
+        Assert.Equal("calculate", handler.Requests[0]["tools"]![0]!["function"]!["name"]!.GetValue<string>());
+        Assert.Equal("none", handler.Requests[0]["tool_choice"]!.GetValue<string>());
+        Assert.Empty(calls);
+    }
 }
 
 public class ClaudeCodeRunOnTests

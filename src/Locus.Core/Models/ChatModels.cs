@@ -71,6 +71,11 @@ public sealed class ToolCall
     public string? Preface { get; set; }
     /// <summary>Provider data for the turn that made this call (set on the round's first call), replayed verbatim.</summary>
     public string? ProviderState { get; set; }
+    /// <summary>
+    /// When set, the model is sent only this many characters of <see cref="Result"/>. Once a result is shortened it
+    /// stays shortened, so the start of the prompt doesn't change from step to step and the model server can reuse it.
+    /// </summary>
+    public int? SentChars { get; set; }
     [JsonIgnore] public TaskCompletionSource<bool>? Approval { get; set; }
     /// <summary>Screenshot returned by the tool: shown in its card and sent to vision models (latest only).</summary>
     [JsonIgnore] public ImageAttachment? Image { get; set; }

@@ -78,7 +78,11 @@ public sealed class OpenAICompatibleClient(HttpClient http, ProviderProfile prof
             ["messages"] = new JsonArray(req.Messages.Select(ToJson).ToArray()),
         };
         if (req.MaxTokens > 0) payload["max_tokens"] = req.MaxTokens;
-        if (req.Tools is { Count: > 0 }) payload["tools"] = LlmJson.ToolsArray(req.Tools);
+        if (req.Tools is { Count: > 0 })
+        {
+            payload["tools"] = LlmJson.ToolsArray(req.Tools);
+            if (req.NoToolCalls) payload["tool_choice"] = "none";
+        }
         // Qwen3, DeepSeek-R1-style and other hybrid models think unless told not to; mlx/vLLM/llama.cpp/LM Studio
         // pass this to the chat template. Without it the Think switch did nothing and every reply thought first.
         payload["chat_template_kwargs"] = new JsonObject { ["enable_thinking"] = req.Think };
@@ -111,6 +115,11 @@ public sealed class OpenAICompatibleClient(HttpClient http, ProviderProfile prof
                 if (body.Contains("chat_template_kwargs", StringComparison.OrdinalIgnoreCase) && payload.ContainsKey("chat_template_kwargs"))
                 {
                     payload.Remove("chat_template_kwargs");
+                    continue;
+                }
+                if (body.Contains("tool_choice", StringComparison.OrdinalIgnoreCase) && payload.ContainsKey("tool_choice"))
+                {
+                    payload.Remove("tool_choice"); // the "no more tools" note in the messages still asks for an answer
                     continue;
                 }
                 if (body.Contains("stream_options", StringComparison.OrdinalIgnoreCase) && payload.ContainsKey("stream_options"))
@@ -192,7 +201,7 @@ public sealed class OpenAICompatibleClient(HttpClient http, ProviderProfile prof
             var secs = (DateTime.UtcNow - firstToken.Value).TotalSeconds;
             stats = new LlmStats(null, chunks, secs > 0 ? chunks / secs : null);
         }
-        var toolCalls = calls.Values.Where(c => c.name.Length > 0)
+        var toolCalls = req.NoToolCalls ? [] : calls.Values.Where(c => c.name.Length > 0)
             .Select(c => new LlmToolCall(c.id, c.name, c.args.Length > 0 ? c.args.ToString() : "{}"))
             .ToList();
         yield return new LlmChunk(fc, ft, stats, toolCalls.Count > 0 ? toolCalls : null,

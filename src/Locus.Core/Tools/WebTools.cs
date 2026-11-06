@@ -16,14 +16,16 @@ public sealed class WebSearchTool(WebSearchService search) : ITool
         "Cite results in your answer as [n]. Use fetch_url to read a promising page in full.";
     public JsonObject Parameters => Schema.Object(
         ("query", "string", "Search query", true),
-        ("count", "integer", "Number of results (1-10, default 6)", false));
+        ("count", "integer", "Number of results (1-10, default 5)", false));
     public bool RequiresApproval => false;
+    /// <summary>Snippets beyond this are mostly repeated page text; fetch_url reads the page when it matters.</summary>
+    public const int MaxSnippetChars = 300;
 
     public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct)
     {
         var query = args.Str("query");
         if (string.IsNullOrWhiteSpace(query)) return ToolResult.Error("query is required");
-        var count = (int)Math.Clamp(args.Num("count") ?? 6, 1, 10);
+        var count = (int)Math.Clamp(args.Num("count") ?? 5, 1, 10);
         var results = await search.SearchAsync(ctx.Settings.SearxngUrl!, query, count, ct);
         if (results.Count == 0) return new ToolResult("No results.");
 
@@ -33,7 +35,7 @@ public sealed class WebSearchTool(WebSearchService search) : ITool
         {
             var idx = ctx.Reply.Sources.FindIndex(s => s.Url == r.Url);
             if (idx < 0) { ctx.Reply.Sources.Add(r); idx = ctx.Reply.Sources.Count - 1; }
-            sb.AppendLine($"[{idx + 1}] {r.Title}\n{r.Url}\n{r.Snippet}\n");
+            sb.AppendLine($"[{idx + 1}] {r.Title}\n{r.Url}\n{Schema.Truncate(r.Snippet, MaxSnippetChars)}\n");
         }
         return new ToolResult(sb.ToString());
     }
@@ -44,17 +46,17 @@ public sealed class FetchUrlTool(IHttpClientFactory http) : ITool
     public string Name => "fetch_url";
     public string DisplayName => "Read web page";
     public string Icon => "🌐";
-    public string Description => "Download a web page or PDF and return its readable text.";
+    public string Description => "Download a web page or PDF and return its readable text (the start of it; raise max_chars only if what you need is further down).";
     public JsonObject Parameters => Schema.Object(
         ("url", "string", "Absolute http(s) URL", true),
-        ("max_chars", "integer", "Maximum characters to return (default 12000)", false));
+        ("max_chars", "integer", $"Maximum characters to return (default {DefaultChars})", false));
     public bool RequiresApproval => false;
 
     public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct)
     {
         if (!Uri.TryCreate(args.Str("url"), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             return ToolResult.Error("A valid http(s) URL is required.");
-        var max = (int)Math.Clamp(args.Num("max_chars") ?? 12000, 500, 60000);
+        var max = (int)Math.Clamp(args.Num("max_chars") ?? DefaultChars, 500, 60000);
 
         string title, text;
         try { (title, text) = await ReadAsync(uri, ct); }
@@ -69,7 +71,21 @@ public sealed class FetchUrlTool(IHttpClientFactory http) : ITool
         if (!ctx.Reply.Sources.Any(s => s.Url == uri.ToString()))
             ctx.Reply.Sources.Add(new SearchResult(title.Length > 0 ? title : uri.Host, uri.ToString(), ""));
 
-        return new ToolResult($"# {title}\nSource: {uri}\n\n{Schema.Truncate(text, max)}");
+        return new ToolResult($"# {title}\nSource: {uri}\n\n{Schema.Truncate(DropRepeats(text), max)}");
+    }
+
+    /// <summary>
+    /// Each page read stays in the prompt for the rest of the reply, and on local models a long prompt is slow to
+    /// read: 6,000 characters (~1,500 tokens) covers most articles' substance.
+    /// </summary>
+    public const int DefaultChars = 6000;
+
+    /// <summary>Drops lines repeated on the page (menus, "Share", cookie lines), keeping the first of each.</summary>
+    public static string DropRepeats(string text)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lines = text.Split('\n').Where(l => l.Trim() is var t && (t.Length == 0 || t.Length > 120 || seen.Add(t)));
+        return string.Join('\n', lines);
     }
 
     /// <summary>Downloads a page or PDF and returns its title and readable text (throws on HTTP errors).</summary>

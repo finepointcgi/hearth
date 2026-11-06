@@ -705,3 +705,8 @@ iframe.code-preview { height: 360px; background: #fff; }
 /* What the model said before a round of tool calls: shown with the steps, not in the answer. */
 .step-preface { color: var(--muted); font-size: .88em; margin: .35rem 0 .15rem; }
 .step-preface p { margin: 0 0 .3rem; }
+
+/* Bot editor: versions on other models */
+.versions-head { margin: .9rem 0 .1rem; font-size: .95rem; }
+.version-row { display: flex; gap: .5rem; align-items: flex-end; flex-wrap: wrap; padding: .5rem 0; border-bottom: 1px solid var(--line); }
+.version-row label { margin: 0; }

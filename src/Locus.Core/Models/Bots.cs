@@ -241,7 +241,38 @@ public sealed class Bot
     /// <summary>Coordinators route work to specialists and summarise results ("chief of staff").</summary>
     public bool IsCoordinator { get; set; }
     public List<Routine> Routines { get; set; } = [];
+    /// <summary>
+    /// Other models this bot can run on ("claude": Claude Code's model, "fast": a small local one…). A coordinator
+    /// picks one with message_bot when a problem needs a stronger, faster or more private model.
+    /// </summary>
+    public List<BotVersion> Versions { get; set; } = [];
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+
+    /// <summary>The version named <paramref name="name"/> (case-insensitive), or null.</summary>
+    public BotVersion? FindVersion(string? name) => string.IsNullOrWhiteSpace(name) ? null
+        : Versions.FirstOrDefault(v => v.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>This bot running on <paramref name="version"/>'s server and model (same id, memory and chats).</summary>
+    public Bot WithVersion(BotVersion version)
+    {
+        var copy = System.Text.Json.JsonSerializer.Deserialize<Bot>(System.Text.Json.JsonSerializer.Serialize(this))!;
+        copy.ProviderId = version.ProviderId;
+        copy.Model = string.IsNullOrWhiteSpace(version.Model) ? null : version.Model.Trim();
+        return copy;
+    }
+}
+
+/// <summary>Another model a bot can run on, and when to use it.</summary>
+public sealed class BotVersion
+{
+    /// <summary>Short name a coordinator uses to pick it, e.g. "claude" or "fast".</summary>
+    public string Name { get; set; } = "";
+    /// <summary>Model server; null uses the app's active server.</summary>
+    public string? ProviderId { get; set; }
+    /// <summary>Model on that server; null uses the server's default.</summary>
+    public string? Model { get; set; }
+    /// <summary>When to use it, e.g. "stronger at research and code, but uses your Claude plan".</summary>
+    public string Note { get; set; } = "";
 }
 
 public static class BotTemplates

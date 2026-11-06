@@ -49,7 +49,7 @@ public static partial class TextExtractor
     public static (string title, string text) FromHtml(string html)
     {
         var doc = new HtmlParser().ParseDocument(html);
-        foreach (var el in doc.QuerySelectorAll("script,style,noscript,svg,nav,footer,header,aside,form,iframe,template,button").ToList())
+        foreach (var el in doc.QuerySelectorAll("script,style,noscript,svg,nav,footer,header,aside,form,iframe,template,button,dialog,[role=navigation],[role=banner],[role=contentinfo],[aria-hidden=true]").ToList())
             el.Remove();
         var root = (IElement?)doc.QuerySelector("article") ?? doc.QuerySelector("main") ?? doc.Body ?? doc.DocumentElement;
         var sb = new StringBuilder();

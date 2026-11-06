@@ -78,6 +78,33 @@
         </label>
         @if (_serverError is not null) { <span class="tiny-error">@_serverError</span> }
         @if (OwnServer) { <span class="muted small">If @OwnProvider!.Name can't be reached, this bot falls back to @State.Settings.ActiveProvider.Name.</span> }
+
+        <h4 class="versions-head">Versions</h4>
+        <span class="muted small">Other models this bot can run on. A coordinator sees them and picks one when a problem needs a stronger, faster or more private model, e.g. "claude" for hard research.</span>
+        @foreach (var v in _bot.Versions)
+        {
+            var version = v;
+            <div class="version-row">
+                <label>Name <input @bind="version.Name" placeholder="e.g. claude" style="width:8rem" /></label>
+                <label>Server
+                    <select value="@(version.ProviderId ?? "")" @onchange="e => SetVersionProvider(version, e.Value?.ToString())">
+                        <option value="">@State.Settings.ActiveProvider.Name (the app's)</option>
+                        @foreach (var p in State.Settings.Providers.Where(p => p.Id != State.Settings.ActiveProvider.Id)) { <option value="@p.Id">@p.Name</option> }
+                    </select>
+                </label>
+                <label>Model
+                    <select @bind="version.Model">
+                        <option value="">Server's default</option>
+                        @foreach (var m in VersionModels(version)) { <option value="@m.Id">@m.Id</option> }
+                        @if (!string.IsNullOrEmpty(version.Model) && VersionModels(version).All(m => m.Id != version.Model)) { <option value="@version.Model">@version.Model</option> }
+                    </select>
+                </label>
+                <label class="grow">When to use it <input @bind="version.Note" placeholder="e.g. hard research or code; uses your Claude plan" /></label>
+                <button class="btn ghost small" title="Remove this version" @onclick="() => _bot.Versions.Remove(version)">✕</button>
+            </div>
+        }
+        <div><button class="btn ghost small" @onclick="AddVersion">+ Add version</button></div>
+
         <details class="advanced">
             <summary>Advanced: limit to specific tools</summary>
             <label>Tool access
@@ -508,6 +535,7 @@
         foreach (var r in _bot.Routines) _states[r.Id] = await TriggerStates.GetAsync(r.Id);
         _googleConnected = await GoogleAuth.IsConnectedAsync();
         await LoadServerModelsAsync();
+        foreach (var v in _bot.Versions) await LoadVersionModelsAsync(v);
     }
 
     private IReadOnlyList<ModelInfo> _serverModels = [];
@@ -532,6 +560,30 @@
         catch (Exception ex) { _serverError = $"{p.Name}: {ex.Message}"; }
     }
 
+    private readonly Dictionary<string, IReadOnlyList<ModelInfo>> _modelsByServer = [];
+
+    /// <summary>Models on a version's server (the app's own list for the active server).</summary>
+    private IReadOnlyList<ModelInfo> VersionModels(BotVersion v) =>
+        v.ProviderId is null || v.ProviderId == State.Settings.ActiveProvider.Id ? State.Models
+        : _modelsByServer.GetValueOrDefault(v.ProviderId) ?? [];
+
+    private async Task SetVersionProvider(BotVersion v, string? id)
+    {
+        v.ProviderId = string.IsNullOrEmpty(id) ? null : id;
+        v.Model = null; // models differ between servers
+        await LoadVersionModelsAsync(v);
+    }
+
+    private async Task LoadVersionModelsAsync(BotVersion v)
+    {
+        if (v.ProviderId is not { } id || _modelsByServer.ContainsKey(id)
+            || State.Settings.Providers.FirstOrDefault(p => p.Id == id) is not { } p) return;
+        try { _modelsByServer[id] = await Llms.Create(p).ListModelsAsync(); }
+        catch { _modelsByServer[id] = []; }
+    }
+
+    private void AddVersion() => _bot!.Versions.Add(new BotVersion { Name = _bot.Versions.Count == 0 ? "strong" : $"v{_bot.Versions.Count + 1}" });
+
     private void ToggleTool(string name, bool on)
     {
         _bot!.AllowedTools.Remove(name);
@@ -547,6 +599,14 @@
         if (State.Bots.Any(b => b.Id != _bot.Id && b.Name.Equals(_bot.Name, StringComparison.OrdinalIgnoreCase)))
         { _error = "Another bot already has that name (names are used for @mentions)."; return; }
         if (string.IsNullOrWhiteSpace(_bot.Model)) _bot.Model = null;
+        foreach (var v in _bot.Versions)
+        {
+            v.Name = (v.Name ?? "").Trim();
+            v.Note = (v.Note ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(v.Model)) v.Model = null;
+        }
+        if (_bot.Versions.Any(v => v.Name.Length == 0)) { _error = "Give each version a name."; return; }
+        if (_bot.Versions.GroupBy(v => v.Name, StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1)) { _error = "Two versions have the same name."; return; }
         _bot.Abilities.ProjectFolder = string.IsNullOrWhiteSpace(_bot.Abilities.ProjectFolder) ? null : _bot.Abilities.ProjectFolder.Trim();
         try
         {

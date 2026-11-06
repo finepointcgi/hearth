@@ -33,7 +33,14 @@ public sealed record LlmRequest(
     int MaxTokens,
     int ContextLength,
     bool Think,
-    IReadOnlyList<ToolDefinition>? Tools = null);
+    IReadOnlyList<ToolDefinition>? Tools = null)
+{
+    /// <summary>
+    /// The tools are listed (so the prompt starts the same as the previous step's and a local server can reuse what
+    /// it already read) but the model must not call any: it answers instead.
+    /// </summary>
+    public bool NoToolCalls { get; init; }
+}
 
 public sealed record LlmChunk(
     string? Content = null,

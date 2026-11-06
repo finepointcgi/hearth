@@ -63,6 +63,18 @@ public sealed class ChatService(
 
         var members = await bots.GetManyAsync(conv.BotIds);
         if (members.Count == 0) throw new InvalidOperationException("The bots in this chat were deleted.");
+        if (members.Count == 1 && lastUser is { FromBotId: null, RoutineName: null }
+            && await PassStraightToSpecialistAsync(conv, members[0], lastUser, opts, ct) is { } specialist)
+        {
+            // A coordinator alone in a chat would only spend a whole (slow) model call writing "@Researcher please…":
+            // a quick routing check sends clear specialist work straight there instead.
+            var joined = await JoinMentionedBotsAsync(conv, "@" + specialist.Name, members[0], onUpdate);
+            if (joined.Count > 0)
+            {
+                await RunGroupTurnAsync(conv, [.. members, .. joined], opts, onUpdate, ct, joined, new() { [members[0].Id] = 1 });
+                return;
+            }
+        }
         if (members.Count == 1)
         {
             var reply = await RunAgentAsync(conv, members[0], opts, onUpdate, ct);
@@ -167,8 +179,26 @@ public sealed class ChatService(
         return found.OrderBy(f => f.pos).Select(f => f.bot).Distinct().ToList();
     }
 
+    /// <summary>
+    /// For a coordinator alone in a chat: the one specialist the user's message is clearly for (when it's a single
+    /// specialist's job, unmentioned and not already in the chat), or null to let the coordinator handle it.
+    /// </summary>
+    private async Task<Bot?> PassStraightToSpecialistAsync(Conversation conv, Bot coordinator, ChatMessage lastUser, SendOptions opts, CancellationToken ct)
+    {
+        if (!coordinator.IsCoordinator || !coordinator.Abilities.MessageBots || !opts.UseTools) return null;
+        if (lastUser.Content.Contains('@') || lastUser.Content.TrimStart().StartsWith('/')) return null;
+        var team = (await bots.ListAsync()).Where(b => b.Id != coordinator.Id).ToList();
+        if (team.Count == 0 || conv.BotIds.Count >= Bot.MaxPerGroup) return null;
+        var picked = await RouteAsync(conv, [coordinator, .. team], lastUser.Content, opts.Model, ct, straightToSpecialist: true);
+        return picked is [var only] && only.Id != coordinator.Id ? only : null;
+    }
+
+    /// <summary>How long the check that skips a lone coordinator may take before the coordinator just answers.</summary>
+    public static TimeSpan StraightRouteTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
     /// <summary>No @mention: ask the model which member(s) should answer.</summary>
-    private async Task<List<Bot>> RouteAsync(Conversation conv, List<Bot> members, string message, string model, CancellationToken ct)
+    private async Task<List<Bot>> RouteAsync(Conversation conv, List<Bot> members, string message, string model, CancellationToken ct,
+        bool straightToSpecialist = false)
     {
         using var usageScope = UsageScope.Begin("Routing", null, conv.Id);
         var fallback = members.FirstOrDefault(b => b.IsCoordinator) ?? members[0];
@@ -181,14 +211,20 @@ public sealed class ChatService(
                 .Select(m => $"{Speaker(m, members)}: {Clip(m.Content, 200)}"));
             var prompt = new List<LlmMessage>
             {
-                LlmMessage.System("You route messages in a group chat of AI bots. Reply with ONLY the names of the bots that " +
-                    "should answer, comma-separated. Usually pick exactly one: the best fit for the request. Pick the " +
-                    "coordinator for broad or multi-part requests. Pick several only if the user clearly addresses several."),
+                LlmMessage.System(straightToSpecialist
+                    ? "You route a user's message to a team of AI bots. Reply with ONLY one bot's name. Pick a specialist " +
+                      "only when the whole request is clearly that one specialist's job (e.g. research a topic, write code, " +
+                      "edit a text). Otherwise — chat, quick questions, follow-ups to the conversation, requests with several " +
+                      "parts or that need several specialists, anything unclear — pick the coordinator."
+                    : "You route messages in a group chat of AI bots. Reply with ONLY the names of the bots that " +
+                      "should answer, comma-separated. Usually pick exactly one: the best fit for the request. Pick the " +
+                      "coordinator for broad or multi-part requests. Pick several only if the user clearly addresses several."),
                 LlmMessage.User($"Bots:\n{roster}\n\nRecent messages:\n{recent}\n\nNew message from the user:\n{Clip(message, 800)}\n\nWho should answer?"),
             };
             var sb = new StringBuilder();
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(TimeSpan.FromSeconds(45));
+            // Skipping the coordinator is only worth it when the check is quick; otherwise let the coordinator answer.
+            cts.CancelAfter(straightToSpecialist ? StraightRouteTimeout : TimeSpan.FromSeconds(45));
             await foreach (var c in factory.CreateForChat(settings)
                                .StreamChatAsync(new LlmRequest(model, prompt, 0, 40, 4096, false), cts.Token))
                 sb.Append(c.Content);
@@ -234,6 +270,10 @@ public sealed class ChatService(
             _ when untrustedInput?.StartsWith("an email") == true => "Bot inbox",
             _ => "Chat",
         }, bot?.Id, conv.Id);
+        // Chats you're waiting on go ahead of background work on a local model server.
+        var server = settings.ProviderFor(bot);
+        if (depth == 0 && IsBackgroundRun(lastUser, untrustedInput)) ModelQueue.MarkBackground();
+        using var chatRunning = ModelQueue.InBackground ? null : ModelQueue.ChatRunning(server);
 
         var reply = new ChatMessage { Role = ChatRole.Assistant, Model = model, IsStreaming = true, BotId = bot?.Id };
         conv.Messages.Add(reply);
@@ -324,22 +364,43 @@ public sealed class ChatService(
                 ? Math.Max(settings.Tools.MaxRounds, settings.Tools.CodeMaxRounds)
                 : settings.Tools.MaxRounds);
 
+            // See the last round below. Turned off for the rest of the reply if the server ignores it.
+            var listToolsOnLastStep = server.Kind == ProviderKind.OpenAICompatible && !IgnoresNoToolCalls.ContainsKey(server.Id);
             for (var round = 0; round < maxRounds; round++)
             {
-                var messages = ContextWindow.FitToolResults(baseMessages.Concat(ToolRounds(reply)).ToList(), budget - toolTokens);
+                var room = budget - toolTokens;
+                var messages = baseMessages.Concat(ToolRounds(reply)).ToList();
+                if (ContextWindow.Tokens(messages) is var used && used > room)
+                {
+                    ContextWindow.ShortenOlderResults(reply.ToolCalls, used - (int)(room * ContextWindow.RefitShare));
+                    messages = baseMessages.Concat(ToolRounds(reply)).ToList();
+                }
+                messages = ContextWindow.FitToolResults(messages, room);
                 // Last round: withhold tools so the model has to answer.
-                var offer = definitions.Count > 0 && round < maxRounds - 1 ? definitions : null;
+                var lastRound = round >= maxRounds - 1;
+                // Last round the model has to answer. Servers that support it keep the tools listed with calls switched
+                // off: the tools are at the start of the prompt, and dropping them would make a local server read the
+                // whole (long, by now) prompt again before answering.
+                var keepListed = lastRound && listToolsOnLastStep;
+                var offer = definitions.Count > 0 && (!lastRound || keepListed) ? definitions : null;
                 // Without being told, local models answer a tool-less last round with yet another call written as text.
-                if (offer is null && definitions.Count > 0 && reply.ToolCalls.Count > 0)
+                if (lastRound && definitions.Count > 0 && reply.ToolCalls.Count > 0)
                     messages.Add(LlmMessage.User("[Locus] That's all the tool steps for this reply. Don't call any more tools: " +
                         "answer now from the results above, and say briefly what you couldn't check."));
                 var request = new LlmRequest(model, messages, settings.Temperature, settings.MaxTokens,
-                    settings.ContextLength, opts.Think, offer);
+                    settings.ContextLength, opts.Think, offer) { NoToolCalls = lastRound && offer is not null };
 
                 if (content.Length > 0 && !content.ToString().EndsWith("\n\n")) content.Append("\n\n");
                 List<LlmToolCall> calls = [];
                 var roundStart = content.Length;
                 string? providerState = null;
+                if (ModelQueue.InBackground && ModelQueue.ChatsOn(server.Id) > 0)
+                {
+                    reply.Notice = $"Waiting while a chat uses {server.Name}…";
+                    await onUpdate();
+                    await ModelQueue.WaitForChatsAsync(server, ct);
+                    reply.Notice = null;
+                }
                 var roundTimer = System.Diagnostics.Stopwatch.StartNew();
                 LlmStats? roundStats = null;
                 // A busy model server (another chat or a background task using it) can take minutes to start
@@ -386,7 +447,7 @@ public sealed class ChatService(
                 }
 
                 reply.Trace.Add(new TraceStep("model", model, roundTimer.ElapsedMilliseconds, roundStats?.PromptTokens, roundStats?.CompletionTokens));
-                if (calls.Count == 0 && offer is not null)
+                if (calls.Count == 0 && !lastRound && offer is not null)
                 {
                     // Some local models write the calls as text; run them instead of ending with them printed.
                     var (written, rest) = TextToolCalls.Find(content.ToString(roundStart, content.Length - roundStart), byName.Keys.ToHashSet());
@@ -399,7 +460,24 @@ public sealed class ChatService(
                         await onUpdate();
                     }
                 }
-                if (offer is null && definitions.Count > 0)
+                if (lastRound && keepListed && offer is not null && calls.Count > 0)
+                {
+                    // The server ignored "no tool calls" (oMLX does): ask again without the tools, which forces an answer.
+                    listToolsOnLastStep = false;
+                    IgnoresNoToolCalls[server.Id] = true;
+                    content.Length = roundStart;
+                    while (content.Length > 0 && char.IsWhiteSpace(content[^1])) content.Length--;
+                    reply.Content = StripSelfPrefix(content.ToString(), bot).Trim();
+                    round--;
+                    continue;
+                }
+                if (lastRound && calls.Count > 0)
+                {
+                    // Out of tool steps: calls the server sent anyway don't run.
+                    calls.Clear();
+                    reply.Notice ??= $"This reply used all {maxRounds} tool steps before finishing. Ask it to continue, or raise \"Max tool rounds per reply\" under Tools.";
+                }
+                if (lastRound && definitions.Count > 0)
                 {
                     // Out of tool steps but it still wrote a call: don't show the call as the answer.
                     var (late, rest) = TextToolCalls.Find(content.ToString(roundStart, content.Length - roundStart), byName.Keys.ToHashSet());
@@ -564,6 +642,36 @@ public sealed class ChatService(
         "when it's quick (a fact you know, a calculation, a date). When the specialists' results are in, reply once with " +
         "the combined answer for the user.";
 
+    /// <summary>Tasks, routines, heartbeat, bot checks and the bot inbox: nobody is waiting on the reply.</summary>
+    public static bool IsBackgroundRun(ChatMessage lastUser, string? untrustedInput) =>
+        lastUser.RoutineName is not null and not ("Helper" or "API")
+        || untrustedInput?.StartsWith("an email") == true;
+
+    /// <summary>
+    /// What each teammate runs on and its other versions, so a coordinator can pick a stronger, faster or more private
+    /// model for a problem. Null when no teammate has versions.
+    /// </summary>
+    public static string? TeamModels(Bot self, IReadOnlyList<Bot> allBots, AppSettings settings)
+    {
+        var team = allBots.Where(b => b.Id != self.Id).ToList();
+        if (team.All(b => b.Versions.Count == 0)) return null;
+        string On(string? providerId, string? model)
+        {
+            var server = providerId is { } id && settings.Providers.FirstOrDefault(p => p.Id == id) is { } p ? p : settings.ActiveProvider;
+            return $"{(string.IsNullOrWhiteSpace(model) ? "default model" : model)} on {server.Name}";
+        }
+        var sb = new StringBuilder("Teammates' models. Each runs on its usual model unless you pick one of its versions with " +
+            "message_bot's version argument. Pick a version when the problem needs it (harder reasoning, long research, " +
+            "code, speed, privacy) and say which one you used and why in one short line:");
+        foreach (var b in team)
+        {
+            sb.Append($"\n- {b.Name}: usually {On(b.ProviderId, b.Model)}");
+            foreach (var v in b.Versions)
+                sb.Append($"\n  - version \"{v.Name}\": {On(v.ProviderId, v.Model)}{(v.Note.Length > 0 ? " — " + v.Note : "")}");
+        }
+        return sb.ToString();
+    }
+
     public static string InitiativeGuide(IReadOnlyDictionary<string, ITool> tools, bool unattended)
     {
         var sb = new StringBuilder("Take initiative. When the next step is clear and safe, do it instead of asking whether to. ");
@@ -660,7 +768,11 @@ public sealed class ChatService(
         }
 
         if (bot is { IsCoordinator: true } && allBots.Any(b => b.Id != bot.Id) && (members.Count > 1 || bot.Abilities.MessageBots))
+        {
             system.AppendLine().AppendLine().Append(CoordinatorGuide);
+            if (byName.ContainsKey("message_bot") && TeamModels(bot, allBots, settings) is { } team)
+                system.AppendLine().AppendLine().Append(team);
+        }
 
         if (bot is not null && bot.Abilities.MessageBots && members.Count < Bot.MaxPerGroup)
         {
@@ -973,7 +1085,11 @@ public sealed class ChatService(
                 ProviderState = round.First().ProviderState,
             };
             foreach (var t in round)
-                yield return new LlmMessage { Role = "tool", Content = t.Result ?? "", ToolCallId = t.Id, ToolName = t.Name };
+                yield return new LlmMessage
+                {
+                    Role = "tool", ToolCallId = t.Id, ToolName = t.Name,
+                    Content = t.SentChars is { } n ? ContextWindow.ClipResult(t.Result ?? "", n) : t.Result ?? "",
+                };
             if (lastImage is not null && round.Contains(lastImage))
                 yield return LlmMessage.User(
                     $"[Screenshot from {lastImage.Name}. It is {lastImage.Image!.FileName}. Use its pixel coordinates for clicks.]",
@@ -1026,6 +1142,8 @@ public sealed class ChatService(
     }
 
     private static int _modelCallsInFlight;
+    /// <summary>Servers seen calling tools despite tool_choice "none": their last step drops the tools straight away.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> IgnoresNoToolCalls = new();
     /// <summary>How long a reply can wait for its first word before the chat says the model is busy.</summary>
     public static TimeSpan WaitingNoticeAfter { get; set; } = TimeSpan.FromSeconds(12);
 
@@ -1420,10 +1538,18 @@ internal sealed class MessageBotTool(ChatService chat, Bot self, IReadOnlyList<B
         "Send a message to another bot on the user's team and get its reply. Use it to delegate specialist work " +
         "or ask a teammate something. Include all context they need — they can't see this chat. To ask several bots " +
         "about independent things, call message_bot for each in the same turn: they work in parallel. Bots: " +
-        string.Join(", ", others.Select(b => $"{b.Name} ({b.Title})"));
-    public JsonObject Parameters => Schema.Object(
-        ("bot", "string", "Exact name of the bot to message", true),
-        ("message", "string", "The request, with any context they need", true));
+        string.Join(", ", others.Select(b => $"{b.Name} ({b.Title})")) +
+        (others.Any(b => b.Versions.Count > 0)
+            ? ". Some bots have versions on other models (listed with the team in your instructions): pass version to pick one."
+            : "");
+    public JsonObject Parameters => others.Any(b => b.Versions.Count > 0)
+        ? Schema.Object(
+            ("bot", "string", "Exact name of the bot to message", true),
+            ("message", "string", "The request, with any context they need", true),
+            ("version", "string", "Optional: name of one of the bot's versions, to run it on that model instead of its usual one", false))
+        : Schema.Object(
+            ("bot", "string", "Exact name of the bot to message", true),
+            ("message", "string", "The request, with any context they need", true));
     public bool RequiresApproval => false;
 
     public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct)
@@ -1435,9 +1561,19 @@ internal sealed class MessageBotTool(ChatService chat, Bot self, IReadOnlyList<B
             return ToolResult.Error($"No bot named '{name}'. Bots: {string.Join(", ", others.Select(b => b.Name))}");
         var message = args.Str("message");
         if (string.IsNullOrWhiteSpace(message)) return ToolResult.Error("message is required");
+        var label = target.Name;
+        if (args.Str("version") is { Length: > 0 } versionName && !versionName.Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
+            if (target.FindVersion(versionName) is not { } version)
+                return ToolResult.Error(target.Versions.Count == 0
+                    ? $"{target.Name} has no other versions; leave version out."
+                    : $"{target.Name} has no version '{versionName}'. Versions: {string.Join(", ", target.Versions.Select(v => v.Name))}.");
+            target = target.WithVersion(version);
+            label = $"{target.Name} ({version.Name})";
+        }
         // Pass on the chat's model, unless the sender runs on its own server (its model name means nothing elsewhere).
         var model = ctx.Settings.ProviderFor(self).Id == ctx.Settings.ActiveProvider.Id ? ctx.Model : opts.Model;
         var reply = await chat.MessageBotAsync(self, target, message, opts with { Model = model }, ctx.Depth + 1, ct, ctx.TaintedBy);
-        return new ToolResult($"{target.Name} replied:\n\n{reply}");
+        return new ToolResult($"{label} replied:\n\n{reply}");
     }
 }

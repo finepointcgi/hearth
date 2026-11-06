@@ -56,6 +56,32 @@ public static class ContextWindow
         return start;
     }
 
+    /// <summary>A tool result cut to <paramref name="chars"/>, saying how much was left out.</summary>
+    public static string ClipResult(string text, int chars) => text.Length <= chars
+        ? text
+        : text[..chars] + $"\n… [shortened to fit the context window: {text.Length - chars} more characters]";
+
+    /// <summary>Share of the budget a long reply is brought back down to when it overflows.</summary>
+    public const double RefitShare = 0.7;
+
+    /// <summary>
+    /// Makes room in a long reply by shortening older tool results for good (oldest first, newest few kept whole),
+    /// freeing at least <paramref name="tokensToFree"/>. Shortening well below the limit in one go, rather than one
+    /// result per step, keeps the prompt growing only at the end for the next several steps, which lets local model
+    /// servers reuse what they already read instead of reading the whole prompt again each time.
+    /// </summary>
+    public static void ShortenOlderResults(IReadOnlyList<ToolCall> calls, int tokensToFree, int keepWhole = 3, int chars = 800)
+    {
+        var freed = 0;
+        foreach (var tc in calls.Take(Math.Max(0, calls.Count - keepWhole)))
+        {
+            if (freed >= tokensToFree) break;
+            if (tc.SentChars is not null || tc.Result is not { } r || r.Length <= chars) continue;
+            freed += Tokens(r) - Tokens(ClipResult(r, chars));
+            tc.SentChars = chars;
+        }
+    }
+
     /// <summary>
     /// Shortens older tool results (oldest first) until the messages fit, keeping the newest few whole.
     /// </summary>

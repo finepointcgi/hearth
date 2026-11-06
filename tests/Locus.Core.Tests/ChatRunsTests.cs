@@ -164,6 +164,33 @@ public sealed class ChatRunsTests : IDisposable
     }
 
     [Fact]
+    public async Task LastStepKeepsToolsListedAndFallsBackWhenTheServerIgnoresIt()
+    {
+        var sp = StartApp();
+        var store = sp.GetRequiredService<SettingsStore>();
+        var s = await store.GetAsync();
+        s.Tools.MaxRounds = 2;
+        s.Providers[0].Kind = ProviderKind.OpenAICompatible;
+        await store.SaveAsync(s);
+        var requests = new List<LlmRequest>();
+        _team.Script = (_, _, req) =>
+        {
+            requests.Add(req);
+            // Like oMLX: tool_choice "none" is ignored and it calls a tool anyway.
+            return req.Tools is { Count: > 0 } ? ScriptedTeam.Call("calculate", new { expression = "1+1" }) : new LlmChunk("FINAL answer.");
+        };
+        var conv = await NewChatAsync(sp, "keep calculating");
+        await sp.GetRequiredService<ChatRuns>().ReplyAsync(conv, Opts);
+
+        Assert.Equal(3, requests.Count);
+        Assert.True(requests[1].NoToolCalls); // the last step first keeps the tools listed (the server's cache still fits)
+        Assert.NotNull(requests[1].Tools);
+        Assert.Null(requests[2].Tools);       // ignored: asked again without them
+        Assert.Equal("FINAL answer.", conv.Messages.Last().Content);
+        Assert.Single(conv.Messages.Last().ToolCalls);
+    }
+
+    [Fact]
     public async Task RestartPicksUpWhereItLeftOff()
     {
         var first = StartApp();
