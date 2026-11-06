@@ -418,6 +418,11 @@ public sealed class ChatService(
                 // the model then decides to check). It goes with the steps, so the answer is only the final round's
                 // text instead of several drafts stacked up.
                 var preface = content.ToString(roundStart, content.Length - roundStart).Trim();
+                // A coordinator that has just handed the work over ("@Researcher please…") stops there: the teammate
+                // does it next, instead of the coordinator also doing it with its own tools first.
+                if (bot is { IsCoordinator: true } && calls.All(c => c.Name != "message_bot")
+                    && allBots.Any(b => b.Id != bot.Id && preface.Contains("@" + b.Name, StringComparison.OrdinalIgnoreCase)))
+                    break;
                 content.Length = roundStart;
                 while (content.Length > 0 && char.IsWhiteSpace(content[^1])) content.Length--;
                 reply.Content = StripSelfPrefix(content.ToString(), bot).Trim();
@@ -547,6 +552,18 @@ public sealed class ChatService(
 
     /// <summary>How to take initiative (Settings → "Take initiative"): act on clear next steps, come back later on your
     /// own, and hand big jobs to a background task.</summary>
+    /// <summary>
+    /// Coordinators used to research and answer first, then @mention a specialist to do it again. Delegating is
+    /// their first move, not their last.
+    /// </summary>
+    public const string CoordinatorGuide =
+        "As the coordinator, delegate first. When a request (or part of it) is a specialist's job — research, code, " +
+        "writing, review — your whole reply is a short hand-off: one line saying who you're asking and why, with the " +
+        "@mention and everything they need, e.g. \"Let me get Researcher on this. @Researcher please research…\". " +
+        "Don't use tools for it, don't answer it yourself first and don't give a preliminary answer. Do it yourself only " +
+        "when it's quick (a fact you know, a calculation, a date). When the specialists' results are in, reply once with " +
+        "the combined answer for the user.";
+
     public static string InitiativeGuide(IReadOnlyDictionary<string, ITool> tools, bool unattended)
     {
         var sb = new StringBuilder("Take initiative. When the next step is clear and safe, do it instead of asking whether to. ");
@@ -632,9 +649,6 @@ public sealed class ChatService(
                 .Append("don't repeat what others already said. To hand work to another bot, @mention them by exact name ")
                 .Append("(e.g. \"@Researcher please check…\") — they reply next. Only @mention a bot when you need them to act. ")
                 .Append("Never write lines on behalf of other bots or prefix your reply with your own name.");
-            if (bot.IsCoordinator)
-                system.Append("\nAs the coordinator: split the request, @mention the specialists who should do each part, " +
-                              "and when their results are in, give the user one combined answer.");
         }
         else if (bot is not null && byName.ContainsKey("message_bot"))
         {
@@ -644,6 +658,9 @@ public sealed class ChatService(
             if (bot.IsCoordinator)
                 system.Append("As the coordinator, delegate specialist work to them with message_bot and combine the results. Independent requests to different bots can go out in the same turn so they work in parallel.");
         }
+
+        if (bot is { IsCoordinator: true } && allBots.Any(b => b.Id != bot.Id) && (members.Count > 1 || bot.Abilities.MessageBots))
+            system.AppendLine().AppendLine().Append(CoordinatorGuide);
 
         if (bot is not null && bot.Abilities.MessageBots && members.Count < Bot.MaxPerGroup)
         {

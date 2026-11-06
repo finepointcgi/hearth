@@ -90,6 +90,38 @@ public sealed class TeamAndSkillTests : IDisposable
     private static int ToolResults(IReadOnlyList<LlmMessage> m, string tool) => m.Count(x => x.Role == "tool" && x.ToolName == tool);
 
     [Fact]
+    public async Task CoordinatorHandsOffInsteadOfDoingTheWorkFirst()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        var researcher = new Bot { Name = "Researcher", Title = "Research" };
+        foreach (var b in new[] { chief, researcher }) await bots.SaveAsync(b);
+        string? chiefSystem = null;
+        _team.Script = (bot, messages, _) =>
+        {
+            if (bot == "Chief" && chiefSystem is null)
+            {
+                chiefSystem = messages[0].Content;
+                // What models did: hand off AND start researching in the same breath.
+                return new LlmChunk("Let me get Researcher on this. @Researcher please research Google's stock.",
+                    ToolCalls: [new LlmToolCall("c1", "calculate", "{\"expression\": \"1+1\"}")]);
+            }
+            return new LlmChunk(bot == "Researcher" ? "FACTS: GOOGL up 4% this week." : "ok");
+        };
+
+        var conv = new Conversation { BotIds = [chief.Id] }; // Chief alone: Researcher gets pulled in
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "@Chief research Google and its stock" });
+        await _sp.GetRequiredService<ChatService>().GenerateAsync(conv, new SendOptions("main-model", false, false, true), () => Task.CompletedTask, CancellationToken.None);
+
+        Assert.Contains("delegate first", chiefSystem);
+        var replies = conv.Messages.Where(m => m.Role == ChatRole.Assistant && m.Notice is null).ToList();
+        Assert.Equal(chief.Id, replies[0].BotId);
+        Assert.Equal("Let me get Researcher on this. @Researcher please research Google's stock.", replies[0].Content);
+        Assert.Empty(replies[0].ToolCalls); // it didn't go and do it too
+        Assert.Contains(replies, r => r.BotId == researcher.Id && r.Content.StartsWith("FACTS"));
+    }
+
+    [Fact]
     public async Task CoordinatorOnItsOwnServerDelegatesToTwoBotsAndCombinesTheirWork()
     {
         var bots = _sp.GetRequiredService<BotStore>();
