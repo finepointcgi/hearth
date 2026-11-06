@@ -338,12 +338,23 @@
             }
             else
             {
+                if (await Voice.UnavailableReasonAsync(State.Settings) is { } why)
+                {
+                    _error = why;
+                    return;
+                }
                 if (!await Voice.IsAvailableAsync(State.Settings))
                 {
                     _error = "Dictation isn't available here. Set a speech-to-text server in Settings → Voice.";
                     return;
                 }
                 _beforeVoice = _text;
+                Voice.OnError = message => InvokeAsync(() =>
+                {
+                    _listening = false;
+                    _error = message;
+                    StateHasChanged();
+                });
                 await Voice.StartAsync(State.Settings, partial =>
                 {
                     _text = (_beforeVoice + " " + partial).Trim();

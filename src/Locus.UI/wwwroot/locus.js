@@ -159,6 +159,8 @@ window.locus.voice = {
     return {
       recorder: !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder),
       recognition: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
+      // Browsers only allow the microphone on https:// or localhost.
+      secure: window.isSecureContext === true,
     };
   },
 
@@ -196,6 +198,9 @@ window.locus.voice = {
     r.continuous = true;
     r.interimResults = true;
     this._final = "";
+    r.onerror = (e) => {
+      if (e.error !== "no-speech" && e.error !== "aborted") dotnet.invokeMethodAsync("OnRecognitionError", e.error);
+    };
     r.onresult = (e) => {
       let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {

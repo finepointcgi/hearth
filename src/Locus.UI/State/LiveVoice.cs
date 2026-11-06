@@ -37,6 +37,14 @@ public sealed class LiveVoice(IJSRuntime js, SpeechService speech) : IAsyncDispo
         _ref ??= DotNetObjectReference.Create(this);
         var useServer = !string.IsNullOrWhiteSpace(settings.Voice.SttUrl);
         Error = null;
+        var support = await js.InvokeAsync<Support>("locus.voice.support");
+        if (BrowserVoiceInput.WhyNot(support.Secure, useServer ? support.Recorder : support.Recognition, useServer) is { } why)
+        {
+            Error = why;
+            _cts = null;
+            Set(LivePhase.Off);
+            return;
+        }
         var emptyTurns = 0;
         try
         {
@@ -46,7 +54,7 @@ public sealed class LiveVoice(IJSRuntime js, SpeechService speech) : IAsyncDispo
                 Set(LivePhase.Listening);
                 var turn = await js.InvokeAsync<Turn?>("locus.live.listen", cts.Token, useServer, settings.Voice.Language, _ref);
                 if (cts.IsCancellationRequested) break;
-                if (turn?.Error is { } err) { Error = err == "not-allowed" ? "Microphone access was blocked." : $"Speech recognition: {err}"; break; }
+                if (turn?.Error is { } err) { Error = BrowserVoiceInput.Explain(err); break; }
                 string text;
                 if (turn?.Base64 is { Length: > 0 } b64)
                 {
@@ -108,5 +116,6 @@ public sealed class LiveVoice(IJSRuntime js, SpeechService speech) : IAsyncDispo
         _ref?.Dispose();
     }
 
+    private sealed record Support(bool Recorder, bool Recognition, bool Secure);
     private sealed record Turn(string? Text, string? Base64, string? Mime, string? Error);
 }
