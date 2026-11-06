@@ -308,6 +308,32 @@ public sealed class ChatService(
             available = available.Where(t => !PermissionCatalog.IsBlocked(t, settings)).ToList();
             if (extraTools is not null) available.AddRange(extraTools.Where(t => available.All(a => a.Name != t.Name)));
             var byName = available.ToDictionary(t => t.Name);
+            // Offer only the tools this message is likely to need (any available tool still runs if called by name).
+            var offered = available;
+            List<ToolDefinition>? liveDefinitions = null;
+            if (settings.Tools.PickToolsPerMessage && opts.UseTools && bot?.ToolMode != BotToolMode.Selected)
+            {
+                var recentText = string.Join("\n", history.Where(m => m.Role == ChatRole.User).TakeLast(3).Select(m => m.Content));
+                var used = history.Where(m => m.Role == ChatRole.Assistant).TakeLast(6)
+                    .SelectMany(m => m.ToolCalls).Select(t => t.Name).ToHashSet();
+                var always = (extraTools ?? []).Select(t => t.Name)
+                    .Concat(codeSession is null ? [] : codeTools.For(codeSession).Select(t => t.Name)).ToHashSet();
+                var (picked, notLoaded) = ToolSelector.Select(available, recentText, used, always);
+                offered = picked;
+                if (notLoaded.Count > 0)
+                {
+                    var loader = new LoadToolsTool(notLoaded, group =>
+                    {
+                        var g = notLoaded.FirstOrDefault(x => x.Name == group);
+                        if (g is null || liveDefinitions is null) return [];
+                        var add = available.Where(t => g.Contains(t.Name) && liveDefinitions.All(d => d.Name != t.Name)).ToList();
+                        liveDefinitions.AddRange(add.Select(t => new ToolDefinition(t.Name, t.Description, t.Parameters)));
+                        return add.Select(t => t.Name).ToList();
+                    });
+                    offered = [.. offered, loader];
+                    byName[loader.Name] = loader;
+                }
+            }
 
             var system = await BuildSystemPromptAsync(conv, bot, members, allBots, settings, byName, opts, unattended, codeSession);
 
@@ -351,7 +377,7 @@ public sealed class ChatService(
             // Fit the model's context window: tool schemas and the system prompt first, then as much history as fits
             // (summarising the oldest part of long chats).
             var budget = ContextWindow.BudgetFor(settings.ProviderFor(bot), settings);
-            var toolTokens = available.Sum(t => ContextWindow.Tokens(t.Name + t.Description + t.Parameters.ToJsonString()) + 10);
+            var toolTokens = offered.Sum(t => ContextWindow.Tokens(t.Name + t.Description + t.Parameters.ToJsonString()) + 10);
             var historyRoom = budget - toolTokens - ContextWindow.Tokens(system.ToString());
             baseMessages.AddRange(await FitHistoryAsync(conv, window, bot, allBots, skills, client, model, historyRoom, reply, onUpdate, ct));
             // Long-term memories that match this message ride along with it rather than in the system prompt, so the
@@ -372,7 +398,7 @@ public sealed class ChatService(
                 Conversation = conv, Reply = reply, Settings = settings, Client = client, Model = model,
                 Bot = bot, Depth = depth, Unattended = unattended, TaintedBy = untrustedInput, Tools = byName, Code = codeSession,
             };
-            var definitions = available.Select(t => new ToolDefinition(t.Name, t.Description, t.Parameters)).ToList();
+            var definitions = liveDefinitions = offered.Select(t => new ToolDefinition(t.Name, t.Description, t.Parameters)).ToList();
             var content = new StringBuilder();
             var thinking = new StringBuilder();
             var maxRounds = Math.Max(1, byName.ContainsKey("todo_write")
@@ -381,6 +407,9 @@ public sealed class ChatService(
 
             // See the last round below. Turned off for the rest of the reply if the server ignores it.
             var listToolsOnLastStep = server.Kind == ProviderKind.OpenAICompatible && !IgnoresNoToolCalls.ContainsKey(server.Id);
+            // Replies cut off at the length limit are continued (Settings → "Continue cut-off replies").
+            var continuing = false;
+            var continuations = 0;
             for (var round = 0; round < maxRounds; round++)
             {
                 var room = budget - toolTokens;
@@ -397,7 +426,14 @@ public sealed class ChatService(
                 // off: the tools are at the start of the prompt, and dropping them would make a local server read the
                 // whole (long, by now) prompt again before answering.
                 var keepListed = lastRound && listToolsOnLastStep;
-                var offer = definitions.Count > 0 && (!lastRound || keepListed) ? definitions : null;
+                // A copy: load_tools can add to the list later, and each request should keep what it was sent.
+                var offer = definitions.Count > 0 && (!lastRound || keepListed) && !continuing ? definitions.ToList() : null;
+                if (continuing)
+                {
+                    messages.Add(new LlmMessage { Role = "assistant", Content = content.ToString() });
+                    messages.Add(LlmMessage.User("[Locus] Your reply was cut off by the length limit. Continue exactly where it " +
+                        "stopped, mid-sentence if needed. Don't repeat or restate anything already written."));
+                }
                 // Without being told, local models answer a tool-less last round with yet another call written as text.
                 if (lastRound && definitions.Count > 0 && reply.ToolCalls.Count > 0)
                     messages.Add(LlmMessage.User("[Locus] That's all the tool steps for this reply. Don't call any more tools: " +
@@ -405,7 +441,9 @@ public sealed class ChatService(
                 var request = new LlmRequest(model, messages, settings.Temperature, settings.MaxTokens,
                     settings.ContextLength, opts.Think, offer) { NoToolCalls = lastRound && offer is not null };
 
-                if (content.Length > 0 && !content.ToString().EndsWith("\n\n")) content.Append("\n\n");
+                if (content.Length > 0 && !continuing && !content.ToString().EndsWith("\n\n")) content.Append("\n\n");
+                continuing = false;
+                var cutOff = false;
                 List<LlmToolCall> calls = [];
                 var roundStart = content.Length;
                 string? providerState = null;
@@ -447,6 +485,7 @@ public sealed class ChatService(
                     if (chunk.Stats is not null) reply.Stats = roundStats = chunk.Stats;
                     if (chunk.ToolCalls is not null) calls.AddRange(chunk.ToolCalls);
                     if (chunk.Notice is not null) reply.Notice = chunk.Notice;
+                    if (chunk.Notice?.StartsWith(CutOffPrefix) == true) cutOff = true;
                     if (chunk.ProviderState is not null) providerState = chunk.ProviderState;
                     reply.Content = StripSelfPrefix(content.ToString(), bot).Trim();
                     reply.Thinking = thinking.Length > 0 ? thinking.ToString().Trim() : null;
@@ -504,6 +543,14 @@ public sealed class ChatService(
                         reply.Notice ??= $"This reply used all {maxRounds} tool steps before finishing. Ask it to continue, or raise \"Max tool rounds per reply\" under Tools.";
                         await onUpdate();
                     }
+                }
+                if (calls.Count == 0 && cutOff && settings.ContinueCutOffReplies && continuations < MaxContinuations && !ct.IsCancellationRequested)
+                {
+                    continuations++;
+                    continuing = true;
+                    reply.Notice = null;
+                    round--; // continuing isn't a tool step
+                    continue;
                 }
                 if (calls.Count == 0) break;
 
@@ -660,6 +707,11 @@ public sealed class ChatService(
     /// <summary>The memories listed in every prompt: not yet in long-term storage, newest <paramref name="max"/>, oldest first.</summary>
     public static List<Memory> RecentMemories(IReadOnlyList<Memory> all, int max) =>
         all.Where(m => !m.Archived).OrderByDescending(m => m.CreatedAt).Take(max).Reverse().ToList();
+
+    /// <summary>How a cut-off notice starts (see OpenAICompatibleClient.CutOffNotice).</summary>
+    private const string CutOffPrefix = "The reply was cut off";
+    /// <summary>How many times a cut-off reply is continued before stopping with the notice.</summary>
+    public const int MaxContinuations = 2;
 
     /// <summary>How many long-term memories may ride along with a message.</summary>
     public const int RecalledPerMessage = 6;

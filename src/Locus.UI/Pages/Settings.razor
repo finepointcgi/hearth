@@ -131,6 +131,7 @@
             <label class="grow">Max reply tokens (0 = unlimited)<input type="number" min="0" @bind="_s.MaxTokens" /></label>
             <label class="grow">Context length (Ollama num_ctx, 0 = default)<input type="number" min="0" step="1024" @bind="_s.ContextLength" /></label>
         </div>
+        <label class="check"><input type="checkbox" @bind="_s.ContinueCutOffReplies" /> Continue replies that hit the length limit (up to twice) instead of stopping mid-sentence</label>
         <label>Default personality
             <select @bind="_s.DefaultPersonaId">
                 @foreach (var p in Personas.All)

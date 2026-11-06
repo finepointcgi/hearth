@@ -23,6 +23,7 @@
         <label class="check"><input type="checkbox" @bind="_s.Tools.EnabledByDefault" /> Tools on by default in new chats</label>
         <label class="check"><input type="checkbox" @bind="_s.Tools.AutoApproveAll" /> Don't ask before running tools that can change things or run code</label>
         <label>Max tool rounds per reply <input type="number" min="1" max="25" @bind="_s.Tools.MaxRounds" style="width:6rem" /></label>
+        <label class="check"><input type="checkbox" @bind="_s.Tools.PickToolsPerMessage" /> Offer each reply only the tools it's likely to need <span class="muted small">(email, calendar, documents… when the chat is about them; bots can load the rest). Much faster on local models.</span></label>
     </section>
 
     <section class="card">

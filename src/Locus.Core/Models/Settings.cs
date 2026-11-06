@@ -49,6 +49,8 @@ public sealed class AppSettings
     public string DefaultPersonaId { get; set; } = Personas.Default.Id;
     public double Temperature { get; set; } = 0.7;
     public int MaxTokens { get; set; } = 2048;
+    /// <summary>When a reply hits the length limit, ask the model to continue it (up to twice) instead of stopping mid-sentence.</summary>
+    public bool ContinueCutOffReplies { get; set; } = true;
     /// <summary>Context window requested from Ollama (num_ctx). 0 = server default.</summary>
     public int ContextLength { get; set; } = 8192;
     public bool ShowThinking { get; set; } = true;
@@ -118,6 +120,11 @@ public sealed class ToolSettings
     public SandboxSettings Sandbox { get; set; } = new();
     /// <summary>How many helper agents (delegate_task) may work at the same time; 0 turns helpers off.</summary>
     public int MaxHelpers { get; set; } = 3;
+    /// <summary>
+    /// Offer each reply only the tools it's likely to need (core tools always; email, calendar, documents… when the
+    /// conversation is about them; the rest on request). Much faster on local models with many integrations.
+    /// </summary>
+    public bool PickToolsPerMessage { get; set; } = true;
 }
 
 /// <summary>Where bots run code: a Docker container (no approval needed) instead of directly on this computer.</summary>
