@@ -710,3 +710,15 @@ iframe.code-preview { height: 360px; background: #fff; }
 .versions-head { margin: .9rem 0 .1rem; font-size: .95rem; }
 .version-row { display: flex; gap: .5rem; align-items: flex-end; flex-wrap: wrap; padding: .5rem 0; border-bottom: 1px solid var(--line); }
 .version-row label { margin: 0; }
+
+/* A teammate pulled in with message_bot, shown inside the chat */
+.handoff { margin: .6rem 0; border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: 10px; padding: .55rem .8rem .2rem; }
+.handoff.working { border-left-color: var(--accent, #7c9cff); }
+.handoff-ask { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; font-size: .85rem; color: var(--muted); }
+.handoff-ask b { color: var(--text); font-weight: 600; }
+.handoff-version { font-size: .72rem; padding: .05rem .4rem; border-radius: 99px; border: 1px solid var(--line-strong); color: var(--muted); }
+.handoff-request { margin: .35rem 0 0; font-size: .85rem; color: var(--muted); }
+.handoff-request > summary { cursor: pointer; overflow-wrap: anywhere; }
+.handoff-request .md { margin: .3rem 0 .2rem 1rem; color: var(--text); }
+.handoff-reply > .msg { padding: 0; margin: .2rem 0 0; }
+.handoff-reply > .msg .msg-author { display: none; }

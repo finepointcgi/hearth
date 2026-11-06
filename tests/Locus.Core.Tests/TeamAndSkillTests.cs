@@ -158,6 +158,60 @@ public sealed class TeamAndSkillTests : IDisposable
     }
 
     [Fact]
+    public async Task PulledInBotsShowInTheChatNotTheSidebar()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var store = _sp.GetRequiredService<ConversationStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        var researcher = new Bot { Name = "Researcher", Title = "Research" };
+        foreach (var b in new[] { chief, researcher }) await bots.SaveAsync(b);
+        var seenWhileWorking = new List<string>();
+        Conversation? conv = null;
+        _team.Script = (bot, messages, _) =>
+        {
+            if (bot == "Researcher")
+            {
+                // While Researcher works, the chat already shows its (streaming) reply on Chief's hand-off.
+                var live = conv!.Messages.SelectMany(m => m.ToolCalls).FirstOrDefault(t => t.Name == "message_bot")?.Handoff;
+                seenWhileWorking.Add(live is { IsStreaming: true } ? "live" : "not shown");
+                return new LlmChunk("**FACTS:** GOOGL up 4%.");
+            }
+            var thisTurn = messages.Skip(messages.ToList().FindLastIndex(m => m.Role == "user")).ToList();
+            return ToolResults(thisTurn, "message_bot") == 0
+                ? ScriptedTeam.Call("message_bot", new { bot = "Researcher", message = "Research Google's stock." })
+                : new LlmChunk("Here's what Researcher found.");
+        };
+
+        conv = new Conversation { BotIds = [chief.Id] };
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "@Chief look into Google" });
+        await store.SaveAsync(conv);
+        await _sp.GetRequiredService<ChatService>().GenerateAsync(conv, new SendOptions("main-model", false, false, true), () => Task.CompletedTask, CancellationToken.None);
+
+        Assert.Equal(["live"], seenWhileWorking);
+        var handoff = conv.Messages.Last().ToolCalls.Single().Handoff!;
+        Assert.Equal(researcher.Id, handoff.BotId);
+        Assert.Equal("**FACTS:** GOOGL up 4%.", handoff.Content);
+        Assert.False(handoff.IsStreaming);
+        // Saved with the chat, so it's still there after a reload.
+        Assert.NotNull((await store.GetAsync(conv.Id))!.Messages.Last().ToolCalls.Single().Handoff);
+
+        // Not in the sidebar, and no unread 1:1 chat with Researcher.
+        var listed = await store.ListAsync();
+        Assert.Equal([conv.Id], listed.Select(c => c.Id).ToList());
+        var behind = await store.GetAsync(conv.Id + "-handoff-" + researcher.Id);
+        Assert.Equal(conv.Id, behind!.HandoffFrom);
+        Assert.False(behind.Unread);
+
+        // A second hand-off in the same chat continues the same behind-the-scenes chat (Researcher remembers).
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "@Chief and its earnings?" });
+        await _sp.GetRequiredService<ChatService>().GenerateAsync(conv, new SendOptions("main-model", false, false, true), () => Task.CompletedTask, CancellationToken.None);
+        Assert.Equal(4, (await store.GetAsync(behind.Id))!.Messages.Count);
+
+        await store.DeleteAsync(conv.Id);
+        Assert.Null(await store.GetAsync(behind.Id));
+    }
+
+    [Fact]
     public async Task UnknownVersionTellsTheCoordinatorWhatExists()
     {
         var bots = _sp.GetRequiredService<BotStore>();
@@ -241,7 +295,7 @@ public sealed class TeamAndSkillTests : IDisposable
 
         // The writer got the researcher's facts passed along.
         var store = _sp.GetRequiredService<ConversationStore>();
-        var writerChat = await store.GetOrCreateDirectAsync(writer);
+        var writerChat = (await store.GetAsync(conv.Id + "-handoff-" + writer.Id))!; // behind the scenes, not a 1:1 chat
         Assert.Contains("ships Friday", writerChat.Messages.First(m => m.Role == ChatRole.User).Content);
         Assert.Equal(chief.Id, writerChat.Messages.First(m => m.Role == ChatRole.User).FromBotId);
 

@@ -969,7 +969,9 @@ public sealed class ChatService(
         var toolTimer = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            var result = await tool.ExecuteAsync(args, ctx, ct);
+            var result = tool is MessageBotTool handoff
+                ? await handoff.RunAsync(args, ctx, tc, onUpdate, ct)
+                : await tool.ExecuteAsync(args, ctx, ct);
             tc.DurationMs = toolTimer.ElapsedMilliseconds;
             lock (ctx.Reply.Trace) ctx.Reply.Trace.Add(new TraceStep("tool", tc.Name, tc.DurationMs));
             tc.Result = Tools.Schema.Truncate(result.Text, MaxToolResultChars);
@@ -1175,15 +1177,24 @@ public sealed class ChatService(
 
     /// <summary>Delivers a message from one bot to another (in the recipient's own chat) and returns the reply.</summary>
     internal async Task<string> MessageBotAsync(Bot from, Bot to, string message, SendOptions opts, int depth, CancellationToken ct,
-        string? untrusted = null)
+        string? untrusted = null, Conversation? pulledInto = null, ToolCall? call = null, Func<Task>? onUpdate = null)
     {
-        var conv = await store.GetOrCreateDirectAsync(to);
+        // Pulled into a chat: the work happens in a behind-the-scenes chat (kept out of the sidebar) and shows live in
+        // the chat it was pulled into, as the teammate's own message.
+        var conv = pulledInto is null ? await store.GetOrCreateDirectAsync(to) : await store.GetOrCreateHandoffAsync(pulledInto, to);
         await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Message, $"{from.Name} → {to.Name}",
-            message.Length > 200 ? message[..200] + "…" : message, to.Id, conv.Id));
+            message.Length > 200 ? message[..200] + "…" : message, to.Id, pulledInto?.Id ?? conv.Id));
         conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = message, FromBotId = from.Id });
-        conv.Unread = true;
-        var reply = await RunAgentAsync(conv, to, opts, () => Task.CompletedTask, ct, autoTitle: false, depth: depth,
+        if (pulledInto is null) conv.Unread = true;
+        async Task Shown()
+        {
+            if (call is null || onUpdate is null) return;
+            if (conv.Messages.LastOrDefault() is { Role: ChatRole.Assistant } working) call.Handoff = working;
+            await onUpdate();
+        }
+        var reply = await RunAgentAsync(conv, to, opts, Shown, ct, autoTitle: false, depth: depth,
             untrustedInput: untrusted is null ? null : $"{untrusted} (via {from.Name})");
+        if (call is not null && reply is not null) call.Handoff = reply;
         if (reply?.Error is not null) return $"{to.Name} couldn't reply: {reply.Error}";
         return string.IsNullOrWhiteSpace(reply?.Content) ? $"{to.Name} sent an empty reply." : reply.Content;
     }
@@ -1552,7 +1563,10 @@ internal sealed class MessageBotTool(ChatService chat, Bot self, IReadOnlyList<B
             ("message", "string", "The request, with any context they need", true));
     public bool RequiresApproval => false;
 
-    public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct)
+    public Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct) => RunAsync(args, ctx, null, null, ct);
+
+    /// <summary>Runs the hand-off, showing the teammate's reply live on <paramref name="call"/> as it works.</summary>
+    public async Task<ToolResult> RunAsync(JsonObject args, ToolContext ctx, ToolCall? call, Func<Task>? onUpdate, CancellationToken ct)
     {
         var name = (args.Str("bot") ?? "").Trim().TrimStart('@');
         var target = others.FirstOrDefault(b => b.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
@@ -1573,7 +1587,8 @@ internal sealed class MessageBotTool(ChatService chat, Bot self, IReadOnlyList<B
         }
         // Pass on the chat's model, unless the sender runs on its own server (its model name means nothing elsewhere).
         var model = ctx.Settings.ProviderFor(self).Id == ctx.Settings.ActiveProvider.Id ? ctx.Model : opts.Model;
-        var reply = await chat.MessageBotAsync(self, target, message, opts with { Model = model }, ctx.Depth + 1, ct, ctx.TaintedBy);
+        var reply = await chat.MessageBotAsync(self, target, message, opts with { Model = model }, ctx.Depth + 1, ct, ctx.TaintedBy,
+            ctx.Conversation, call, onUpdate);
         return new ToolResult($"{label} replied:\n\n{reply}");
     }
 }

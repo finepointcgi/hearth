@@ -205,7 +205,7 @@ public sealed class ConversationStore(IAppPaths paths)
         foreach (var file in Directory.EnumerateFiles(Dir, "*.json"))
         {
             var c = await Json.ReadAsync<Conversation>(file);
-            if (c is not null) list.Add(new(c.Id, DisplayTitle(c), c.UpdatedAt, c.Pinned, c.BotIds, c.Unread, c.Topic, c.Code?.Name, c.CreatedAt));
+            if (c is not null && c.HandoffFrom is null) list.Add(new(c.Id, DisplayTitle(c), c.UpdatedAt, c.Pinned, c.BotIds, c.Unread, c.Topic, c.Code?.Name, c.CreatedAt));
         }
         return list.OrderByDescending(c => c.Pinned).ThenByDescending(c => c.UpdatedAt).ToList();
     }
@@ -250,10 +250,27 @@ public sealed class ConversationStore(IAppPaths paths)
         return conv;
     }
 
+    /// <summary>
+    /// The behind-the-scenes chat <paramref name="bot"/> uses when pulled into <paramref name="from"/> (one per bot per
+    /// chat, so it remembers earlier hand-offs there). Not listed in the sidebar; deleted with that chat.
+    /// </summary>
+    public async Task<Conversation> GetOrCreateHandoffAsync(Conversation from, Bot bot)
+    {
+        var id = HandoffId(from.Id, bot.Id);
+        if (await GetAsync(id) is { } conv) return conv;
+        conv = new Conversation { Id = id, Title = $"{bot.Name} (pulled in)", BotIds = [bot.Id], HandoffFrom = from.Id };
+        await SaveAsync(conv, notify: false);
+        return conv;
+    }
+
+    private static string HandoffId(string chatId, string botId) => $"{chatId}-handoff-{botId}";
+
     public async Task DeleteAsync(string id)
     {
         var f = FileFor(id);
         if (File.Exists(f)) File.Delete(f);
+        if (Directory.Exists(Dir))
+            foreach (var h in Directory.EnumerateFiles(Dir, Path.GetFileName(id) + "-handoff-*.json")) File.Delete(h);
         Changed?.Invoke();
         await Task.CompletedTask;
     }

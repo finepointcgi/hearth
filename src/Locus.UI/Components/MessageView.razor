@@ -91,9 +91,13 @@
                 <div class="thinking-body">@Message.Thinking</div>
             </details>
         }
-        @if (Message.ToolCalls.Count > 0)
+        @if (Message.ToolCalls.Any(t => t.Handoff is null))
         {
-            <ToolSteps Calls="Message.ToolCalls.ToArray()" />
+            <ToolSteps Calls="Message.ToolCalls.Where(t => t.Handoff is null).ToArray()" />
+        }
+        @foreach (var handoff in Message.ToolCalls.Where(t => t.Handoff is not null).ToArray())
+        {
+            <HandoffCard @key="handoff.Id" Call="handoff" AskedBy="@Message.BotId" />
         }
         @if (Message.Sources.Count > 0)
         {

@@ -1,0 +1,46 @@
+@* A teammate pulled in with message_bot: who asked what, then the teammate's own reply, formatted like any message. *@
+@inject AppState State
+
+<div class="handoff @(Reply.IsStreaming ? "working" : "")">
+    <div class="handoff-ask">
+        <Icon Name="users" Size="14" />
+        @if (State.BotById(AskedBy) is { } from) { <BotAvatar Bot="from" Size="sm" /> <b>@from.Name</b> }
+        <span class="muted">asked</span>
+        @if (State.BotById(Reply.BotId) is { } to) { <BotAvatar Bot="to" Size="sm" /> <b>@to.Name</b> }
+        @if (Version is { Length: > 0 }) { <span class="handoff-version" title="Ran on this version's model">@Version</span> }
+        @if (Reply.IsStreaming) { <span class="muted small">working…</span> }
+    </div>
+    @if (Request is { Length: > 0 })
+    {
+        <details class="handoff-request">
+            <summary>@Clip(Request, 140)</summary>
+            <div class="md"><Markdown Text="@Request" /></div>
+        </details>
+    }
+    <div class="handoff-reply">
+        <MessageView Message="Reply" Busy="true" />
+    </div>
+</div>
+
+@code {
+    /// <summary>The message_bot call; its <see cref="ToolCall.Handoff"/> is the teammate's reply.</summary>
+    [Parameter, EditorRequired] public ToolCall Call { get; set; } = default!;
+    /// <summary>The bot that pulled the teammate in.</summary>
+    [Parameter] public string? AskedBy { get; set; }
+
+    private ChatMessage Reply => Call.Handoff!;
+    private string? Request => Arg("message");
+    private string? Version => Arg("version");
+
+    private string? Arg(string name)
+    {
+        try { return System.Text.Json.Nodes.JsonNode.Parse(Call.ArgumentsJson)?[name]?.ToString(); }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    private static string Clip(string s, int n)
+    {
+        s = s.ReplaceLineEndings(" ");
+        return s.Length <= n ? s : s[..n] + "…";
+    }
+}

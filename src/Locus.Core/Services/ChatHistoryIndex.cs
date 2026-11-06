@@ -20,7 +20,7 @@ public sealed partial class ChatHistoryIndex
     {
         _store = store;
         _provider = provider;
-        store.Saved += c => _ = IndexAsync(c);
+        store.Saved += c => { if (c.HandoffFrom is null) _ = IndexAsync(c); }; // hand-offs show in the chat they were pulled into
         store.Changed += () => _synced = false; // deletions: re-check on next search
     }
 

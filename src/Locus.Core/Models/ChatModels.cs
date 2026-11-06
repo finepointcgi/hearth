@@ -76,6 +76,11 @@ public sealed class ToolCall
     /// stays shortened, so the start of the prompt doesn't change from step to step and the model server can reuse it.
     /// </summary>
     public int? SentChars { get; set; }
+    /// <summary>
+    /// For message_bot: the teammate's reply (with its own steps and sources), shown in the chat as that bot's message
+    /// instead of a raw tool result. Updated live while the teammate works.
+    /// </summary>
+    public ChatMessage? Handoff { get; set; }
     [JsonIgnore] public TaskCompletionSource<bool>? Approval { get; set; }
     /// <summary>Screenshot returned by the tool: shown in its card and sent to vision models (latest only).</summary>
     [JsonIgnore] public ImageAttachment? Image { get; set; }
@@ -109,6 +114,11 @@ public sealed class Conversation
     public string? Topic { get; set; }
     /// <summary>Set when this chat is a code session working in a folder (Claude Code-style).</summary>
     public CodeSession? Code { get; set; }
+    /// <summary>
+    /// Set on the behind-the-scenes chat a bot uses when another bot pulls it in with message_bot: the chat it was
+    /// pulled into. These chats aren't listed (the exchange shows in that chat instead).
+    /// </summary>
+    public string? HandoffFrom { get; set; }
 }
 
 /// <summary>How a code session handles changes: ask for each one, apply file edits without asking, or only plan.</summary>
