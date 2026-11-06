@@ -737,3 +737,5 @@ iframe.code-preview { height: 360px; background: #fff; }
 table.selfcheck { width: 100%; border-collapse: collapse; margin-top: .6rem; font-size: .85rem; }
 table.selfcheck th, table.selfcheck td { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.selfcheck tr.bad td:nth-child(3) { color: var(--danger, #e5484d); font-weight: 600; }
+.version-row label.grow { flex: 1 1 15rem; }
+.version-row .icon-btn, .version-row .btn.small { align-self: flex-end; }

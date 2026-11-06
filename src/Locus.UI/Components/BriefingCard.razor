@@ -12,9 +12,9 @@
     <div class="row">
         <label>At <input type="time" value="@_b.Time" @onchange="e => _b.Time = e.Value?.ToString() ?? _b.Time" /></label>
         <label>Days
-            <select @bind="_b.WeekdaysOnly">
-                <option value="true">Weekdays</option>
-                <option value="false">Every day</option>
+            <select @bind="Days">
+                <option value="weekdays">Weekdays</option>
+                <option value="daily">Every day</option>
             </select>
         </label>
         <label class="grow">Written by
@@ -58,6 +58,8 @@
     private Bot? _default;
     private bool _running;
     private string? _message;
+
+    private string Days { get => _b.WeekdaysOnly ? "weekdays" : "daily"; set => _b.WeekdaysOnly = value == "weekdays"; }
 
     private Bot? Writer => State.Bots.FirstOrDefault(b => b.Id == _botId) ?? _default;
 

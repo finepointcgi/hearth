@@ -159,7 +159,7 @@
             <label class="check"><input type="checkbox" @bind="_s.Google.AutoApproveEdits" @bind:after="Save" /> Let bots change things without asking (sheets, drafts, labels, events)</label>
             <label class="check"><input type="checkbox" @bind="_s.Google.AutoApproveSend" @bind:after="Save" /> Let bots <b>send email</b> without asking</label>
             <p class="muted small">
-                Reading never asks. Each bot also has its own Sheets / Gmail / Calendar switches. To react to changes, give a bot a routine with the trigger
+                Reading never asks. Each bot also has its own switches for these (Bots → a bot → Abilities). To react to changes, give a bot a routine with the trigger
                 <b>"A Google Sheet changes"</b>, <b>"New email arrives"</b> or <b>"A calendar event is coming up"</b>.
             </p>
         </section>

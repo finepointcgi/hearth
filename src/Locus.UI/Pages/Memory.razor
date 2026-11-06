@@ -47,7 +47,7 @@
                 <button class="btn ghost" @onclick="Tidy" disabled="@_tidying">🧹 Tidy up</button>
             </div>
             <p class="muted small">A short summary of you that every chat starts with (bots that use shared memory too). Each night Locus folds new memories into it and moves them to long-term storage.@(_profileInfo is { ConsolidatedAt: { } at } ? $" Last updated {at:MMM d, h:mm tt}." : "")</p>
-            <textarea rows="4" @bind="_profile" placeholder="Nothing yet — click Tidy up now, or write a few sentences about yourself."></textarea>
+            <textarea rows="9" @bind="_profile" placeholder="Nothing yet — click Tidy up now, or write a few sentences about yourself."></textarea>
             <div class="row end">
                 @if (_profileInfo?.PreviousText is not null) { <button class="btn ghost" @onclick="UndoProfile" title="Put back the profile from before the last automatic update">↶ Undo last update</button> }
                 <button class="btn ghost" @onclick="SaveProfile">Save profile</button>
