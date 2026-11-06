@@ -24,7 +24,12 @@ public sealed class DocsContactsTests : IDisposable
 
     public DocsContactsTests()
     {
-        Url = $"http://127.0.0.1:{new Random().Next(20000, 40000)}";
+        // A port nothing else is using.
+        var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        Url = $"http://127.0.0.1:{port}";
         _l.Prefixes.Add(Url + "/");
         _l.Start();
         _ = Task.Run(Loop);

@@ -45,6 +45,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IAppRestarter, NoRestarter>();
         services.AddSingleton<SkillPorter>();
         services.AddSingleton<MemoryCurator>();
+        services.AddSingleton<Briefing>();
+        services.AddSingleton<SelfCheck>();
         services.AddSingleton<SkillTeacher>();
         services.AddSingleton<Services.Channels.ChannelStore>();
         services.AddSingleton<Services.Channels.ChannelHub>();

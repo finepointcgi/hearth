@@ -730,3 +730,10 @@ iframe.code-preview { height: 360px; background: #fff; }
 /* Microsoft sign-in: the device code to type in */
 .device-code { display: flex; flex-direction: column; align-items: flex-start; gap: .35rem; margin: .6rem 0; padding: .7rem .9rem; border: 1px dashed var(--line-strong); border-radius: 10px; }
 .code-big { font-size: 1.5rem; letter-spacing: .15em; font-weight: 700; padding: .1rem .5rem; }
+
+/* Settings → Daily */
+.brief-parts { display: flex; flex-direction: column; gap: .35rem; margin: .5rem 0; }
+.brief-parts > input { margin-left: 1.6rem; }
+table.selfcheck { width: 100%; border-collapse: collapse; margin-top: .6rem; font-size: .85rem; }
+table.selfcheck th, table.selfcheck td { text-align: left; padding: .3rem .4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.selfcheck tr.bad td:nth-child(3) { color: var(--danger, #e5484d); font-weight: 600; }

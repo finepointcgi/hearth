@@ -87,6 +87,8 @@ public sealed class AppSettings
     public DocumentSettings Documents { get; set; } = new();
     public ImageGenSettings ImageGen { get; set; } = new();
     public VoiceSettings Voice { get; set; } = new();
+    public BriefingSettings Briefing { get; set; } = new();
+    public SelfCheckSettings SelfCheck { get; set; } = new();
     public List<McpServerConfig> McpServers { get; set; } = [];
     /// <summary>Max bot replies triggered by one user message in a group (stops bots looping).</summary>
     public int MaxBotHops { get; set; } = 8;
@@ -163,6 +165,42 @@ public sealed class ImageGenSettings
     public int Steps { get; set; } = 25;
     public double CfgScale { get; set; } = 6.5;
     public string NegativePrompt { get; set; } = "blurry, low quality, watermark, text";
+}
+
+/// <summary>The morning brief: a routine Locus keeps on the chosen bot, built from these choices.</summary>
+public sealed class BriefingSettings
+{
+    public bool Enabled { get; set; }
+    /// <summary>Local time, HH:mm.</summary>
+    public string Time { get; set; } = "07:00";
+    /// <summary>Weekdays only (otherwise every day).</summary>
+    public bool WeekdaysOnly { get; set; } = true;
+    /// <summary>The bot that writes it (null: the coordinator, or the first bot).</summary>
+    public string? BotId { get; set; }
+    public bool Calendar { get; set; } = true;
+    public bool Email { get; set; } = true;
+    public bool Tasks { get; set; } = true;
+    /// <summary>New job openings matching <see cref="JobCriteria"/>.</summary>
+    public bool Jobs { get; set; }
+    public string JobCriteria { get; set; } = "";
+    public bool News { get; set; }
+    public string NewsTopics { get; set; } = "";
+    public bool Weather { get; set; }
+    public string Location { get; set; } = "";
+    /// <summary>Anything else to include, in the user's words.</summary>
+    public string Extra { get; set; } = "";
+    /// <summary>The routine Locus made for it (so it's updated, not duplicated).</summary>
+    public string? RoutineId { get; set; }
+}
+
+/// <summary>Nightly self-check: a few quick test questions to catch a model or server getting worse.</summary>
+public sealed class SelfCheckSettings
+{
+    public bool Enabled { get; set; }
+    /// <summary>Local time, HH:mm.</summary>
+    public string Time { get; set; } = "03:30";
+    /// <summary>Alert (Activity → problem, and a phone notification if set up) when results drop.</summary>
+    public bool Alert { get; set; } = true;
 }
 
 public sealed class VoiceSettings

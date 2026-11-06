@@ -231,6 +231,7 @@ app.Services.GetRequiredService<BotInbox>().EnsureStarted();
 app.Services.GetRequiredService<HeartbeatRunner>().EnsureStarted();
 app.Services.GetRequiredService<SkillPorter>().EnsureStarted();
 app.Services.GetRequiredService<MemoryCurator>().EnsureStarted();
+app.Services.GetRequiredService<SelfCheck>().EnsureStarted(); // nightly self-check (off unless turned on in Settings)
 app.Services.GetRequiredService<ChatHistoryIndex>().EnsureStarted();
 app.Services.GetRequiredService<PushNotifier>().EnsureStarted();
 app.Services.GetRequiredService<BackupService>().EnsureStarted();

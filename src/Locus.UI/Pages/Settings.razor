@@ -24,6 +24,7 @@
         <button role="tab" aria-selected="@(_tab == "models")" class="tab @(_tab == "models" ? "on" : "")" @onclick='() => _tab = "models"'><Icon Name="server" Size="16" /> Models</button>
         <button role="tab" aria-selected="@(_tab == "web")" class="tab @(_tab == "web" ? "on" : "")" @onclick='() => _tab = "web"'><Icon Name="globe" Size="16" /> Web and images</button>
         <button role="tab" aria-selected="@(_tab == "voice")" class="tab @(_tab == "voice" ? "on" : "")" @onclick='() => _tab = "voice"'><Icon Name="mic" Size="16" /> Voice</button>
+        <button role="tab" aria-selected="@(_tab == "daily")" class="tab @(_tab == "daily" ? "on" : "")" @onclick='() => _tab = "daily"'><Icon Name="clock" Size="16" /> Daily</button>
         <button role="tab" aria-selected="@(_tab == "data")" class="tab @(_tab == "data" ? "on" : "")" @onclick='() => _tab = "data"'><Icon Name="hard-drive-download" Size="16" /> Data</button>
     </div>
     @if (_tab == "models")
@@ -222,6 +223,11 @@
         </div>
         @if (_voiceTest is not null) { <div class="error-box">@_voiceTest</div> }
     </section>
+    }
+    @if (_tab == "daily")
+    {
+    <BriefingCard />
+    <SelfCheckCard />
     }
     @if (_tab == "data")
     {
