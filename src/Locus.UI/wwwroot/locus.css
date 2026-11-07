@@ -345,6 +345,15 @@ code.snippet { display: block; white-space: pre-wrap; word-break: break-all; pad
 .advanced[open] { display: flex; flex-direction: column; gap: .5rem; }
 .card label.check span { line-height: 1.4; }
 .learned { font-size: .78rem; color: var(--muted); background: var(--bg-2); border: 1px dashed var(--line); border-radius: 10px; padding: .3rem .6rem; margin-top: .45rem; align-self: flex-start; }
+.learned-box { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin-top: .45rem; font-size: .78rem; color: var(--muted); }
+.learned-head { font-weight: 600; text-transform: uppercase; letter-spacing: .04em; font-size: .68rem; }
+.learned-item { display: inline-flex; align-items: center; gap: .3rem; max-width: 100%; background: var(--bg-2); border: 1px dashed var(--line); border-radius: 10px; padding: .2rem .25rem .2rem .55rem; color: var(--text); }
+.learned-item > span:not([aria-hidden]) { overflow-wrap: anywhere; }
+.learned-item a { color: inherit; text-decoration: underline dotted; }
+.learned-item.undone { opacity: .55; padding-right: .55rem; }
+.learned-item.undone > span:not([aria-hidden]):not(.muted) { text-decoration: line-through; }
+.learned-undo { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: .72rem; padding: .1rem .4rem; border-radius: 6px; cursor: pointer; }
+.learned-undo:hover { background: var(--line); color: var(--text); }
 .bot-mem-link { color: var(--text); text-decoration: none; }
 .bot-mem-link:hover { background: var(--bg-3); }
 
@@ -778,3 +787,11 @@ html, body { overflow: hidden; }
 #blazor-error-ui { display: none; position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); z-index: 1000; padding: .6rem 1rem; border-radius: var(--radius, 10px); background: var(--bg-2); border: 1px solid var(--line-strong, #444); box-shadow: var(--shadow); color: var(--text); font-size: .92rem; }
 #blazor-error-ui .reload { margin-left: .6rem; color: var(--brand); font-weight: 600; }
 .page-error { margin: 1rem; }
+
+/* Teach Locus */
+.teach .teach-examples { display: flex; flex-wrap: wrap; gap: .5rem; margin: .6rem 0; }
+.teach .teach-examples .suggestion { text-decoration: none; color: var(--text); text-align: left; }
+.teach .teach-tips { margin: .3rem 0 0; padding-left: 1.2rem; display: grid; gap: .35rem; }
+.learned-item.inline { padding: .05rem .45rem; font-size: .8rem; }
+.teach-link { display: inline-flex; align-items: center; gap: .35rem; margin-top: 1rem; font-size: .85rem; color: var(--muted); text-decoration: none; }
+.teach-link:hover { color: var(--text); }

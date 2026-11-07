@@ -42,6 +42,9 @@ public sealed class ChatMessage
     public List<string> Learned { get; set; } = [];
     /// <summary>Skills this reply created or improved ("saved /x", "improved /y").</summary>
     public List<string> SkillNotes { get; set; } = [];
+    /// <summary>Everything this reply taught Locus (memories, people notes, skills…), each with what's needed to undo it.
+    /// Shown under the reply. Older replies only have <see cref="Learned"/> and <see cref="SkillNotes"/>.</summary>
+    public List<LearnedItem> LearnedItems { get; set; } = [];
     /// <summary>How this reply was produced: each model round and tool call with its time and tokens.</summary>
     public List<TraceStep> Trace { get; set; } = [];
     /// <summary>Informational note, e.g. "this model doesn't support tools".</summary>
@@ -172,3 +175,23 @@ public sealed record ModelInfo(string Id, string? Family = null, long? SizeBytes
 
 /// <summary>One step of a reply: a model round ("model") or a tool call ("tool").</summary>
 public sealed record TraceStep(string Kind, string Name, long Ms, int? InputTokens = null, int? OutputTokens = null);
+
+/// <summary>One thing a reply taught Locus, and how to take it back.</summary>
+public sealed class LearnedItem
+{
+    public const string Memory = "memory", Person = "person", Vibe = "vibe", Thread = "thread", NewSkill = "skill", ImprovedSkill = "skill-improved";
+
+    /// <summary><see cref="Memory"/>, <see cref="Person"/>, <see cref="Vibe"/>, <see cref="Thread"/>, <see cref="NewSkill"/> or <see cref="ImprovedSkill"/>.</summary>
+    public string Kind { get; set; } = "";
+    /// <summary>What was learned, as shown ("Prefers short answers", "Shield AI: interview Friday", "/weekly-report").</summary>
+    public string Text { get; set; } = "";
+    /// <summary>The memory, person, relationship note, thread or skill it went into.</summary>
+    public string? Ref { get; set; }
+    /// <summary>Memory: the bot whose memory it's in (null = shared). Vibe: the bot whose note it is.</summary>
+    public string? Scope { get; set; }
+    /// <summary>Memory: the id of a shared copy also saved. Person and thread: the exact note text added.</summary>
+    public string? Extra { get; set; }
+    public bool Undone { get; set; }
+
+    public string Icon => Kind switch { Memory => "🧠", Person => "👤", Vibe => "💬", Thread => "🧵", _ => "📒" };
+}

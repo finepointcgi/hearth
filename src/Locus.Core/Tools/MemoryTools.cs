@@ -27,6 +27,7 @@ public sealed class SaveMemoryTool(MemoryStore store) : ITool
         var scope = shared ? null : ctx.Bot!.Id;
         if (await store.KnowsAsync(fact, scope)) return new ToolResult("Already remembered.");
         var m = await store.AddAsync(fact, scope);
+        lock (ctx.Reply.LearnedItems) ctx.Reply.LearnedItems.Add(new LearnedItem { Kind = LearnedItem.Memory, Text = m.Text, Ref = m.Id, Scope = scope });
         return new ToolResult($"Saved memory {m.Id}: {m.Text}");
     }
 }

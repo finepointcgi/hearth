@@ -65,6 +65,7 @@ public sealed class SaveSkillTool(SkillStore skills, SettingsStore settings) : I
         };
         await skills.SaveAsync(skill);
         ctx.Reply.SkillNotes.Add($"saved /{skill.Name}");
+        lock (ctx.Reply.LearnedItems) ctx.Reply.LearnedItems.Add(new LearnedItem { Kind = LearnedItem.NewSkill, Text = "/" + skill.Name, Ref = skill.Id });
         return new ToolResult(review
             ? $"Saved /{skill.Name}. The user reviews new skills before bots can use them."
             : $"Saved /{skill.Name}. You and the other bots can use it from now on.");
@@ -93,8 +94,12 @@ public sealed class ImproveSkillTool(SkillStore skills, SettingsStore settings) 
         var instructions = args.Str("instructions") ?? "";
         if (instructions.Trim().Length < 40) return ToolResult.Error("Send the complete instructions, not just the change.");
         var review = (await settings.GetAsync()).SkillLearning.NeedsReview;
+        var changed = skill.Instructions.Trim() != instructions.Trim();
         await skills.ReviseAsync(skill, instructions, null, args.Str("change"), ctx.Bot?.Name ?? "Locus", review);
         ctx.Reply.SkillNotes.Add($"improved /{skill.Name}");
+        if (changed)
+            lock (ctx.Reply.LearnedItems)
+                ctx.Reply.LearnedItems.Add(new LearnedItem { Kind = LearnedItem.ImprovedSkill, Text = "/" + skill.Name, Ref = skill.Id, Extra = skill.UpdatedAt.ToString("O") });
         return new ToolResult($"Updated /{skill.Name}. The previous version is kept in its history.");
     }
 }

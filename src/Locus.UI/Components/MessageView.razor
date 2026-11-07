@@ -1,6 +1,7 @@
 @inject IJSRuntime JS
 @inject AppState State
 @inject ISpeechOutput Speech
+@inject ChatService Chat
 
 <div class="msg @(Message.Role == ChatRole.User ? "user" : "assistant")">
     @if (Message.Role == ChatRole.User)
@@ -158,17 +159,50 @@
         {
             <div class="error-box">⚠ @Message.Error</div>
         }
-        @if (Message.SkillNotes.Count > 0 && !Message.IsStreaming)
+        @if (Message.LearnedItems.Count > 0 && !Message.IsStreaming)
         {
-            <a class="learned" href="skills" title="Bots write down methods that worked so they can repeat them — review them on the Skills page">
-                📒 Skill @string.Join(" · ", Message.SkillNotes)
-            </a>
-        }
-        @if (Message.Learned.Count > 0 && !Message.IsStreaming)
-        {
-            <div class="learned" title="Saved to memory automatically — edit on the Memory page or the bot's page">
-                🧠 Remembered: @string.Join(" · ", Message.Learned)
+            <div class="learned-box">
+                <span class="learned-head" title="What Locus took away from this reply. Undo anything it got wrong.">Learned</span>
+                @foreach (var item in Message.LearnedItems.ToArray())
+                {
+                    var it = item;
+                    <span class="learned-item @(it.Undone ? "undone" : "")">
+                        <span aria-hidden="true">@it.Icon</span>
+                        @if (it.Kind is LearnedItem.NewSkill or LearnedItem.ImprovedSkill && !it.Undone)
+                        {
+                            <a href="skills" title="@(it.Kind == LearnedItem.NewSkill ? "New skill" : "Improved skill") — open the Skills page">@(it.Kind == LearnedItem.ImprovedSkill ? "Improved " : "")@it.Text</a>
+                        }
+                        else
+                        {
+                            <span>@it.Text</span>
+                        }
+                        @if (it.Undone)
+                        {
+                            <span class="muted small">undone</span>
+                        }
+                        else
+                        {
+                            <button class="learned-undo" title="Take this back" @onclick="() => Undo(it)" disabled="@(_undoing == it)">Undo</button>
+                        }
+                    </span>
+                }
+                @if (_learnMessage is not null) { <span class="muted small">@_learnMessage</span> }
             </div>
+        }
+        else
+        {
+            @if (Message.SkillNotes.Count > 0 && !Message.IsStreaming)
+            {
+                <a class="learned" href="skills" title="Bots write down methods that worked so they can repeat them — review them on the Skills page">
+                    📒 Skill @string.Join(" · ", Message.SkillNotes)
+                </a>
+            }
+            @if (Message.Learned.Count > 0 && !Message.IsStreaming)
+            {
+                <div class="learned" title="Saved to memory automatically — edit on the Memory page or the bot's page">
+                    🧠 Remembered: @string.Join(" · ", Message.Learned)
+                </div>
+            }
         }
         @if (!Message.IsStreaming)
         {
@@ -178,6 +212,13 @@
                 @if (IsLast && !Busy)
                 {
                     <button title="Regenerate" aria-label="Regenerate" @onclick="OnRegenerate"><Icon Name="refresh-cw" Size="15" /></button>
+                }
+                @if (CanSaveAsSkill)
+                {
+                    <button class="@(_savingSkill ? "on" : "")" title="Save how this was done as a skill, so it's done the same way next time"
+                            aria-label="Save as skill" @onclick="SaveAsSkill" disabled="@_savingSkill">
+                        <Icon Name="zap" Size="15" />@if (_savingSkill) { <span class="small"> Saving…</span> }
+                    </button>
                 }
                 @if (Message.Trace.Count > 0)
                 {
@@ -208,6 +249,37 @@
     [Parameter] public bool Busy { get; set; }
     [Parameter] public EventCallback OnRegenerate { get; set; }
     [Parameter] public EventCallback<string> OnEdit { get; set; }
+    /// <summary>The chat this message is in (for undoing what it learned and saving it as a skill).</summary>
+    [Parameter] public Conversation? Conv { get; set; }
+
+    private LearnedItem? _undoing;
+    private string? _learnMessage;
+    private bool _savingSkill;
+
+    private bool CanSaveAsSkill => Conv is not null && !Busy && Message is { Role: ChatRole.Assistant, Error: null, Ack: false, Behind: false, Content.Length: > 40 }
+        && !Message.LearnedItems.Any(i => i.Kind is LearnedItem.NewSkill or LearnedItem.ImprovedSkill && !i.Undone);
+
+    private async Task Undo(LearnedItem item)
+    {
+        if (Conv is null) { _learnMessage = "Undo it on the Memory or Skills page."; return; }
+        _undoing = item;
+        try { _learnMessage = await Chat.UndoLearnedAsync(Conv, item); }
+        catch (Exception ex) { _learnMessage = ex.Message; }
+        finally { _undoing = null; }
+    }
+
+    private async Task SaveAsSkill()
+    {
+        _savingSkill = true;
+        _learnMessage = null;
+        try
+        {
+            var item = await Chat.SaveReplyAsSkillAsync(Conv!, Message, () => InvokeAsync(StateHasChanged));
+            _learnMessage = item.Kind == LearnedItem.NewSkill ? $"Saved {item.Text}. Use it any time by typing {item.Text}." : $"Improved {item.Text}.";
+        }
+        catch (Exception ex) { _learnMessage = ex.Message; Message.Notice = $"Couldn't save a skill: {ex.Message}"; }
+        finally { _savingSkill = false; }
+    }
 
     private bool _editing;
     private bool _speaking;

@@ -173,6 +173,7 @@
                         </button>
                     }
                 </div>
+                <a class="teach-link" href="teach"><Icon Name="lightbulb" Size="15" /> How to teach Locus</a>
             }
         </div>
     }
@@ -217,14 +218,14 @@
                             @foreach (var w in work)
                             {
                                 var wi = _conv.Messages.IndexOf(w);
-                                <MessageView @key="w.Id" Message="w" IsLast="false" Busy="Busy" OnRegenerate="Regenerate" OnEdit="text => EditAndResend(wi, text)" />
+                                <MessageView @key="w.Id" Message="w" Conv="_conv" IsLast="false" Busy="Busy" OnRegenerate="Regenerate" OnEdit="text => EditAndResend(wi, text)" />
                             }
                         </div>
                     </details>
                 }
                 else
                 {
-                    <MessageView @key="m.Id" Message="m" IsLast="index == _conv.Messages.Count - 1" Busy="Busy"
+                    <MessageView @key="m.Id" Message="m" Conv="_conv" IsLast="index == _conv.Messages.Count - 1" Busy="Busy"
                                  OnRegenerate="Regenerate" OnEdit="text => EditAndResend(index, text)" />
                 }
             }
@@ -298,6 +299,9 @@
 
 @code {
     [Parameter] public string? Id { get; set; }
+    /// <summary>Text to put in the message box, ready to finish and send (the Teach Locus examples).</summary>
+    [SupplyParameterFromQuery(Name = "draft")] public string? Draft { get; set; }
+    private string? _draftApplied;
 
     private Conversation? _conv;
     private ElementReference _scroller;
@@ -456,6 +460,11 @@
     {
         await JS.InvokeVoidAsync("locus.afterRender", _scroller, _forceScroll);
         _forceScroll = false;
+        if (!string.IsNullOrEmpty(Draft) && Draft != _draftApplied && _composer is not null)
+        {
+            _draftApplied = Draft;
+            await _composer.SetTextAsync(Draft);
+        }
     }
 
     private async Task OnModelChanged(ChangeEventArgs e) => await State.SelectModelAsync(e.Value?.ToString());

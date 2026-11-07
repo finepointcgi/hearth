@@ -631,6 +631,58 @@ public sealed class TeamAndSkillTests : IDisposable
     }
 
     [Fact]
+    public async Task WhatAReplyLearnedShowsUnderItAndEachPieceCanBeUndone()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        await bots.SaveAsync(chief);
+        var companion = _sp.GetRequiredService<Companion>();
+        var people = _sp.GetRequiredService<PeopleStore>();
+        var memories = _sp.GetRequiredService<MemoryStore>();
+        var skills = _sp.GetRequiredService<SkillStore>();
+        _settings.MemoryEnabled = true;
+        await _sp.GetRequiredService<SettingsStore>().SaveAsync(_settings);
+        await people.NoteAsync("Shield AI", "Defense company"); // known before: undo mustn't take it away
+        _team.Script = (bot, messages, _) =>
+        {
+            var first = messages[0].Content;
+            if (first.Contains("You extract memories"))
+                return new LlmChunk("vibe: likes short answers\nthread: Job search | Final round Friday\nabout Shield AI: final round Friday\nabout Shield AI: Defense company\nuser: lives in Detroit");
+            if (first.StartsWith("You maintain a library of reusable skills"))
+            {
+                Assert.Contains("Don't answer NONE", first); // the user asked for it
+                return new LlmChunk("ACTION: CREATE\nNAME: interview-prep\nDESCRIPTION: Get ready for an interview\nINSTRUCTIONS:\n1. Look up the company.\n2. List likely questions.\n3. Draft answers in my voice.");
+            }
+            if (first.Contains("Decide how to handle")) return new LlmChunk("{\"mode\":\"self\"}");
+            return new LlmChunk("Good luck Friday! Here's how I'd prepare: research them, list questions, practise answers.");
+        };
+        var chat = _sp.GetRequiredService<ChatService>();
+        var conv = new Conversation { BotIds = [chief.Id] };
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "final round at Shield AI is Friday, help me prep" });
+        await chat.GenerateAsync(conv, new SendOptions("main-model", false, false, true), () => Task.CompletedTask, CancellationToken.None);
+        var reply = conv.Messages.Last(m => m.Role == ChatRole.Assistant);
+        for (var i = 0; i < 100 && reply.LearnedItems.Count < 4; i++) await Task.Delay(20); // learning runs after the reply
+
+        Assert.Equal([LearnedItem.Vibe, LearnedItem.Thread, LearnedItem.Person, LearnedItem.Memory], reply.LearnedItems.Select(x => x.Kind));
+        Assert.Empty(reply.Learned); // new replies list them as items, with undo
+
+        // "Save as skill" on the reply.
+        var saved = await chat.SaveReplyAsSkillAsync(conv, reply, () => Task.CompletedTask);
+        Assert.Equal("/interview-prep", saved.Text);
+        Assert.False((await skills.FindAsync("interview-prep"))!.Pending);
+
+        foreach (var item in reply.LearnedItems.ToArray()) await chat.UndoLearnedAsync(conv, item);
+        Assert.All(reply.LearnedItems, x => Assert.True(x.Undone));
+        Assert.Empty(await companion.NotesForAsync(chief.Id));
+        Assert.Empty(await companion.ThreadsListAsync());
+        Assert.Equal(["Defense company"], (await people.FindAsync("Shield AI")).Single().Notes.Select(n => n.Text));
+        Assert.DoesNotContain(await memories.ListAsync(chief.Id), m => m.Text.Contains("Detroit"));
+        Assert.DoesNotContain(await memories.ListAsync(), m => m.Text.Contains("Detroit"));
+        Assert.Null(await skills.FindAsync("interview-prep"));
+        Assert.Equal("Already undone.", await chat.UndoLearnedAsync(conv, saved));
+    }
+
+    [Fact]
     public async Task ThreadsGrowCloseAndDropOutWhenDone()
     {
         var companion = _sp.GetRequiredService<Companion>();

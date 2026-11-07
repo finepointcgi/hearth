@@ -67,22 +67,26 @@ public sealed class Companion(IAppPaths paths)
         LockedAsync(async () => (await NotesAsync()).TryGetValue(botId ?? LocusKey, out var l) ? l.ToList() : []);
 
     /// <summary>Adds a note (skipping one it already has); the oldest go once there are <see cref="MaxNotesPerBot"/>.</summary>
-    public async Task<bool> AddNoteAsync(string? botId, string text)
+    public async Task<bool> AddNoteAsync(string? botId, string text) => await NoteAsync(botId, text) is not null;
+
+    /// <summary>Like <see cref="AddNoteAsync"/>, returning the new note (null when skipped).</summary>
+    public async Task<RelationshipNote?> NoteAsync(string? botId, string text)
     {
         text = text.Trim();
-        if (text.Length is < 4 or > 300) return false;
+        if (text.Length is < 4 or > 300) return null;
         var added = await LockedAsync(async () =>
         {
             var all = await NotesAsync();
             var list = all.TryGetValue(botId ?? LocusKey, out var l) ? l : all[botId ?? LocusKey] = [];
             var n = Norm(text);
-            if (list.Any(x => Norm(x.Text) == n || Norm(x.Text).Contains(n))) return false;
-            list.Add(new RelationshipNote { Text = text });
+            if (list.Any(x => Norm(x.Text) == n || Norm(x.Text).Contains(n))) return null;
+            var note = new RelationshipNote { Text = text };
+            list.Add(note);
             if (list.Count > MaxNotesPerBot) list.RemoveRange(0, list.Count - MaxNotesPerBot);
             await Json.WriteAtomicAsync(NotesPath, all);
-            return true;
+            return note;
         });
-        if (added) Changed?.Invoke();
+        if (added is not null) Changed?.Invoke();
         return added;
     }
 
@@ -152,6 +156,24 @@ public sealed class Companion(IAppPaths paths)
         });
         Changed?.Invoke();
         return thread;
+    }
+
+    /// <summary>Takes back one update (the newest with this text); a thread left with no updates goes.</summary>
+    public async Task<bool> RemoveUpdateAsync(string threadId, string update)
+    {
+        var removed = await LockedAsync(async () =>
+        {
+            var list = await ThreadsAsync();
+            if (list.FirstOrDefault(x => x.Id == threadId) is not { } t) return false;
+            var i = t.Updates.FindLastIndex(u => Norm(u.Text) == Norm(update));
+            if (i < 0) return false;
+            t.Updates.RemoveAt(i);
+            if (t.Updates.Count == 0) list.Remove(t);
+            await Json.WriteAtomicAsync(ThreadsPath, list);
+            return true;
+        });
+        if (removed) Changed?.Invoke();
+        return removed;
     }
 
     public async Task SetDoneAsync(string id, bool done)

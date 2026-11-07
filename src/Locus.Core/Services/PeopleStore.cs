@@ -102,6 +102,24 @@ public sealed class PeopleStore(IAppPaths paths)
         Changed?.Invoke();
     }
 
+    /// <summary>Takes back a note by its text; someone left with no notes and no connections goes.</summary>
+    public async Task<bool> RemoveNoteTextAsync(string id, string text)
+    {
+        bool removed;
+        await _lock.WaitAsync();
+        try
+        {
+            _cache ??= await Json.ReadAsync<List<Entity>>(FilePath) ?? [];
+            var e = _cache.FirstOrDefault(x => x.Id == id);
+            removed = e is not null && e.Notes.RemoveAll(n => n.Text.Equals(text.Trim(), StringComparison.OrdinalIgnoreCase)) > 0;
+            if (removed && e!.Notes.Count == 0 && e.Related.Count == 0) _cache.Remove(e);
+            if (removed) await Json.WriteAtomicAsync(FilePath, _cache);
+        }
+        finally { _lock.Release(); }
+        if (removed) Changed?.Invoke();
+        return removed;
+    }
+
     /// <summary>What a bot sees for someone: their notes, newest last, and who they're connected to.</summary>
     public static string Describe(Entity e) =>
         $"{e.Name} ({e.Kind})" + (e.Related.Count > 0 ? $" — related: {string.Join(", ", e.Related)}" : "") + "\n" +

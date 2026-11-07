@@ -1760,6 +1760,7 @@ public sealed class ChatService(
                 sb.Append(c.Content);
 
             var saved = new List<string>();
+            var items = new List<LearnedItem>();
             foreach (var raw in sb.ToString().Split('\n'))
             {
                 var line = raw.Trim().TrimStart('-', '*', ' ');
@@ -1771,20 +1772,32 @@ public sealed class ChatService(
                     var what = line[(colon + 1)..].Trim();
                     if (who.Length is >= 2 and <= 60 && what.Length is >= 4 and <= 300 && !who.Equals("the user", StringComparison.OrdinalIgnoreCase))
                     {
-                        await people.NoteAsync(who, what);
+                        var knew = (await people.FindAsync(who)).Any(e => e.Notes.Any(n => n.Text.Equals(what, StringComparison.OrdinalIgnoreCase)));
+                        var entity = await people.NoteAsync(who, what);
+                        if (knew) continue;
                         saved.Add($"{who}: {what}");
+                        items.Add(new LearnedItem { Kind = LearnedItem.Person, Text = $"{entity.Name}: {what}", Ref = entity.Id, Extra = what });
                         if (saved.Count(x => !x.StartsWith("💬") && !x.StartsWith("🧵")) >= 3) break;
                     }
                     continue;
                 }
                 if (line.StartsWith("vibe:", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (await companion.AddNoteAsync(bot?.Id, line[5..].Trim())) saved.Add("💬 " + line[5..].Trim());
+                    if (await companion.NoteAsync(bot?.Id, line[5..].Trim()) is { } note)
+                    {
+                        saved.Add("💬 " + note.Text);
+                        items.Add(new LearnedItem { Kind = LearnedItem.Vibe, Text = note.Text, Ref = note.Id, Scope = bot?.Id });
+                    }
                     continue;
                 }
                 if (line.StartsWith("thread:", StringComparison.OrdinalIgnoreCase) && line[7..].Split('|', 2) is [var title, var news])
                 {
-                    if (await companion.UpdateAsync(title, news) is { } t) saved.Add($"🧵 {t.Title}: {news.Trim()}");
+                    var at = DateTimeOffset.Now;
+                    if (await companion.UpdateAsync(title, news) is { } t && t.Updates.LastOrDefault() is { } u && u.At >= at)
+                    {
+                        saved.Add($"🧵 {t.Title}: {u.Text}");
+                        items.Add(new LearnedItem { Kind = LearnedItem.Thread, Text = $"{t.Title}: {u.Text}", Ref = t.Id, Extra = u.Text });
+                    }
                     continue;
                 }
                 var isNote = line.StartsWith("note:", StringComparison.OrdinalIgnoreCase);
@@ -1795,13 +1808,14 @@ public sealed class ChatService(
                 // Bots keep everything in their own memory; facts about the user also go to shared memory if allowed.
                 string? scope = bot is null ? null : bot.Id;
                 if (await memories.KnowsAsync(fact, scope) || await memories.KnowsAsync(fact, null)) continue;
-                await memories.AddAsync(fact, scope);
-                if (bot is not null && isUser && bot.Memory.ShareWhatItLearns) await memories.AddAsync(fact, null);
+                var m = await memories.AddAsync(fact, scope);
+                var copy = bot is not null && isUser && bot.Memory.ShareWhatItLearns ? await memories.AddAsync(fact, null) : null;
                 saved.Add(fact);
+                items.Add(new LearnedItem { Kind = LearnedItem.Memory, Text = fact, Ref = m.Id, Scope = scope, Extra = copy?.Id });
                 if (saved.Count(x => !x.StartsWith("💬") && !x.StartsWith("🧵")) >= 3) break;
             }
             if (saved.Count == 0) return;
-            reply.Learned.AddRange(saved);
+            lock (reply.LearnedItems) reply.LearnedItems.AddRange(items);
             await store.SaveAsync(conv, notify: false);
             await onUpdate();
         }
@@ -1810,21 +1824,26 @@ public sealed class ChatService(
 
     /// <summary>
     /// Self-written skills: after a reply that took several tool calls, ask the model whether the method is worth
-    /// keeping as a skill (or whether a skill it used needs fixing), and save it.
+    /// keeping as a skill (or whether a skill it used needs fixing), and save it. <paramref name="asked"/>: the user
+    /// pressed "Save as skill" on this reply, so a skill is always made (or the one it fits improved).
     /// </summary>
-    internal async Task ReflectAsync(Conversation conv, Bot? bot, ChatMessage reply, ILlmClient client, string model,
-        AppSettings settings, Func<Task> onUpdate)
+    internal async Task<LearnedItem?> ReflectAsync(Conversation conv, Bot? bot, ChatMessage reply, ILlmClient client, string model,
+        AppSettings settings, Func<Task> onUpdate, bool asked = false, CancellationToken ct = default)
     {
         using var usageScope = UsageScope.Begin("Skill learning", bot?.Id, conv.Id);
         try
         {
-            var lastUser = conv.Messages.LastOrDefault(m => m.Role == ChatRole.User);
-            if (lastUser is null) return;
+            // The request this reply answered (for an older reply, the user message before it).
+            var at = conv.Messages.IndexOf(reply);
+            var lastUser = (at < 0 ? conv.Messages : conv.Messages.Take(at)).LastOrDefault(m => m.Role == ChatRole.User);
+            if (lastUser is null) return null;
             var all = await skillStore.ListAsync();
-            var used = reply.ToolCalls.Where(t => t.Name == "use_skill")
+            // A team's answer: the specialists' work behind it is part of the method.
+            var work = conv.Messages.Where(m => m == reply || reply.TeamTurn is not null && m.TeamTurn == reply.TeamTurn).SelectMany(m => m.ToolCalls).ToList();
+            var used = work.Where(t => t.Name == "use_skill")
                 .Select(t => { try { return JsonNode.Parse(t.ArgumentsJson)?["name"]?.ToString(); } catch { return null; } })
                 .OfType<string>().Select(n => all.FirstOrDefault(s => s.Name == Skill.Slug(n.TrimStart('/')))).OfType<Skill>().Distinct().ToList();
-            var steps = string.Join("\n", reply.ToolCalls.Select((t, i) =>
+            var steps = string.Join("\n", work.Take(40).Select((t, i) =>
                 $"{i + 1}. {t.Name}({Clip(t.ArgumentsJson, 200)}) → {t.Status}: {Clip(t.Result ?? "", 200)}"));
             var prompt = new List<LlmMessage>
             {
@@ -1833,47 +1852,119 @@ public sealed class ChatService(
                     "just done and decide ONE of:\n" +
                     "- CREATE: the task is a repeatable procedure (multi-step, likely to come up again) and no existing skill covers it.\n" +
                     "- IMPROVE <name>: an existing skill was used or fits, and what happened shows its steps are wrong, missing something, or there's a better way.\n" +
-                    "- NONE: one-off, trivial, failed, or already covered well. Prefer NONE when unsure.\n" +
-                    "Reply in exactly this format:\nACTION: CREATE | IMPROVE <name> | NONE\nNAME: short-dash-name\nDESCRIPTION: one line, when to use it\n" +
+                    (asked
+                        ? "The user asked for this to be saved as a skill, so choose CREATE (or IMPROVE when an existing skill is clearly the same job). Don't answer NONE.\n"
+                        : "- NONE: one-off, trivial, failed, or already covered well. Prefer NONE when unsure.\n") +
+                    "Reply in exactly this format:\nACTION: CREATE | IMPROVE <name>" + (asked ? "" : " | NONE") + "\nNAME: short-dash-name\nDESCRIPTION: one line, when to use it\n" +
                     "INSTRUCTIONS:\nnumbered general steps with the exact tools/sites, pitfalls found, and the output format — no details specific to this one request."),
                 LlmMessage.User(
                     $"Existing skills:\n{(all.Count == 0 ? "(none)" : string.Join("\n", all.Select(s => $"- {s.Name}: {s.Description}")))}\n\n" +
                     (used.Count == 0 ? "" : $"Skills used this time:\n{string.Join("\n\n", used.Select(s => $"/{s.Name}:\n{Clip(s.Instructions, 1500)}"))}\n\n") +
-                    $"Request:\n{Clip(lastUser.Content, 1500)}\n\nSteps taken:\n{steps}\n\nFinal answer:\n{Clip(reply.Content, 1200)}"),
+                    $"Request:\n{Clip(lastUser.Content, 1500)}\n\nSteps taken:\n{(steps.Length == 0 ? "(answered directly, no tools)" : steps)}\n\nFinal answer:\n{Clip(reply.Content, 1200)}"),
             };
             var sb = new StringBuilder();
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(asked ? 300 : 120));
             await foreach (var c in client.StreamChatAsync(new LlmRequest(model, prompt, 0.2, 900, 8192, false), cts.Token))
                 sb.Append(c.Content);
             var proposal = SkillProposal.Parse(sb.ToString());
-            if (proposal is null) return;
+            if (proposal is null) return null;
 
             var by = bot?.Name ?? "Locus";
+            // Asked for: the user has seen the work, so it doesn't wait for review.
+            var pending = settings.SkillLearning.NeedsReview && !asked;
+            LearnedItem item;
             if (proposal.Improve is { } target)
             {
                 var skill = all.FirstOrDefault(s => s.Name == Skill.Slug(target));
-                if (skill is null) return;
-                await skillStore.ReviseAsync(skill, proposal.Instructions, proposal.Description, "Learned from a task", by, settings.SkillLearning.NeedsReview);
+                if (skill is null) return null;
+                var changed = skill.Instructions.Trim() != proposal.Instructions.Trim();
+                await skillStore.ReviseAsync(skill, proposal.Instructions, proposal.Description, asked ? "Saved from a chat" : "Learned from a task", by, pending);
                 reply.SkillNotes.Add($"improved /{skill.Name}");
+                item = new LearnedItem { Kind = LearnedItem.ImprovedSkill, Text = "/" + skill.Name, Ref = skill.Id, Extra = skill.UpdatedAt.ToString("O") };
+                if (!changed) return item; // nothing to undo or show
             }
             else
             {
                 var name = Skill.Slug(proposal.Name);
-                if (name.Length < 3 || all.Any(s => s.Name == name)) return;
+                if (name.Length < 3) return null;
+                if (all.Any(s => s.Name == name))
+                {
+                    if (!asked) return null;
+                    for (var n = 2; all.Any(s => s.Name == name); n++) name = $"{Skill.Slug(proposal.Name)}-{n}";
+                }
                 var skill = new Skill
                 {
                     Name = name, Icon = "📒", Description = proposal.Description, Instructions = proposal.Instructions,
-                    CreatedBy = bot?.Id ?? "locus", Pending = settings.SkillLearning.NeedsReview,
+                    CreatedBy = bot?.Id ?? "locus", Pending = pending,
                 };
                 await skillStore.SaveAsync(skill);
                 reply.SkillNotes.Add($"saved /{skill.Name}");
+                item = new LearnedItem { Kind = LearnedItem.NewSkill, Text = "/" + skill.Name, Ref = skill.Id };
             }
+            lock (reply.LearnedItems) reply.LearnedItems.Add(item);
             await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Message, $"{by} {reply.SkillNotes[^1]}",
-                settings.SkillLearning.NeedsReview ? "Waiting for your OK on the Skills page." : null, bot?.Id, conv.Id));
+                pending ? "Waiting for your OK on the Skills page." : null, bot?.Id, conv.Id));
             await store.SaveAsync(conv, notify: false);
             await onUpdate();
+            return item;
         }
-        catch { /* best effort */ }
+        catch (Exception) when (!asked) { return null; /* best effort */ }
+    }
+
+    /// <summary>"Save as skill" on a reply: writes the method behind it down as a skill (or improves the one it fits).</summary>
+    public async Task<LearnedItem> SaveReplyAsSkillAsync(Conversation conv, ChatMessage reply, Func<Task> onUpdate, CancellationToken ct = default)
+    {
+        var settings = await settingsStore.GetAsync();
+        var bot = reply.BotId is null ? null : await bots.GetAsync(reply.BotId);
+        var client = factory.CreateForBot(settings, bot);
+        var model = !string.IsNullOrWhiteSpace(bot?.Model) ? bot.Model
+            : reply.Model ?? conv.Model ?? await ModelPicker.DefaultForAsync(factory, settings.ProviderFor(bot))
+            ?? throw new InvalidOperationException("No model to write the skill with.");
+        return await ReflectAsync(conv, bot, reply, client, model, settings, onUpdate, asked: true, ct)
+            ?? throw new InvalidOperationException("The model didn't write a usable skill. Try again, or write one on the Skills page.");
+    }
+
+    /// <summary>Takes back something a reply taught Locus. Returns what happened, for the user.</summary>
+    public async Task<string> UndoLearnedAsync(Conversation conv, LearnedItem item)
+    {
+        if (item.Undone) return "Already undone.";
+        string result;
+        switch (item.Kind)
+        {
+            case LearnedItem.Memory:
+                var gone = await memories.DeleteAsync(item.Ref ?? "", item.Scope);
+                if (item.Extra is { } copy) gone |= await memories.DeleteAsync(copy, null);
+                result = gone ? "Forgotten." : "It was already gone.";
+                break;
+            case LearnedItem.Person:
+                result = await people.RemoveNoteTextAsync(item.Ref ?? "", item.Extra ?? "") ? "Note removed." : "It was already gone.";
+                break;
+            case LearnedItem.Vibe:
+                await companion.RemoveNoteAsync(item.Scope, item.Ref ?? "");
+                result = "Note removed.";
+                break;
+            case LearnedItem.Thread:
+                result = await companion.RemoveUpdateAsync(item.Ref ?? "", item.Extra ?? "") ? "Update removed." : "It was already gone.";
+                break;
+            case LearnedItem.NewSkill:
+                await skillStore.DeleteAsync(item.Ref ?? "");
+                result = $"Deleted {item.Text}.";
+                break;
+            case LearnedItem.ImprovedSkill:
+                var skill = (await skillStore.ListAsync()).FirstOrDefault(s => s.Id == item.Ref);
+                if (skill is null) { result = "That skill is gone."; break; }
+                if (item.Extra is { } stamp && skill.UpdatedAt.ToString("O") != stamp)
+                    throw new InvalidOperationException($"{item.Text} has changed since; put back an earlier version on the Skills page.");
+                await skillStore.UndoAsync(skill);
+                result = $"Put back the earlier {item.Text}.";
+                break;
+            default:
+                throw new InvalidOperationException("Can't undo this.");
+        }
+        item.Undone = true;
+        await store.SaveAsync(conv, notify: false);
+        return result;
     }
 
     private readonly HashSet<string> _titling = [];
