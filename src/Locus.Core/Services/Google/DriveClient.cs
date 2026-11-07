@@ -35,7 +35,73 @@ public sealed partial class DriveClient(GoogleAuth auth, IHttpClientFactory http
     private const string GoogleDoc = "application/vnd.google-apps.document", GoogleSheet = "application/vnd.google-apps.spreadsheet",
         GoogleSlides = "application/vnd.google-apps.presentation", Folder = "application/vnd.google-apps.folder";
 
+    public const string GoogleDocMime = GoogleDoc, GoogleSheetMime = GoogleSheet, GoogleSlidesMime = GoogleSlides;
+
     // ------------------------------------------------------------------ Drive
+
+    /// <summary>A folder by link (…/folders/ID), id, or name (the most recently changed match). Returns id, name, link.</summary>
+    public async Task<(string id, string name, string? link)> FindFolderAsync(string folder, CancellationToken ct)
+    {
+        var (_, drive, _, _) = await auth.EndpointsAsync();
+        var m = Regex.Match(folder, @"folders/([A-Za-z0-9_-]{10,})");
+        var id = m.Success ? m.Groups[1].Value : Regex.IsMatch(folder, "^[A-Za-z0-9_-]{25,}$") ? folder : null;
+        if (id is not null)
+        {
+            var meta = await GetJsonAsync($"{drive}/files/{Uri.EscapeDataString(id)}?fields=id,name,mimeType,webViewLink&supportsAllDrives=true", ct);
+            if (meta["mimeType"]?.ToString() != Folder) throw new InvalidOperationException($"{meta["name"]} isn't a folder.");
+            return (id, meta["name"]!.ToString(), meta["webViewLink"]?.ToString());
+        }
+        var name = folder.Trim('/').Split('/').Last().Replace("\\", "").Replace("'", "\\'");
+        var q = $"trashed = false and mimeType = '{Folder}' and name = '{name}'";
+        var found = (await GetJsonAsync($"{drive}/files?q={Uri.EscapeDataString(q)}&pageSize=10&orderBy=modifiedTime desc" +
+            "&fields=files(id,name,webViewLink)&supportsAllDrives=true&includeItemsFromAllDrives=true", ct))["files"]?.AsArray() ?? [];
+        var f = found.FirstOrDefault() ?? throw new InvalidOperationException($"No Google Drive folder named \"{name}\". Paste the folder's link instead.");
+        return (f!["id"]!.ToString(), f["name"]!.ToString(), f["webViewLink"]?.ToString());
+    }
+
+    /// <summary>Files in a folder and its subfolders (up to <paramref name="max"/>; 6 levels deep).</summary>
+    public async Task<List<CloudFile>> ListFolderAsync(string folderId, int max, CancellationToken ct)
+    {
+        var (_, drive, _, _) = await auth.EndpointsAsync();
+        var files = new List<CloudFile>();
+        var queue = new Queue<(string id, string path, int depth)>([(folderId, "", 0)]);
+        while (queue.Count > 0 && files.Count < max)
+        {
+            var (id, path, depth) = queue.Dequeue();
+            string? page = null;
+            do
+            {
+                var q = $"'{id}' in parents and trashed = false";
+                var json = await GetJsonAsync($"{drive}/files?q={Uri.EscapeDataString(q)}&pageSize=200" +
+                    "&fields=nextPageToken,files(id,name,mimeType,modifiedTime,size,webViewLink)&supportsAllDrives=true&includeItemsFromAllDrives=true" +
+                    (page is null ? "" : "&pageToken=" + Uri.EscapeDataString(page)), ct);
+                foreach (var f in json["files"]?.AsArray() ?? [])
+                {
+                    var name = f!["name"]!.ToString();
+                    var mime = f["mimeType"]?.ToString();
+                    if (mime == Folder) { if (depth < 6 && !name.StartsWith('.')) queue.Enqueue((f["id"]!.ToString(), path + name + "/", depth + 1)); continue; }
+                    files.Add(new CloudFile(f["id"]!.ToString(), name, path + name, mime,
+                        DateTimeOffset.Parse(f["modifiedTime"]!.ToString()).UtcDateTime, long.TryParse(f["size"]?.ToString(), out var size) ? size : 0,
+                        f["webViewLink"]?.ToString()));
+                }
+                page = json["nextPageToken"]?.ToString();
+            } while (page is not null && files.Count < max);
+        }
+        return files;
+    }
+
+    /// <summary>The text of a listed file: Docs and Slides as text, Sheets as CSV (first tab), other files downloaded.</summary>
+    public async Task<string> TextOfAsync(CloudFile f, CancellationToken ct)
+    {
+        var (_, drive, _, _) = await auth.EndpointsAsync();
+        var export = f.Mime switch { GoogleDoc or GoogleSlides => "text/plain", GoogleSheet => "text/csv", _ => null };
+        using var res = await SendAsync(new HttpRequestMessage(HttpMethod.Get, export is not null
+            ? $"{drive}/files/{Uri.EscapeDataString(f.Id)}/export?mimeType={Uri.EscapeDataString(export)}"
+            : $"{drive}/files/{Uri.EscapeDataString(f.Id)}?alt=media&supportsAllDrives=true"), ct);
+        if (export is not null) return await res.Content.ReadAsStringAsync(ct);
+        var bytes = await res.Content.ReadAsByteArrayAsync(ct);
+        return f.Name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ? WordDocs.ReadText(bytes) : TextExtractor.Extract(f.Name, bytes);
+    }
 
     public async Task<string> SearchAsync(string query, CancellationToken ct)
     {
@@ -83,6 +149,17 @@ public sealed partial class DriveClient(GoogleAuth auth, IHttpClientFactory http
     }
 
     /// <summary>Creates a Google Doc from Markdown (Drive converts the HTML, keeping headings, lists and bold).</summary>
+    /// <summary>Moves a file Locus made to the Drive trash (it can be restored from there for 30 days).</summary>
+    public async Task TrashAsync(string id, CancellationToken ct)
+    {
+        var (_, drive, _, _) = await auth.EndpointsAsync();
+        var req = new HttpRequestMessage(HttpMethod.Patch, $"{drive}/files/{Uri.EscapeDataString(id)}")
+        {
+            Content = new StringContent(new JsonObject { ["trashed"] = true }.ToJsonString(), Encoding.UTF8, "application/json"),
+        };
+        (await SendAsync(req, ct)).Dispose();
+    }
+
     public async Task<string> CreateDocAsync(string title, string markdown, CancellationToken ct)
     {
         var (upload, _) = await auth.MoreEndpointsAsync();
@@ -97,6 +174,8 @@ public sealed partial class DriveClient(GoogleAuth auth, IHttpClientFactory http
         req.Content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/related; boundary={boundary}");
         using var res = await SendAsync(req, ct);
         var made = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+        if (made?["id"]?.ToString() is { } docId)
+            UndoScope.Offer(new UndoStep("gdrive_trash", $"Move \"{title}\" to the trash", new JsonObject { ["id"] = docId }));
         return $"Created Google Doc \"{title}\": {made?["webViewLink"]} (id {made?["id"]})";
     }
 

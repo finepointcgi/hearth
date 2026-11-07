@@ -161,7 +161,9 @@ public sealed class WorkspaceClient(GoogleAuth auth, IHttpClientFactory http)
         if (attendees.Count > 0)
             body["attendees"] = new JsonArray(attendees.Select(a => (JsonNode)new JsonObject { ["email"] = a }).ToArray());
         var res = await SendAsync(HttpMethod.Post, $"{cal}/calendars/primary/events{(attendees.Count > 0 ? "?sendUpdates=all" : "")}", body, ct);
-        return ToEvent(res);
+        var made = ToEvent(res);
+        UndoScope.Offer(new UndoStep("gcal_event", $"Delete the event \"{title}\"", new JsonObject { ["id"] = made.Id }));
+        return made;
     }
 
     public async Task DeleteEventAsync(string id, CancellationToken ct)

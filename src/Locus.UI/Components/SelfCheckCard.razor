@@ -5,8 +5,9 @@
 
 <section class="card">
     <h3>Self-check</h3>
-    <p class="muted small">Each night Locus asks the default model @SelfCheck.Cases.Count quick questions: math and date tools, a unit conversion, a follow-up and a plain answer. If fewer pass than last time, or replies get much slower, it reports a problem on the Activity feed and sends a phone notification if those are set up.</p>
+    <p class="muted small">Each night Locus asks the default model quick questions: math and date tools, a unit conversion, a follow-up, a plain answer, and its own features (people notes, plans, undo, skills, contacts when connected). If more fail than last time, or replies get much slower, it reports a problem on the Activity feed and sends a phone notification if those are set up. Anything a check creates is removed afterwards.</p>
     <label class="check"><input type="checkbox" @bind="_s.Enabled" /> Run the self-check every night</label>
+    <label class="check"><input type="checkbox" @bind="_s.Thorough" /> Thorough: also check web research with the answer check, and a team hand-off (takes several minutes)</label>
     <div class="row">
         <label>At <input type="time" value="@_s.Time" @onchange="e => _s.Time = e.Value?.ToString() ?? _s.Time" /></label>
         <span class="grow"></span>
@@ -43,7 +44,7 @@
     protected override async Task OnInitializedAsync()
     {
         var s = await SettingsStore.GetAsync();
-        _s = new SelfCheckSettings { Enabled = s.SelfCheck.Enabled, Time = s.SelfCheck.Time, Alert = s.SelfCheck.Alert };
+        _s = new SelfCheckSettings { Enabled = s.SelfCheck.Enabled, Time = s.SelfCheck.Time, Alert = s.SelfCheck.Alert, Thorough = s.SelfCheck.Thorough };
         _history = await Check.HistoryAsync();
         Check.Changed += OnChanged;
     }
@@ -57,7 +58,7 @@
     private async Task Save()
     {
         var s = await SettingsStore.GetAsync();
-        s.SelfCheck = new SelfCheckSettings { Enabled = _s.Enabled, Time = TimeOnly.TryParse(_s.Time, out var t) ? t.ToString("HH:mm") : "03:30", Alert = _s.Alert };
+        s.SelfCheck = new SelfCheckSettings { Enabled = _s.Enabled, Time = TimeOnly.TryParse(_s.Time, out var t) ? t.ToString("HH:mm") : "03:30", Alert = _s.Alert, Thorough = _s.Thorough };
         await SettingsStore.SaveAsync(s);
         _message = _s.Enabled ? $"Runs nightly at {s.SelfCheck.Time}." : "Self-check is off.";
     }

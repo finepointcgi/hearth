@@ -129,6 +129,8 @@
                     <label class="check small"><input type="checkbox" checked="@link.NotifyTasks" @onchange="e => Set(link, l => l.NotifyTasks = (bool)e.Value!)" /> Background task updates</label>
                     <label class="check small"><input type="checkbox" checked="@link.NotifyHeartbeat" @onchange="e => Set(link, l => l.NotifyHeartbeat = (bool)e.Value!)" /> Heartbeat check-ins</label>
                     <label class="check small"><input type="checkbox" checked="@link.NotifyHealth" @onchange="e => Set(link, l => l.NotifyHealth = (bool)e.Value!)" /> Model server down / back up</label>
+                    <label class="check small"><input type="checkbox" checked="@link.SendFiles" @onchange="e => Set(link, l => l.SendFiles = (bool)e.Value!)" /> Send documents bots make as files (cover letters, notes, Word versions of new Google Docs)</label>
+                    <label class="check small"><input type="checkbox" checked="@link.VoiceReplies" @onchange="e => Set(link, l => l.VoiceReplies = (bool)e.Value!)" /> Answer voice notes with a voice note (Settings → Voice text-to-speech, or the Mac's own voice)</label>
                 </div>
                 <div class="row small">
                     <span>🌙 Quiet hours</span>
@@ -138,7 +140,7 @@
                     @if (link.QuietFrom.Length > 0) { <button class="btn ghost small" @onclick="() => Set(link, l => l.QuietFrom = l.QuietTo = string.Empty)">Clear</button> }
                     <span class="muted">only approval requests come through then</span>
                 </div>
-                <span class="muted small">Replies to messages you send always come back here. From the chat itself: /notify on|off|approvals, /quiet 22:00-07:00.</span>
+                <span class="muted small">Replies to messages you send always come back here. From the chat itself: /notify on|off|approvals, /quiet 22:00-07:00, /voice on|off, /files on|off.</span>
             </details>
         }
         @if (_links.Count == 0) { <p class="muted small">No chats linked yet. Get a pairing code and send it to the bot.</p> }

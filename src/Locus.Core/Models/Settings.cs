@@ -220,6 +220,8 @@ public sealed class SelfCheckSettings
     public string Time { get; set; } = "03:30";
     /// <summary>Alert (Activity → problem, and a phone notification if set up) when results drop.</summary>
     public bool Alert { get; set; } = true;
+    /// <summary>Also run the slow checks: web research with the answer check, and a team hand-off (several minutes).</summary>
+    public bool Thorough { get; set; }
 }
 
 public sealed class VoiceSettings

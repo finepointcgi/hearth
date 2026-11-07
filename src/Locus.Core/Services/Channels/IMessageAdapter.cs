@@ -156,8 +156,21 @@ public sealed class IMessageAdapter : IChannelAdapter
         if (!string.IsNullOrWhiteSpace(caption)) await SendTextAsync(chatId, caption);
     }
 
-    public Task SendApprovalAsync(string chatId, string approvalId, string text) =>
-        SendTextAsync(chatId, text, [("Allow", "a:" + approvalId), ("Deny", "d:" + approvalId)]);
+    public async Task SendFileAsync(string chatId, string fileName, string mimeType, byte[] data, string? caption)
+    {
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Pictures", "Locus");
+        Directory.CreateDirectory(dir); // Messages can only send files from places it may read
+        var safe = string.Concat(fileName.Split(Path.GetInvalidFileNameChars()));
+        var path = Path.Combine(dir, $"{Guid.NewGuid().ToString("N")[..6]}-{(safe.Length > 0 ? safe : "file")}");
+        await File.WriteAllBytesAsync(path, data);
+        await SendAsync(chatId, "send (POSIX file (item 2 of argv))", path);
+        if (!string.IsNullOrWhiteSpace(caption)) await SendTextAsync(chatId, caption);
+    }
+
+    public Task SendApprovalAsync(string chatId, string approvalId, string text, string? alwaysFor = null) =>
+        SendTextAsync(chatId, text, alwaysFor is null
+            ? [("Allow", "a:" + approvalId), ("Deny", "d:" + approvalId)]
+            : [("Allow", "a:" + approvalId), ("Deny", "d:" + approvalId), ($"Always allow for {alwaysFor}", "A:" + approvalId)]);
 
     public Task TypingAsync(string chatId) => Task.CompletedTask;
 }

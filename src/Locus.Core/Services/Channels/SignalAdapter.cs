@@ -131,8 +131,17 @@ public sealed class SignalAdapter(IHttpClientFactory http) : IChannelAdapter
             ["base64_attachments"] = new JsonArray($"data:{image.MimeType};base64,{image.Base64}"),
         });
 
-    public Task SendApprovalAsync(string chatId, string approvalId, string text) =>
-        SendTextAsync(chatId, text, [("Allow", "a:" + approvalId), ("Deny", "d:" + approvalId)]);
+    public Task SendFileAsync(string chatId, string fileName, string mimeType, byte[] data, string? caption) =>
+        PostAsync(new JsonObject
+        {
+            ["message"] = caption ?? "", ["recipients"] = new JsonArray(chatId),
+            ["base64_attachments"] = new JsonArray($"data:{mimeType};filename={fileName};base64,{Convert.ToBase64String(data)}"),
+        });
+
+    public Task SendApprovalAsync(string chatId, string approvalId, string text, string? alwaysFor = null) =>
+        SendTextAsync(chatId, text, alwaysFor is null
+            ? [("Allow", "a:" + approvalId), ("Deny", "d:" + approvalId)]
+            : [("Allow", "a:" + approvalId), ("Deny", "d:" + approvalId), ($"Always allow for {alwaysFor}", "A:" + approvalId)]);
 
     public async Task TypingAsync(string chatId)
     {

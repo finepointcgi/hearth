@@ -74,7 +74,10 @@ public sealed record PendingApproval(
     string ToolName,
     string ArgumentsJson,
     TaskCompletionSource<bool> Decision,
-    string? Reason = null);
+    string? Reason = null,
+    /// <summary>Who "Always allow" would apply to (a bot's name, or Locus); null when it isn't offered.</summary>
+    string? AlwaysAllowFor = null,
+    Func<Task>? AlwaysAllow = null);
 
 /// <summary>
 /// Every tool call waiting for approval, so the dashboard, the chat and Telegram/Discord can all answer it.
@@ -91,7 +94,8 @@ public sealed class ApprovalCenter
 
     public PendingApproval Register(Conversation conv, Bot? bot, ToolCall call, TaskCompletionSource<bool> decision)
     {
-        var p = new PendingApproval(call.Id, DateTimeOffset.Now, conv.Id, conv.Title, bot?.Id, call.Name, call.ArgumentsJson, decision, call.ApprovalReason);
+        var p = new PendingApproval(call.Id, DateTimeOffset.Now, conv.Id, conv.Title, bot?.Id, call.Name, call.ArgumentsJson, decision, call.ApprovalReason,
+            call.AlwaysAllow is null ? null : call.AlwaysAllowFor, call.AlwaysAllow);
         _pending[p.Id] = p;
         decision.Task.ContinueWith(t =>
         {
@@ -105,6 +109,14 @@ public sealed class ApprovalCenter
     /// <summary>Answers a pending approval. Returns false if it was already answered or cancelled.</summary>
     public bool Decide(string id, bool allow) =>
         _pending.TryGetValue(id, out var p) && p.Decision.TrySetResult(allow);
+
+    /// <summary>Allows it and stops asking for this tool and bot (where offered). False if already answered.</summary>
+    public async Task<bool> AllowAlwaysAsync(string id)
+    {
+        if (!_pending.TryGetValue(id, out var p) || p.Decision.Task.IsCompleted) return false;
+        if (p.AlwaysAllow is { } remember) await remember();
+        return p.Decision.TrySetResult(true);
+    }
 
     public void Cancel(string id)
     {

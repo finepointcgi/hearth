@@ -199,18 +199,31 @@ public sealed class DiscordAdapter(IHttpClientFactory http) : IChannelAdapter
         using var res = await http.CreateClient(Llm.LlmClientFactory.HttpClientName).SendAsync(req);
     }
 
-    public Task SendApprovalAsync(string chatId, string approvalId, string text) =>
-        CallAsync(HttpMethod.Post, $"/channels/{chatId}/messages", new JsonObject
+    public async Task SendFileAsync(string chatId, string fileName, string mimeType, byte[] data, string? caption)
+    {
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(new JsonObject { ["content"] = caption ?? "" }.ToJsonString(), Encoding.UTF8, "application/json"), "payload_json");
+        var file = new ByteArrayContent(data);
+        file.Headers.ContentType = new(mimeType);
+        form.Add(file, "files[0]", fileName);
+        var req = Req(HttpMethod.Post, $"/channels/{chatId}/messages");
+        req.Content = form;
+        using var res = await http.CreateClient(Llm.LlmClientFactory.HttpClientName).SendAsync(req);
+    }
+
+    public Task SendApprovalAsync(string chatId, string approvalId, string text, string? alwaysFor = null)
+    {
+        var buttons = new JsonArray(
+            new JsonObject { ["type"] = 2, ["style"] = 3, ["label"] = "Allow", ["custom_id"] = "a:" + approvalId },
+            new JsonObject { ["type"] = 2, ["style"] = 4, ["label"] = "Deny", ["custom_id"] = "d:" + approvalId });
+        if (alwaysFor is not null)
+            buttons.Add(new JsonObject { ["type"] = 2, ["style"] = 2, ["label"] = $"Always allow for {alwaysFor}"[..Math.Min(80, $"Always allow for {alwaysFor}".Length)], ["custom_id"] = "A:" + approvalId });
+        return CallAsync(HttpMethod.Post, $"/channels/{chatId}/messages", new JsonObject
         {
             ["content"] = text.Length > MaxMessageLength ? text[..MaxMessageLength] : text,
-            ["components"] = new JsonArray(new JsonObject
-            {
-                ["type"] = 1,
-                ["components"] = new JsonArray(
-                    new JsonObject { ["type"] = 2, ["style"] = 3, ["label"] = "Allow", ["custom_id"] = "a:" + approvalId },
-                    new JsonObject { ["type"] = 2, ["style"] = 4, ["label"] = "Deny", ["custom_id"] = "d:" + approvalId }),
-            }),
+            ["components"] = new JsonArray(new JsonObject { ["type"] = 1, ["components"] = buttons }),
         });
+    }
 
     public Task TypingAsync(string chatId) =>
         CallAsync(HttpMethod.Post, $"/channels/{chatId}/typing").ContinueWith(_ => { });

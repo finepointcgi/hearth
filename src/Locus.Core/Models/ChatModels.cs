@@ -64,6 +64,8 @@ public sealed class ToolCall
     /// <summary>Why approval was asked for when it normally isn't (e.g. the run read untrusted content).</summary>
     public string? ApprovalReason { get; set; }
     public long DurationMs { get; set; }
+    /// <summary>The change this call made can be undone from its card (for a day; see UndoLog).</summary>
+    public bool Undoable { get; set; }
     public ToolCallStatus Status { get; set; }
     public int Round { get; set; }
     /// <summary>

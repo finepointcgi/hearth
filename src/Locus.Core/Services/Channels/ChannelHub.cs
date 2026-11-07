@@ -33,6 +33,8 @@ public sealed class ChannelHub
     private readonly TaskRunner _tasks;
     private readonly TaskStore _taskStore;
     private readonly HeartbeatRunner _heartbeat;
+    private readonly SpokenReply _spoken;
+    private readonly IBotComputer _computer;
     private readonly Dictionary<string, IChannelAdapter> _adapters;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _running = new();
     private readonly ConcurrentDictionary<string, (string channel, string chatId)> _convToChat = new();
@@ -42,8 +44,10 @@ public sealed class ChannelHub
     public ChannelHub(ChannelStore store, ChatService chat, ConversationStore conversations, BotStore bots, ModelPicker models,
         ApprovalCenter approvals, ActivityLog activity, RoutineRunner routines, IHttpClientFactory http, HealthMonitor health,
         SettingsStore settings, SpeechService speech, DocumentStore documents, TaskRunner tasks, TaskStore taskStore,
-        HeartbeatRunner heartbeat, AudioTranscriber transcriber, Ocr ocr)
+        HeartbeatRunner heartbeat, AudioTranscriber transcriber, Ocr ocr, SpokenReply spoken, IBotComputer computer)
     {
+        _spoken = spoken;
+        _computer = computer;
         _heartbeat = heartbeat;
         _tasks = tasks;
         _taskStore = taskStore;
@@ -208,6 +212,7 @@ public sealed class ChannelHub
         // Attachments: voice → transcript, images → for vision models, documents → text (or the library if large).
         var images = new List<ImageAttachment>();
         var attachmentText = new StringBuilder();
+        var heardVoice = false;
         var settings = await _settings.GetAsync();
         foreach (var f in m.Files ?? [])
         {
@@ -223,6 +228,7 @@ public sealed class ChannelHub
                     var said = await _transcriber.TranscribeAsync(f.Data, f.Name, f.MimeType, CancellationToken.None);
                     if (string.IsNullOrWhiteSpace(said)) { await a.SendTextAsync(m.ChatId, "🎙 I couldn't make out anything in that voice note."); return; }
                     await a.SendTextAsync(m.ChatId, $"🎙 “{said}”");
+                    heardVoice = true;
                     text = (text + " " + said).Trim();
                 }
                 else if (f.MimeType.StartsWith("image/"))
@@ -262,7 +268,7 @@ public sealed class ChannelHub
                 text = text[(b.Name.Length + 1)..].Trim();
                 break;
             }
-        await ReplyAsync(a, link, target, text, m.UserName, images, attachmentText.Length > 0 ? attachmentText.ToString() : null);
+        await ReplyAsync(a, link, target, text, m.UserName, images, attachmentText.Length > 0 ? attachmentText.ToString() : null, heardVoice);
     }
 
     private async Task CommandAsync(IChannelAdapter a, ChannelLink link, string text, List<Bot> bots)
@@ -351,6 +357,27 @@ public sealed class ChannelHub
                     _ => "🔕 Notifications off. Replies to your own messages still come here.",
                 });
                 break;
+            case "/voice":
+                var voiceOn = arg.Trim().ToLowerInvariant();
+                if (voiceOn is not ("on" or "off"))
+                {
+                    await a.SendTextAsync(link.ChatId, $"Voice replies are {(link.VoiceReplies ? "on" : "off")}. /voice on to answer your voice notes with a voice note, /voice off to stop.");
+                    break;
+                }
+                if (voiceOn == "on" && !await _spoken.AvailableAsync())
+                {
+                    await a.SendTextAsync(link.ChatId, "Locus has no voice to speak with here: set a text-to-speech server in Settings → Voice.");
+                    break;
+                }
+                await _store.UpdateAsync(c => Find(c, link)!.VoiceReplies = voiceOn == "on");
+                await a.SendTextAsync(link.ChatId, voiceOn == "on" ? "🔊 I'll answer your voice notes with a voice note too (plus the text)." : "🔇 Text replies only.");
+                break;
+            case "/files":
+                var filesOn = arg.Trim().ToLowerInvariant();
+                if (filesOn is not ("on" or "off")) { await a.SendTextAsync(link.ChatId, $"Sending documents as files is {(link.SendFiles ? "on" : "off")}. Use /files on or /files off."); break; }
+                await _store.UpdateAsync(c => Find(c, link)!.SendFiles = filesOn == "on");
+                await a.SendTextAsync(link.ChatId, filesOn == "on" ? "📎 Documents bots make will be sent here as files." : "📎 Files off: you'll get links and text only.");
+                break;
             case "/quiet":
                 var range = arg.Replace(" ", "").Split('-', 2);
                 if (arg.Trim().Equals("off", StringComparison.OrdinalIgnoreCase))
@@ -385,7 +412,9 @@ public sealed class ChannelHub
                "@Name your message — ask one bot once\n/new — fresh conversation\n/stop — stop the current reply\n" +
                "/task goal — start a long-running task; /tasks — progress; /answer … — reply to a task's question\n" +
                "/notify on|off|approvals — what Locus sends here on its own\n" +
-               "/quiet 22:00-07:00 (or off) — hold everything but approvals overnight";
+               "/quiet 22:00-07:00 (or off) — hold everything but approvals overnight\n" +
+               "/voice on|off — answer voice notes with a voice note\n/files on|off — send documents bots make as files\n" +
+               "Say \"undo that\" to reverse a change a bot just made.";
     }
 
     /// <summary>What this chat gets, for /notify with no argument.</summary>
@@ -409,7 +438,7 @@ public sealed class ChannelHub
     /// text = null regenerates the last reply.
     /// </summary>
     private async Task ReplyAsync(IChannelAdapter a, ChannelLink link, Bot? oneOff, string? text, string userName,
-        IReadOnlyList<ImageAttachment>? images = null, string? attachmentText = null)
+        IReadOnlyList<ImageAttachment>? images = null, string? attachmentText = null, bool voiceNote = false)
     {
         // Who answers: a one-off @bot, else the active group, else the active bot (or plain Locus).
         Conversation? conv = null;
@@ -491,6 +520,15 @@ public sealed class ChannelHub
             if (reply.Sources.Count > 0)
                 body.Append("\n\n").AppendJoin("\n", reply.Sources.Take(8).Select((s, n) => $"[{n + 1}] {s.Url}"));
             if (body.Length > 0) await a.SendTextAsync(link.ChatId, body.ToString(), i == replies.Count - 1 ? QuickButtons : null);
+            // The documents it made, as files (the cover letter itself, not just a link).
+            if (link.SendFiles)
+                foreach (var f in await ReplyFiles.CollectAsync(reply, _computer.WorkspaceDirectory))
+                    try { await a.SendFileAsync(link.ChatId, f.Name, f.MimeType, f.Data, null); }
+                    catch (Exception ex) { await a.SendTextAsync(link.ChatId, $"⚠ Couldn't send {f.Name}: {ex.Message}"); }
+            // A voice note gets a spoken answer when the chat asked for that (/voice on).
+            if (voiceNote && link.VoiceReplies && reply.Content.Length > 0)
+                try { if (await _spoken.SpeakAsync(reply.Content) is { } audio) await a.SendVoiceAsync(link.ChatId, audio.audio, audio.mime); }
+                catch (Exception ex) { await a.SendTextAsync(link.ChatId, $"⚠ Couldn't read the reply aloud: {ex.Message}"); }
         }
     }
 
@@ -507,11 +545,11 @@ public sealed class ChannelHub
             // Approvals from a Telegram/Discord conversation go to that chat; others go to chats that opted in.
             if (_convToChat.TryGetValue(p.ConversationId, out var origin))
             {
-                await _adapters[origin.channel].SendApprovalAsync(origin.chatId, p.Id, text);
+                await _adapters[origin.channel].SendApprovalAsync(origin.chatId, p.Id, text, p.AlwaysAllowFor);
                 return;
             }
             foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Approval, DateTimeOffset.Now)))
-                if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendApprovalAsync(l.ChatId, p.Id, text);
+                if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendApprovalAsync(l.ChatId, p.Id, text, p.AlwaysAllowFor);
         }
         catch { /* best effort */ }
     }
@@ -522,6 +560,9 @@ public sealed class ChannelHub
         var link = (await _store.GetAsync()).Links.FirstOrDefault(l => l.Channel == a.Channel && l.ChatId == chatId);
         if (link is null) return new ButtonResult("This chat isn't linked.", false);
 
+        if (data.StartsWith("A:"))
+            return new ButtonResult(await _approvals.AllowAlwaysAsync(data[2..])
+                ? "✅ Allowed — and won't ask again for this (undo on the Permissions page)" : "Already answered (or it timed out).", true);
         if (data.StartsWith("a:") || data.StartsWith("d:"))
         {
             var allow = data[0] == 'a';

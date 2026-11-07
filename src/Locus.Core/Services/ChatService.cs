@@ -28,7 +28,9 @@ public sealed class ChatService(
     MemoryCurator curator,
     ProjectContext projectContext,
     CodeTools codeTools,
-    PeopleStore people)
+    PeopleStore people,
+    UsageStore usage,
+    UndoLog undoLog)
 {
     private const int MaxToolResultChars = 16000;
     private const int MaxBotCallDepth = 2;
@@ -281,6 +283,9 @@ public sealed class ChatService(
         using var chatRunning = ModelQueue.InBackground ? null : ModelQueue.ChatRunning(server);
 
         var reply = new ChatMessage { Role = ChatRole.Assistant, Model = model, IsStreaming = true, BotId = bot?.Id };
+        var replyTimer = System.Diagnostics.Stopwatch.StartNew();
+        long? firstWordsMs = null;
+        var checkRan = false;
         if (route is { } chosen) reply.Trace.Add(new TraceStep("route", chosen.reason, 0));
         conv.Messages.Add(reply);
         conv.Model = opts.Model;
@@ -488,7 +493,11 @@ public sealed class ChatService(
                         await waiting;
                         if (waitingNotice is not null && reply.Notice == waitingNotice) reply.Notice = null;
                     }
-                    if (!string.IsNullOrEmpty(chunk.Content)) content.Append(chunk.Content);
+                    if (!string.IsNullOrEmpty(chunk.Content))
+                    {
+                        firstWordsMs ??= replyTimer.ElapsedMilliseconds;
+                        content.Append(chunk.Content);
+                    }
                     if (!string.IsNullOrEmpty(chunk.Thinking)) thinking.Append(chunk.Thinking);
                     if (chunk.Stats is not null) reply.Stats = roundStats = chunk.Stats;
                     if (chunk.ToolCalls is not null) calls.AddRange(chunk.ToolCalls);
@@ -598,7 +607,7 @@ public sealed class ChatService(
             // Check before answering: after research, the model re-reads its answer against the tool results and fixes
             // anything they don't support.
             if (ShouldCheck(settings.CheckAnswers, reply) && !ct.IsCancellationRequested)
-                await CheckAnswerAsync(reply, baseMessages, definitions, budget - toolTokens, client, model, settings, opts, bot, onUpdate, ct);
+                checkRan = await CheckAnswerAsync(reply, baseMessages, definitions, budget - toolTokens, client, model, settings, opts, bot, onUpdate, ct);
         }
         catch (OperationCanceledException)
         {
@@ -624,6 +633,9 @@ public sealed class ChatService(
             await store.SaveAsync(conv);
             if (failed) conv.Messages.Add(reply); // show the error, but don't persist it
             await onUpdate();
+            _ = usage.RecordReplyAsync(new ReplyRecord(DateTimeOffset.Now, settings.ProviderFor(routedBot).Name, model, bot?.Id, conv.Id,
+                UsageScope.Active?.Source ?? "Chat", replyTimer.ElapsedMilliseconds, firstWordsMs, reply.Trace.Count(t => t.Kind == "model" && !t.Name.StartsWith("check: ") && !t.Name.StartsWith("revise: ")),
+                reply.ToolCalls.Count, checkRan, reply.Checked is not null, reply.Error is not null));
         }
 
         // Helpers count too: delegated bots often do the real multi-step work.
@@ -1107,9 +1119,17 @@ public sealed class ChatService(
         var toolTimer = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            var result = tool is MessageBotTool handoff
-                ? await handoff.RunAsync(args, ctx, tc, onUpdate, ct)
-                : await tool.ExecuteAsync(args, ctx, ct);
+            ToolResult result;
+            List<UndoStep> undoSteps;
+            using (UndoScope.Begin(out undoSteps))
+                result = tool is MessageBotTool handoff
+                    ? await handoff.RunAsync(args, ctx, tc, onUpdate, ct)
+                    : await tool.ExecuteAsync(args, ctx, ct);
+            if (undoSteps.Count > 0 && tool is not MessageBotTool)
+            {
+                await undoLog.AddAsync(tc.Id, tc.Name, ctx.Bot?.Id, ctx.Conversation.Id, undoSteps);
+                tc.Undoable = true;
+            }
             tc.DurationMs = toolTimer.ElapsedMilliseconds;
             lock (ctx.Reply.Trace) ctx.Reply.Trace.Add(new TraceStep("tool", tc.Name, tc.DurationMs));
             tc.Result = Tools.Schema.Truncate(result.Text, MaxToolResultChars);
@@ -1161,7 +1181,7 @@ public sealed class ChatService(
     /// One extra turn asking the model to check its answer against the tool results; when it finds problems, a second
     /// turn rewrites the answer. Both continue the same conversation, so a local server reuses what it already read.
     /// </summary>
-    private async Task CheckAnswerAsync(ChatMessage reply, List<LlmMessage> baseMessages, IReadOnlyList<ToolDefinition> tools, int room,
+    private async Task<bool> CheckAnswerAsync(ChatMessage reply, List<LlmMessage> baseMessages, IReadOnlyList<ToolDefinition> tools, int room,
         ILlmClient client, string model, AppSettings settings, SendOptions opts, Bot? bot, Func<Task> onUpdate, CancellationToken ct)
     {
         var timer = System.Diagnostics.Stopwatch.StartNew();
@@ -1187,7 +1207,7 @@ public sealed class ChatService(
             if (problems.Length == 0 || problems.Equals("OK", StringComparison.OrdinalIgnoreCase) || problems.StartsWith("OK", StringComparison.OrdinalIgnoreCase) && problems.Length < 40)
             {
                 reply.Notice = notice;
-                return;
+                return true;
             }
             reply.Notice = "🔎 Fixing what the check found…";
             await onUpdate();
@@ -1202,10 +1222,12 @@ public sealed class ChatService(
                 reply.Checked = problems.Length > 600 ? problems[..600] + "…" : problems;
             }
             reply.Notice = notice;
+            return true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             reply.Notice = notice; // the unchecked answer stands
+            return false;
         }
         finally { await onUpdate(); }
     }

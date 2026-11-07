@@ -18,10 +18,12 @@ using Microsoft.Extensions.DependencyInjection;
 //   dotnet run --project eval/Locus.Eval -- memory       fold sample memories into a profile, then ask a related question
 //
 // Cases: math datetime no-tools parallel-convert web web+math files bad-url follow-up handoff direct unit-trap
-// (none named = all). Full answers go to eval/answers/ (git-ignored).
+// people plan undo skill check routing contacts (none named = all; contacts only when connected).
+// Full answers go to eval/answers/ (git-ignored).
 var real = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library/Application Support/Locus");
 var data = Directory.CreateTempSubdirectory("locus-eval-").FullName;
-foreach (var f in new[] { "settings.json", "vault.key", "bots.json" }) File.Copy(Path.Combine(real, f), Path.Combine(data, f));
+foreach (var f in new[] { "settings.json", "vault.key", "bots.json", "skills.json" })
+    if (File.Exists(Path.Combine(real, f))) File.Copy(Path.Combine(real, f), Path.Combine(data, f));
 
 var services = new ServiceCollection();
 services.AddSingleton<IAppPaths>(new Paths(data));
@@ -63,6 +65,25 @@ var cases = new List<Case>
     // No @mention in a chat with only the coordinator: clear research should go straight to the researcher.
     new("direct", ["research Google and its stock for me"], r => r.Handoff && r.Answer.Length > 400),
     new("unit-trap", ["How many seconds are in a leap year? Use your tools."], r => r.Tools.Contains("calculate") && Has(r.Answer, "31,622,400", "31622400")),
+    // Locus's own features.
+    new("people", ["Note this with note_about: Dana Whitfield is a recruiter at Shield AI who reached out about a Director role.",
+        "Who's Dana Whitfield again, and where does she work?"], r => r.Tools.Contains("note_about") && r.Tools.Contains("who_is") && Has(r.Answer, "Shield AI")),
+    new("plan", ["Help me plan applying to a Director job at Anduril: show your plan with update_plan, then do the first step (look up what Anduril does)."],
+        r => r.Tools.Contains("update_plan") && r.Conv.Plan.Count >= 3),
+    new("undo", ["Save a file eval/undo-me.md with a two-line shopping list.", "Actually, undo that."],
+        r => r.Tools.Contains("write_file") && r.Tools.Contains("undo_change") && !File.Exists(Path.Combine(data, "workspace", "eval", "undo-me.md"))),
+    new("skill", ["Use the meal-plan skill: three dinners for this week for two people."], r => r.Tools.Contains("use_skill") && r.Answer.Length > 200),
+    // Research, then the answer check reads the answer against the sources (fixing it when they disagree).
+    new("check", ["Who is the current CEO of Shield AI, and when did they take the role? Cite your source."],
+        r => r.Tools.Contains("web_search") && r.Trace.Any(t => t.StartsWith("check: ")), Setup: st => st.CheckAnswers = AnswerCheck.AfterResearch),
+    // Automatic model choice: a hard request goes to the strong model and says why.
+    new("routing", ["Compare the pros and cons of three ways to structure a hybrid search index, in depth."],
+        r => r.Trace.Any(t => t.StartsWith("route:")) && r.Answer.Length > 300, Setup: st =>
+        {
+            st.ModelRouting = new ModelRoutingSettings { Enabled = true, FastProviderId = st.ActiveProviderId, FastModel = model,
+                StrongProviderId = st.ActiveProviderId, StrongModel = model };
+        }),
+    new("contacts", ["Find my contact Mitch and give me their email."], r => r.Tools.Contains("find_contact"), Needs: "find_contact"),
 };
 var only = args.Where(a => !a.StartsWith("--") && a != "run").ToHashSet();
 var repeat = args.FirstOrDefault(a => a.StartsWith("--repeat="))?.Split('=')[1] is { } rp ? int.Parse(rp) : 1;
@@ -70,9 +91,14 @@ var timeout = args.FirstOrDefault(a => a.StartsWith("--timeout="))?.Split('=')[1
 var answersDir = Path.Combine(AppContext.BaseDirectory, "../../../../answers");
 var runs = sp.GetRequiredService<ChatRuns>();
 var results = new List<Result>();
+var toolNames = (await sp.GetRequiredService<Locus.Core.Tools.ToolRegistry>().GetToolsAsync(s, default)).Select(t => t.Name).ToHashSet();
 foreach (var c in cases.Where(c => only.Count == 0 || only.Contains(c.Name)))
 for (var i = 0; i < repeat; i++)
 {
+    if (c.Needs is not null && !toolNames.Contains(c.Needs)) { Console.WriteLine($"\n=== {c.Name}: SKIP ({c.Needs} isn't available here)"); break; }
+    // Some cases change a setting for themselves (answer check, model routing); put it back afterwards.
+    var before = System.Text.Json.JsonSerializer.Serialize(await store.GetAsync());
+    if (c.Setup is not null) { var st = await store.GetAsync(); c.Setup(st); await store.SaveAsync(st); }
     var conv = new Conversation();
     if (c.Name is "handoff" or "direct")
     {
@@ -103,10 +129,15 @@ for (var i = 0; i < repeat; i++)
     catch (Exception ex) { err = ex.GetType().Name + ": " + ex.Message; }
     var last = conv.Messages.LastOrDefault(m => m.Role == ChatRole.Assistant) ?? new ChatMessage();
     var tools = conv.Messages.Where(m => m.Role == ChatRole.Assistant).SelectMany(m => m.ToolCalls).ToList();
-    var r = new Result(c.Name, sw.Elapsed.TotalSeconds, tools.Select(t => t.Name).ToList(), last.Content ?? "",
+    var r = new Result(c.Name, sw.Elapsed.TotalSeconds, tools.Where(t => t.Status == ToolCallStatus.Done).Select(t => t.Name).ToList(), last.Content ?? "",
         err ?? last.Error, last.Notice,
         tools.Count(t => t.Status != ToolCallStatus.Done), last.Thinking?.Length ?? 0,
-        last.Stats?.CompletionTokens, last.Trace.Count(t => t.Kind == "model"));
+        last.Stats?.CompletionTokens, last.Trace.Count(t => t.Kind == "model"))
+    {
+        Conv = conv,
+        Trace = conv.Messages.Where(m => m.Role == ChatRole.Assistant).SelectMany(m => m.Trace).Select(t => t.Kind == "route" ? "route: " + t.Name : t.Name).ToList(),
+    };
+    if (c.Setup is not null) await store.SaveAsync(System.Text.Json.JsonSerializer.Deserialize<AppSettings>(before)!);
     var said = conv.Messages.Where(m => m.Role == ChatRole.Assistant && m.Content.Length > 0).ToList(); // a reply can carry a notice too
     if (c.Name is "handoff" or "direct")
     {
@@ -128,6 +159,7 @@ for (var i = 0; i < repeat; i++)
     foreach (var t in tools.Where(t => t.Status != ToolCallStatus.Done)) Console.WriteLine($"  !! {t.Name}: {Short(t.Result, 200)}");
     if (r.Error is not null) Console.WriteLine($"error: {r.Error}");
     if (r.Notice is not null) Console.WriteLine($"notice: {r.Notice}");
+    if (last.Checked is not null) Console.WriteLine($"check fixed: {Short(last.Checked, 300)}");
     Console.WriteLine($"answer: {Short(r.Answer, 600)}");
     Directory.CreateDirectory(answersDir);
     File.WriteAllText(Path.Combine(answersDir, $"{want}-{c.Name}-{i + 1}.md"), string.Join("\n\n----\n\n", conv.Messages.Where(m => m.Role == ChatRole.Assistant).Select(m => m.Content + "\n\n[tools] " + string.Join("; ", m.ToolCalls.Select(t => $"{t.Name}({t.ArgumentsJson}) -> {Short(t.Result, 150)}")))));
@@ -199,12 +231,14 @@ async Task Probe()
     await Ask("max_tokens 40", new JsonObject { ["max_tokens"] = 40 });
 }
 
-sealed record Case(string Name, string[] Prompts, Func<Result, bool> Check);
+sealed record Case(string Name, string[] Prompts, Func<Result, bool> Check, Action<AppSettings>? Setup = null, string? Needs = null);
 sealed record Result(string Name, double Secs, List<string> Tools, string Answer, string? Error, string? Notice, int FailedTools, int ThinkChars, int? OutTokens, int Rounds)
 {
     public bool Pass { get; init; }
     public bool Leak { get; init; }
     public bool Handoff { get; init; }
+    public Conversation Conv { get; init; } = new();
+    public List<string> Trace { get; init; } = [];
 }
 sealed class Paths(string dir) : IAppPaths { public string DataDirectory => dir; }
 

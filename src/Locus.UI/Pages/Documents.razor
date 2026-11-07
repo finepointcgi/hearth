@@ -3,6 +3,7 @@
 @inject DocumentStore Store
 @inject SettingsStore Settings
 @inject LinkedFolders Folders
+@inject CloudFolders Cloud
 @inject ProjectHistory History
 
 <header class="topbar">
@@ -86,6 +87,36 @@
     </section>
 
     <section class="card">
+        <h3>Cloud folders</h3>
+        <p class="muted small">Google Drive and OneDrive folders (a Job Search or Recipes folder…) kept searchable like the folders above: Google Docs, Sheets, Slides, Word, PDF and text files are indexed, and changes are picked up every hour. Bots answer from them with document search instead of fetching each file. Needs Google (Docs &amp; Drive) or Microsoft 365 connected on the Connections page.</p>
+        <div class="row">
+            <select @bind="_cloudProvider">
+                <option value="google">Google Drive</option>
+                <option value="onedrive">OneDrive</option>
+            </select>
+            <input class="grow" @bind="_cloudFolder" placeholder="@(_cloudProvider == "onedrive" ? "Documents/Job Search (or a share link)" : "Folder link, or its exact name")" />
+            <button class="btn primary" @onclick="AddCloud" disabled="@(string.IsNullOrWhiteSpace(_cloudFolder) || _cloudAdding)">@(_cloudAdding ? "Linking…" : "Link folder")</button>
+        </div>
+        @if (_cloudError is not null) { <div class="error-box">@_cloudError</div> }
+        @if (Cloud.Status is { } cloudStatus) { <div class="muted small">@cloudStatus</div> }
+        @foreach (var c in _cloud)
+        {
+            var folder = c;
+            <div class="memory-row">
+                <span class="grow"><Icon Name="folder" Size="16" /> <b>@folder.Name</b> <span class="muted small">@folder.ProviderName</span>
+                    @if (folder.Link is not null) { <a class="small" href="@folder.Link" target="_blank" rel="noopener">open</a> }</span>
+                <span class="muted small">
+                    @folder.Files files@(folder.Skipped > 0 ? $" ({folder.Skipped} more not indexed)" : "")
+                    · @(folder.LastSync is { } at ? $"synced {at:MMM d h:mm tt}" : "indexing…")
+                </span>
+                <button class="btn ghost small" @onclick="() => SyncCloud(folder.Id)">Sync now</button>
+                <button class="icon-btn" title="Unlink folder" aria-label="Unlink folder" @onclick="() => Cloud.RemoveAsync(folder.Id)"><Icon Name="trash-2" Size="15" /></button>
+            </div>
+            @if (folder.Error is not null) { <div class="tiny-error">@folder.Error</div> }
+        }
+    </section>
+
+    <section class="card">
         <h3>Library (@_docs.Count(d => d.FolderId is null))</h3>
         @foreach (var d in _docs.Where(d => d.FolderId is null))
         {
@@ -110,12 +141,19 @@
     private string? _undoError;
     private string _folderPath = "";
     private string? _folderError;
+    private List<CloudFolder> _cloud = [];
+    private string _cloudProvider = "google";
+    private string _cloudFolder = "";
+    private string? _cloudError;
+    private bool _cloudAdding;
 
     protected override async Task OnInitializedAsync()
     {
         Store.Changed += Reload;
         Folders.Changed += ReloadFolders;
         History.Changed += ReloadFolders;
+        Cloud.Changed += ReloadFolders;
+        _cloud = await Cloud.ListAsync();
         _docs = await Store.ListAsync();
         _folders = await Folders.ListAsync();
         _changes = await History.ListAsync();
@@ -132,6 +170,7 @@
     {
         _folders = await Folders.ListAsync();
         _changes = await History.ListAsync();
+        _cloud = await Cloud.ListAsync();
         await InvokeAsync(StateHasChanged);
     }
 
@@ -149,6 +188,16 @@
     private async Task Undo(string id) => _undoError = await History.UndoAsync(id);
 
     private void SyncFolder(string id) => _ = Folders.SyncAsync(id);
+
+    private void SyncCloud(string id) => _ = Cloud.SyncAsync(id);
+
+    private async Task AddCloud()
+    {
+        _cloudAdding = true;
+        _cloudError = await Cloud.AddAsync(_cloudProvider, _cloudFolder);
+        if (_cloudError is null) _cloudFolder = "";
+        _cloudAdding = false;
+    }
 
     private async Task SaveModel()
     {
@@ -183,5 +232,5 @@
 
     private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
 
-    public override void Dispose() { Store.Changed -= Reload; Folders.Changed -= ReloadFolders; History.Changed -= ReloadFolders; base.Dispose(); }
+    public override void Dispose() { Store.Changed -= Reload; Folders.Changed -= ReloadFolders; History.Changed -= ReloadFolders; Cloud.Changed -= ReloadFolders; base.Dispose(); }
 }

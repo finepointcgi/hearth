@@ -93,8 +93,39 @@ public sealed partial class SheetsClient(GoogleAuth auth, IHttpClientFactory htt
 
     // ------------------------------------------------------------------ writing
 
+    /// <summary>Cells as entered (formulas, not their results), for putting a range back exactly.</summary>
+    public async Task<List<List<string>>> ReadFormulasAsync(string id, string range, CancellationToken ct)
+    {
+        var (sheets, _, _, _) = await auth.EndpointsAsync();
+        var res = await SendAsync(HttpMethod.Get, $"{sheets}/spreadsheets/{id}/values/{Uri.EscapeDataString(range)}?valueRenderOption=FORMULA", null, ct);
+        return res["values"]?.AsArray().Select(r => r!.AsArray().Select(c => c?.ToString() ?? "").ToList()).ToList() ?? [];
+    }
+
+    /// <summary>Offers an undo step that puts <paramref name="block"/> back as it is now.</summary>
+    private async Task OfferPutBackAsync(string id, string? block, string description, CancellationToken ct)
+    {
+        if (!Services.UndoScope.Active || block is null) return;
+        try
+        {
+            var bang = block.LastIndexOf('!');
+            var cells = (bang >= 0 ? block[(bang + 1)..] : block).Split(':');
+            var m1 = System.Text.RegularExpressions.Regex.Match(cells[0], "^([A-Z]+)([0-9]+)$");
+            var m2 = System.Text.RegularExpressions.Regex.Match(cells[^1], "^([A-Z]+)([0-9]+)$");
+            var rows = int.Parse(m2.Groups[2].Value) - int.Parse(m1.Groups[2].Value) + 1;
+            var cols = Services.A1.ColumnNumber(m2.Groups[1].Value) - Services.A1.ColumnNumber(m1.Groups[1].Value) + 1;
+            if (rows * cols > 20000) return;
+            var before = Services.A1.Pad(await ReadFormulasAsync(id, block, ct), rows, cols);
+            Services.UndoScope.Offer(new Services.UndoStep("sheets_values", description, new JsonObject
+            {
+                ["id"] = id, ["range"] = block, ["rows"] = ToJson(before),
+            }));
+        }
+        catch { /* no undo for this one, but the change still goes ahead */ }
+    }
+
     public async Task<string> WriteAsync(string id, string range, List<List<string>> rows, CancellationToken ct)
     {
+        await OfferPutBackAsync(id, Services.A1.Block(range, rows.Count, rows.Count == 0 ? 0 : rows.Max(r => r.Count)), $"Put back {range}", ct);
         var (sheets, _, _, _) = await auth.EndpointsAsync();
         var res = await SendAsync(HttpMethod.Put,
             $"{sheets}/spreadsheets/{id}/values/{Uri.EscapeDataString(range)}?valueInputOption=USER_ENTERED",
@@ -108,11 +139,22 @@ public sealed partial class SheetsClient(GoogleAuth auth, IHttpClientFactory htt
         var res = await SendAsync(HttpMethod.Post,
             $"{sheets}/spreadsheets/{id}/values/{Uri.EscapeDataString(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
             new JsonObject { ["values"] = ToJson(rows) }, ct);
+        if (res["updates"]?["updatedRange"]?.ToString() is { Length: > 0 } added)
+            Services.UndoScope.Offer(new Services.UndoStep("sheets_clear", $"Clear the added rows {added}", new JsonObject { ["id"] = id, ["range"] = added }));
         return $"Appended {rows.Count} row(s) at {res["updates"]?["updatedRange"] ?? range}.";
     }
 
     public async Task<string> ClearAsync(string id, string range, CancellationToken ct)
     {
+        if (Services.UndoScope.Active)
+            try
+            {
+                var before = await ReadAsync(id, range, ct); // resolves the range actually holding data
+                var cols = before.Rows.Count == 0 ? 0 : before.Rows.Max(r => r.Count);
+                var block = Services.A1.Block(before.Range, before.Rows.Count, cols);
+                if (block is not null) await OfferPutBackAsync(id, block, $"Put back {range}", ct);
+            }
+            catch { }
         var (sheets, _, _, _) = await auth.EndpointsAsync();
         await SendAsync(HttpMethod.Post, $"{sheets}/spreadsheets/{id}/values/{Uri.EscapeDataString(range)}:clear", new JsonObject(), ct);
         return $"Cleared {range}.";
@@ -125,6 +167,7 @@ public sealed partial class SheetsClient(GoogleAuth auth, IHttpClientFactory htt
         if (tabs.Count > 0)
             body["sheets"] = new JsonArray(tabs.Select(t => (JsonNode)new JsonObject { ["properties"] = new JsonObject { ["title"] = t } }).ToArray());
         var res = await SendAsync(HttpMethod.Post, $"{sheets}/spreadsheets", body, ct);
+        Services.UndoScope.Offer(new Services.UndoStep("gdrive_trash", $"Move \"{title}\" to the trash", new JsonObject { ["id"] = res["spreadsheetId"]!.ToString() }));
         return new SpreadsheetRef(res["spreadsheetId"]!.ToString(), title, res["spreadsheetUrl"]?.ToString());
     }
 

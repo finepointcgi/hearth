@@ -28,6 +28,10 @@ public sealed class ChannelLink
     public string QuietFrom { get; set; } = "";
     public string QuietTo { get; set; } = "";
     public DateTimeOffset LinkedAt { get; set; } = DateTimeOffset.Now;
+    /// <summary>Answer voice notes with a voice note too (/voice on).</summary>
+    public bool VoiceReplies { get; set; }
+    /// <summary>Send the documents a reply made (cover letters, notes, spreadsheets) as files (/files off to stop).</summary>
+    public bool SendFiles { get; set; } = true;
 
     public enum Kind { Routine, Approval, Task, Heartbeat, Health }
 

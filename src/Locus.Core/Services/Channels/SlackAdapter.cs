@@ -214,10 +214,11 @@ public sealed partial class SlackAdapter(IHttpClientFactory http) : IChannelAdap
         }
     }
 
-    public async Task SendImageAsync(string chatId, ImageAttachment image, string? caption)
+    public Task SendImageAsync(string chatId, ImageAttachment image, string? caption) =>
+        SendFileAsync(chatId, image.FileName.Contains('.') ? image.FileName : image.FileName + ".png", image.MimeType, Convert.FromBase64String(image.Base64), caption);
+
+    public async Task SendFileAsync(string chatId, string name, string mimeType, byte[] bytes, string? caption)
     {
-        var bytes = Convert.FromBase64String(image.Base64);
-        var name = image.FileName.Contains('.') ? image.FileName : image.FileName + ".png";
         // Uses form fields, as Slack documents for this method.
         using var form = new FormUrlEncodedContent(new Dictionary<string, string> { ["filename"] = name, ["length"] = bytes.Length.ToString() });
         using var req = new HttpRequestMessage(HttpMethod.Post, $"{_api}/files.getUploadURLExternal") { Content = form };
@@ -227,7 +228,7 @@ public sealed partial class SlackAdapter(IHttpClientFactory http) : IChannelAdap
         var up = JsonNode.Parse(await res.Content.ReadAsStringAsync());
         if (up?["ok"]?.GetValue<bool>() != true) throw new InvalidOperationException($"Slack upload: {up?["error"]}");
         using var content = new ByteArrayContent(bytes);
-        content.Headers.ContentType = new(image.MimeType);
+        content.Headers.ContentType = new(mimeType);
         (await client.PostAsync(up["upload_url"]!.ToString(), content)).EnsureSuccessStatusCode();
         var done = new JsonObject
         {
@@ -238,14 +239,16 @@ public sealed partial class SlackAdapter(IHttpClientFactory http) : IChannelAdap
         await CallAsync("files.completeUploadExternal", done);
     }
 
-    public Task SendApprovalAsync(string chatId, string approvalId, string text)
+    public Task SendApprovalAsync(string chatId, string approvalId, string text, string? alwaysFor = null)
     {
         var body = ToMrkdwn(text);
         if (body.Length > MaxMessageLength) body = body[..MaxMessageLength];
         return CallAsync("chat.postMessage", new JsonObject
         {
             ["channel"] = chatId, ["text"] = body,
-            ["blocks"] = Blocks(body, [("Allow", "a:" + approvalId, "primary"), ("Deny", "d:" + approvalId, "danger")]),
+            ["blocks"] = Blocks(body, alwaysFor is null
+                ? [("Allow", "a:" + approvalId, "primary"), ("Deny", "d:" + approvalId, "danger")]
+                : [("Allow", "a:" + approvalId, "primary"), ("Deny", "d:" + approvalId, "danger"), ($"Always allow for {alwaysFor}", "A:" + approvalId, null)]),
         });
     }
 

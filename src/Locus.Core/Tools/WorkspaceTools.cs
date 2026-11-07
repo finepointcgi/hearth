@@ -85,8 +85,18 @@ public sealed class WriteFileTool(IBotComputer computer) : ITool
         var path = Workspace.Resolve(computer.WorkspaceDirectory, args.Str("path"));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var content = args.Str("content") ?? "";
+        var existed = File.Exists(path);
+        string? previous = existed && new FileInfo(path).Length <= 2_000_000 ? await File.ReadAllTextAsync(path, ct) : null;
         if (args.Bool("append")) await File.AppendAllTextAsync(path, content, ct);
         else await File.WriteAllTextAsync(path, content, ct);
+        if (!existed || previous is not null)
+        {
+            var rel = Workspace.Relative(computer.WorkspaceDirectory, path);
+            UndoScope.Offer(new UndoStep("file", existed ? $"Put back the earlier {rel}" : $"Delete {rel}", new JsonObject
+            {
+                ["path"] = path, ["previous"] = previous, ["after"] = UndoLog.Hash(await File.ReadAllBytesAsync(path, ct)),
+            }));
+        }
         return new ToolResult($"Saved {Workspace.Relative(computer.WorkspaceDirectory, path)} ({content.Length:N0} chars).");
     }
 }

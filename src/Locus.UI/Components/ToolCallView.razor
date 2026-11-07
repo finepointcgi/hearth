@@ -1,3 +1,4 @@
+@inject UndoLog Undo
 
 <details class="tool @StatusClass" open="@(Call.Status == ToolCallStatus.AwaitingApproval)">
     <summary>
@@ -5,6 +6,15 @@
         <span class="tool-name">@Label</span>
         <span class="tool-arg">@Preview</span>
         <span class="tool-status">@StatusText</span>
+        @if (Call is { Undoable: true, Status: ToolCallStatus.Done } && _undo is { } quick)
+        {
+            @if (quick.UndoneAt is not null) { <span class="muted small">undone</span> }
+            else if (UndoLog.CanUndo(quick))
+            {
+                <button class="btn ghost small" title="@string.Join("; ", quick.Steps.Select(st => st.Description))" disabled="@_undoing"
+                        @onclick="UndoIt" @onclick:preventDefault @onclick:stopPropagation>↶ Undo</button>
+            }
+        }
     </summary>
     <div class="tool-body">
         @if (Diff is { } diff)
@@ -29,6 +39,20 @@
             <img class="tool-shot" src="@Call.Image.DataUrl" alt="@Call.Image.FileName" />
         }
     </div>
+    @if (Call is { Undoable: true, Status: ToolCallStatus.Done } && _undo is { } undo)
+    {
+        <div class="approval undo-bar">
+            @if (undo.UndoneAt is not null)
+            {
+                <span class="muted"><Icon Name="check" Size="15" /> Undone. @undo.Result</span>
+            }
+            else if (UndoLog.CanUndo(undo))
+            {
+                <span class="muted" title="@string.Join("; ", undo.Steps.Select(s => s.Description))">@(_undoError ?? $"{string.Join("; ", undo.Steps.Select(s => s.Description))} — until {undo.At + UndoLog.Window:ddd h:mm tt}")</span>
+                <button class="btn ghost" disabled="@_undoing" @onclick="UndoIt">@(_undoing ? "Undoing…" : "↶ Undo")</button>
+            }
+        </div>
+    }
     @if (Call.Status == ToolCallStatus.AwaitingApproval)
     {
         <div class="approval">
@@ -112,7 +136,7 @@
         ["list_linked_files"] = ("🗂️", "List folder"), ["follow_up"] = ("⏰", "Follow up later"),
         ["glob"] = ("🗂️", "Find files"), ["grep"] = ("🔎", "Search code"), ["read"] = ("📄", "Read"), ["edit"] = ("✏️", "Edit"),
         ["write"] = ("💾", "Write"), ["bash"] = ("⌨️", "Bash"), ["todo_write"] = ("📋", "Update tasks"), ["undo_edit"] = ("↩️", "Undo edit"),
-        ["run_tools_script"] = ("🧩", "Tools script"), ["delegate_task"] = ("👥", "Helpers"), ["start_task"] = ("🎯", "Start task"), ["propose_new_bot"] = ("🧑‍💼", "Hire a bot"), ["rename_chat"] = ("🏷️", "Name chat"),
+        ["run_tools_script"] = ("🧩", "Tools script"), ["delegate_task"] = ("👥", "Helpers"), ["start_task"] = ("🎯", "Start task"), ["propose_new_bot"] = ("🧑‍💼", "Hire a bot"), ["rename_chat"] = ("🏷️", "Name chat"), ["undo_change"] = ("↶", "Undo change"),
     };
 
     private string Icon => Known.TryGetValue(Call.Name, out var k) ? k.icon : "🔌";
@@ -188,6 +212,30 @@
     };
 
     private void Decide(bool allow) => Call.Approval?.TrySetResult(allow);
+
+    private UndoEntry? _undo;
+    private string? _undoLoadedFor;
+    private bool _undoing;
+    private string? _undoError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Call is { Undoable: true, Status: ToolCallStatus.Done } && _undoLoadedFor != Call.Id)
+        {
+            _undoLoadedFor = Call.Id;
+            _undo = await Undo.GetAsync(Call.Id);
+        }
+    }
+
+    private async Task UndoIt()
+    {
+        _undoing = true;
+        _undoError = null;
+        try { await Undo.UndoAsync(Call.Id); }
+        catch (Exception ex) { _undoError = ex.Message; }
+        _undo = await Undo.GetAsync(Call.Id);
+        _undoing = false;
+    }
 
     private async Task AllowAlways()
     {

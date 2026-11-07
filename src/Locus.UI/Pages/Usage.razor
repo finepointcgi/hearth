@@ -23,6 +23,8 @@
         <div class="metric"><span>Tokens</span><b>@Tokens(_rows.Sum(r => (long)r.InputTokens + r.OutputTokens))</b>
             <small>@Tokens(_rows.Sum(r => (long)r.InputTokens)) in · @Tokens(_rows.Sum(r => (long)r.OutputTokens)) out</small></div>
         <div class="metric"><span>Model time</span><b>@Duration(_rows.Sum(r => r.Milliseconds))</b><small>@_rows.Count calls</small></div>
+        <div class="metric"><span>Typical reply</span><b>@(_replies.Count == 0 ? "—" : Duration(Median(_replies.Select(r => r.TotalMs))))</b>
+            <small>@(_replies.Count == 0 ? "no replies timed yet" : $"first words in {Duration(Median(_replies.Where(r => r.FirstTokenMs is not null).Select(r => r.FirstTokenMs!.Value)))} · {_replies.Count} {(_replies.Count == 1 ? "reply" : "replies")}")</small></div>
         <div class="metric"><span>Local share</span><b>@LocalShare</b><small>of tokens ran on your own hardware</small></div>
     </div>
 
@@ -53,6 +55,17 @@
             @Breakdown("By kind of work", _rows.GroupBy(r => r.Source))
         </div>
 
+        @if (_replies.Count > 0)
+        {
+            <section class="card">
+                <h3 class="section-title">Speed and answer checks <span class="muted small">typical (median) times · checks only run after research</span></h3>
+                <div class="usage-grid two">
+                    @Speed("By model", _replies.GroupBy(r => $"{r.Model} · {r.Provider}"))
+                    @Speed("By bot", _replies.GroupBy(r => r.BotId is { } id ? State.BotById(id)?.Name ?? "Deleted bot" : "Locus"))
+                </div>
+            </section>
+        }
+
         <section class="card">
             <h3 class="section-title">Most expensive chats and runs</h3>
             @foreach (var g in _rows.Where(r => r.ConversationId is not null).GroupBy(r => r.ConversationId!)
@@ -73,6 +86,7 @@
 @code {
     private int _days = 7;
     private List<UsageRecord> _rows = [];
+    private List<ReplyRecord> _replies = [];
     private Dictionary<string, string> _titles = [];
 
     [Inject] private ConversationStore Conversations { get; set; } = default!;
@@ -80,6 +94,7 @@
     protected override async Task OnInitializedAsync()
     {
         UsageLog.Recorded += OnRecorded;
+        UsageLog.ReplyRecorded += OnRecorded;
         await LoadAsync();
     }
 
@@ -89,6 +104,7 @@
     {
         var since = _days == 1 ? new DateTimeOffset(DateTime.Today) : new DateTimeOffset(DateTime.Today.AddDays(1 - _days));
         _rows = await UsageLog.SinceAsync(since);
+        _replies = (await UsageLog.RepliesSinceAsync(since)).Where(r => !r.Failed).ToList();
         _titles = (await Conversations.ListAsync()).ToDictionary(c => c.Id, c => c.Title);
     }
 
@@ -136,6 +152,32 @@
         </section>
     };
 
+    private RenderFragment Speed(string title, IEnumerable<IGrouping<string, ReplyRecord>> groups) => __builder =>
+    {
+        <div>
+            <h4 class="muted small">@title</h4>
+            @foreach (var g in groups.OrderByDescending(g => g.Count()))
+            {
+                var ran = g.Count(r => r.CheckRan);
+                var fixedCount = g.Count(r => r.CheckFixed);
+                var firsts = g.Where(r => r.FirstTokenMs is not null).Select(r => r.FirstTokenMs!.Value).ToList();
+                <div class="usage-row">
+                    <span class="grow">@g.Key<br />
+                        <span class="muted small">@g.Count() @(g.Count() == 1 ? "reply" : "replies") · @g.Average(r => r.ToolCalls).ToString("0.#") tools each
+                            @if (ran > 0) { <text> · check fixed @fixedCount of @ran (@(fixedCount * 100 / ran)%)</text> }</span></span>
+                    <span class="usage-num" title="Typical time to the first words">@(firsts.Count == 0 ? "—" : Duration(Median(firsts)))</span>
+                    <span class="usage-num" title="Typical time to the finished reply">@Duration(Median(g.Select(r => r.TotalMs)))</span>
+                </div>
+            }
+        </div>
+    };
+
+    private static long Median(IEnumerable<long> values)
+    {
+        var v = values.OrderBy(x => x).ToList();
+        return v.Count == 0 ? 0 : v.Count % 2 == 1 ? v[v.Count / 2] : (v[v.Count / 2 - 1] + v[v.Count / 2]) / 2;
+    }
+
     private static string Money(decimal v) => v == 0 ? "$0" : v < 0.01m ? "<$0.01" : v.ToString("$#,0.00");
     private static string Tokens(long t) => t >= 1_000_000 ? $"{t / 1_000_000.0:0.#}M" : t >= 1000 ? $"{t / 1000.0:0.#}k" : t.ToString();
     private static string Duration(long ms) => ms >= 3_600_000 ? $"{ms / 3_600_000.0:0.#} h" : ms >= 60_000 ? $"{ms / 60_000.0:0.#} min" : $"{ms / 1000.0:0.#} s";
@@ -145,6 +187,7 @@
     public override void Dispose()
     {
         UsageLog.Recorded -= OnRecorded;
+        UsageLog.ReplyRecorded -= OnRecorded;
         base.Dispose();
     }
 }

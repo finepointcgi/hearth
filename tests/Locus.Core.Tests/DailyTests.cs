@@ -81,11 +81,25 @@ public sealed class DailyTests : IAsyncDisposable
             if (ask.Contains("poem")) return new LlmChunk("Dark roast at dawn,\nthe day begins to hum.");
             if (ask.Contains("miles")) return hadTool ? new LlmChunk("About 42.16 km.") : ScriptedTeam.Call("calculate", new { expression = "26.2*1.609344" });
             if (ask.Contains("double that")) return new LlmChunk("72 + 7 = 79.");
+            // Locus's own features: each asks for its tool, then answers from the result.
+            var afterTool = messages[^1].Role == "tool";
+            if (ask.Contains("note_about")) return afterTool ? new LlmChunk("Noted.") : ScriptedTeam.Call("note_about", new { name = SelfCheck.TestPerson, note = "Recruiter at Example Corp" });
+            if (ask.Contains("who_is")) return afterTool ? new LlmChunk($"{SelfCheck.TestPerson} is a recruiter at Example Corp.") : ScriptedTeam.Call("who_is", new { name = SelfCheck.TestPerson });
+            if (ask.Contains("repainting")) return afterTool ? new LlmChunk("Ready.")
+                : ScriptedTeam.Call("update_plan", new { steps = new[] { new { step = "Buy paint", status = "in_progress" }, new { step = "Prep walls", status = "pending" },
+                    new { step = "Paint", status = "pending" }, new { step = "Clean up", status = "pending" } } });
+            if (ask.Contains("meal-plan")) return afterTool ? new LlmChunk("Two dinners: tacos and pasta.") : ScriptedTeam.Call("use_skill", new { name = "meal-plan" });
+            if (ask.Contains("Undo that")) return !afterTool ? ScriptedTeam.Call("undo_change", new { })
+                : messages[^1].Content is var listed && System.Text.RegularExpressions.Regex.Match(listed, @"id (\w+):") is { Success: true } id
+                    ? ScriptedTeam.Call("undo_change", new { id = id.Groups[1].Value }) : new LlmChunk("Undone.");
+            if (ask.Contains(SelfCheck.UndoFile)) return afterTool ? new LlmChunk("Saved.") : ScriptedTeam.Call("write_file", new { path = SelfCheck.UndoFile, content = "hello" });
             return new LlmChunk("36.");
         };
         var check = _sp.GetRequiredService<SelfCheck>();
         var first = (await check.RunAsync())!;
-        Assert.Equal((5, 5), (first.Passed, first.Total));
+        Assert.True(first.Total >= 8, $"only {first.Total} checks ran");
+        Assert.True(first.Passed == first.Total, string.Join("; ", first.Failures));
+        Assert.Empty(await _sp.GetRequiredService<PeopleStore>().ListAsync()); // the test person is removed again
         Assert.Empty(await _sp.GetRequiredService<ConversationStore>().ListAsync()); // nothing left in the sidebar
 
         good = false;
@@ -93,8 +107,8 @@ public sealed class DailyTests : IAsyncDisposable
         Assert.Equal(0, second.Passed);
         Assert.Equal(2, (await check.HistoryAsync()).Count);
         var feed = await _sp.GetRequiredService<ActivityLog>().SinceAsync(DateTimeOffset.Now.AddMinutes(-5));
-        Assert.Contains(feed, a => a is { Kind: ActivityKind.Error, Ok: false } && a.Title.Contains("0/5 passed, down from 5/5"));
-        Assert.Contains(feed, a => a.Ok && a.Title.Contains("5/5 passed"));
+        Assert.Contains(feed, a => a is { Kind: ActivityKind.Error, Ok: false } && a.Title.Contains($"0/{first.Total} passed, down from {first.Total}/{first.Total}"));
+        Assert.Contains(feed, a => a.Ok && a.Title.Contains($"{first.Total}/{first.Total} passed"));
     }
 
     [Fact]

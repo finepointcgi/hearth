@@ -10,6 +10,11 @@ namespace Locus.Core.Services;
 public sealed record UsageRecord(DateTimeOffset Time, string Provider, string ProviderKind, string Model, string? BotId,
     string? ConversationId, string Source, int InputTokens, int OutputTokens, long Milliseconds, decimal? Cost, bool Subscription);
 
+/// <summary>One finished reply: how long the user waited (to the first words and to the end), how much work it took,
+/// and what the answer check did (Ran = the check looked at it; Fixed = it rewrote the answer).</summary>
+public sealed record ReplyRecord(DateTimeOffset Time, string Provider, string Model, string? BotId, string? ConversationId, string Source,
+    long TotalMs, long? FirstTokenMs, int Rounds, int ToolCalls, bool CheckRan, bool CheckFixed, bool Failed);
+
 /// <summary>Per-million-token prices (USD). Local servers are free unless you set a price on the server.</summary>
 public static class Pricing
 {
@@ -85,6 +90,9 @@ public sealed class UsageStore
                 CREATE TABLE IF NOT EXISTS usage(time TEXT NOT NULL, provider TEXT, kind TEXT, model TEXT, bot TEXT, conversation TEXT,
                     source TEXT, input INTEGER, output INTEGER, ms INTEGER, cost REAL, subscription INTEGER);
                 CREATE INDEX IF NOT EXISTS ix_usage_time ON usage(time);
+                CREATE TABLE IF NOT EXISTS replies(time TEXT NOT NULL, provider TEXT, model TEXT, bot TEXT, conversation TEXT, source TEXT,
+                    total_ms INTEGER, first_ms INTEGER, rounds INTEGER, tools INTEGER, check_ran INTEGER, check_fixed INTEGER, failed INTEGER);
+                CREATE INDEX IF NOT EXISTS ix_replies_time ON replies(time);
                 """;
             await cmd.ExecuteNonQueryAsync();
             _ready = true;
@@ -120,6 +128,54 @@ public sealed class UsageStore
             Recorded?.Invoke();
         }
         catch { /* usage logging must never break a reply */ }
+    }
+
+    public event Action? ReplyRecorded;
+
+    public async Task RecordReplyAsync(ReplyRecord r)
+    {
+        try
+        {
+            await _lock.WaitAsync();
+            try
+            {
+                await using var c = await OpenAsync();
+                await using var cmd = c.CreateCommand();
+                cmd.CommandText = "INSERT INTO replies VALUES ($t, $p, $m, $b, $c, $s, $total, $first, $rounds, $tools, $ran, $fixed, $failed)";
+                cmd.Parameters.AddWithValue("$t", r.Time.UtcDateTime.ToString("o"));
+                cmd.Parameters.AddWithValue("$p", r.Provider);
+                cmd.Parameters.AddWithValue("$m", r.Model);
+                cmd.Parameters.AddWithValue("$b", (object?)r.BotId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$c", (object?)r.ConversationId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$s", r.Source);
+                cmd.Parameters.AddWithValue("$total", r.TotalMs);
+                cmd.Parameters.AddWithValue("$first", r.FirstTokenMs is { } f ? f : DBNull.Value);
+                cmd.Parameters.AddWithValue("$rounds", r.Rounds);
+                cmd.Parameters.AddWithValue("$tools", r.ToolCalls);
+                cmd.Parameters.AddWithValue("$ran", r.CheckRan ? 1 : 0);
+                cmd.Parameters.AddWithValue("$fixed", r.CheckFixed ? 1 : 0);
+                cmd.Parameters.AddWithValue("$failed", r.Failed ? 1 : 0);
+                await cmd.ExecuteNonQueryAsync();
+            }
+            finally { _lock.Release(); }
+            ReplyRecorded?.Invoke();
+        }
+        catch { /* never break a reply */ }
+    }
+
+    public async Task<List<ReplyRecord>> RepliesSinceAsync(DateTimeOffset since)
+    {
+        await using var c = await OpenAsync();
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT time, provider, model, bot, conversation, source, total_ms, first_ms, rounds, tools, check_ran, check_fixed, failed FROM replies WHERE time >= $t ORDER BY time";
+        cmd.Parameters.AddWithValue("$t", since.UtcDateTime.ToString("o"));
+        var list = new List<ReplyRecord>();
+        await using var rd = await cmd.ExecuteReaderAsync();
+        while (await rd.ReadAsync())
+            list.Add(new ReplyRecord(DateTimeOffset.Parse(rd.GetString(0)).ToLocalTime(), rd.GetString(1), rd.GetString(2),
+                rd.IsDBNull(3) ? null : rd.GetString(3), rd.IsDBNull(4) ? null : rd.GetString(4), rd.GetString(5), rd.GetInt64(6),
+                rd.IsDBNull(7) ? null : rd.GetInt64(7), rd.GetInt32(8), rd.GetInt32(9), rd.GetInt32(10) == 1, rd.GetInt32(11) == 1, rd.GetInt32(12) == 1));
+        return list;
     }
 
     public async Task<List<UsageRecord>> SinceAsync(DateTimeOffset since)

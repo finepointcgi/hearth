@@ -160,6 +160,79 @@ public sealed class MicrosoftTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ChangesCanBeUndone()
+    {
+        await ConnectAsync();
+        _ms.Graph = (method, url) =>
+            method == HttpMethod.Get && url.Contains("formulas") ? FakeMicrosoft.Json("{\"formulas\":[[\"Company\",\"=1+1\"],[\"\",\"\"]]}")
+            : method == HttpMethod.Get && url.Contains(":/content") ? FakeMicrosoft.Json("{}", HttpStatusCode.NotFound) // a new file
+            : method == HttpMethod.Put ? FakeMicrosoft.Json("{\"id\":\"F1\",\"webUrl\":\"https://onedrive.live.com/F1\"}")
+            : method == HttpMethod.Post && url.EndsWith("/me/events") ? FakeMicrosoft.Json("{\"id\":\"E1\"}")
+            : FakeMicrosoft.Json("{\"address\":\"Jobs!A1:B2\"}");
+        var undo = _sp.GetRequiredService<UndoLog>();
+        async Task<string> RunAsync(string tool, JsonObject args, string callId)
+        {
+            List<UndoStep> steps;
+            using (UndoScope.Begin(out steps)) await (await ToolAsync(tool)).ExecuteAsync(args, Ctx(), default);
+            await undo.AddAsync(callId, tool, null, "chat1", steps);
+            return string.Join("; ", steps.Select(st => st.Description));
+        }
+
+        Assert.Equal("Put back Jobs!A1:B2", await RunAsync("excel_write", new JsonObject
+            { ["id"] = "W1", ["sheet"] = "Jobs", ["range"] = "A1:B2", ["values"] = "[[\"a\",\"b\"],[\"c\",\"d\"]]" }, "c1"));
+        Assert.Equal("Delete Notes.md", await RunAsync("onedrive_write", new JsonObject { ["path"] = "Documents/Notes.md", ["content"] = "hi" }, "c2"));
+        Assert.Contains("Delete the event", await RunAsync("outlook_add_event", new JsonObject { ["subject"] = "Interview", ["start"] = "2026-11-09 14:00" }, "c3"));
+
+        await undo.UndoAsync("c1");
+        var restore = _ms.Requests.Last(r => r.method == HttpMethod.Patch);
+        Assert.Equal("=1+1", JsonNode.Parse(restore.body)!["formulas"]![0]![1]!.ToString()); // formulas come back as formulas
+        await undo.UndoAsync("c2");
+        Assert.Contains(_ms.Requests, r => r.method == HttpMethod.Delete && r.url.EndsWith("/me/drive/items/F1"));
+        Assert.Contains("Deleted the Outlook event", await undo.UndoAsync("c3"));
+        Assert.Contains(_ms.Requests, r => r.method == HttpMethod.Delete && r.url.EndsWith("/me/events/E1"));
+        Assert.Empty(await undo.RecentAsync()); // all undone
+        Assert.Equal("Already undone.", (await undo.UndoAsync("c3"))[..15]);
+    }
+
+    [Fact]
+    public async Task OneDriveFoldersStayIndexed()
+    {
+        await ConnectAsync();
+        var docx = Convert.ToBase64String(WordDocs.FromMarkdown("# Cover letter\nShield AI director role, salary floor $230k"));
+        _ms.Graph = (method, url) =>
+            url.Contains("/me/drive/root:/Documents/Job%20Search?") ? FakeMicrosoft.Json("{\"id\":\"D1\",\"name\":\"Job Search\",\"webUrl\":\"https://od/D1\",\"folder\":{}}")
+            : url.Contains("/items/D1/children") ? FakeMicrosoft.Json("{\"value\":[" +
+                "{\"id\":\"F1\",\"name\":\"Cover letter.docx\",\"size\":100,\"lastModifiedDateTime\":\"2026-11-01T10:00:00Z\",\"file\":{}}," +
+                "{\"id\":\"P1\",\"name\":\"photo.jpg\",\"size\":100,\"lastModifiedDateTime\":\"2026-11-01T10:00:00Z\",\"file\":{}}," +
+                "{\"id\":\"D2\",\"name\":\"Offers\",\"folder\":{}}]}")
+            : url.Contains("/items/D2/children") ? FakeMicrosoft.Json("{\"value\":[{\"id\":\"F2\",\"name\":\"anduril.txt\",\"size\":40,\"lastModifiedDateTime\":\"2026-11-02T10:00:00Z\",\"file\":{}}]}")
+            : url.Contains("/items/F1/content") ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Convert.FromBase64String(docx)) }
+            : url.Contains("/items/F2/content") ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("Anduril offer: $245k base") }
+            : FakeMicrosoft.Json("{\"value\":[]}");
+        var cloud = _sp.GetRequiredService<CloudFolders>();
+        Assert.Null(await cloud.AddAsync("onedrive", "Documents/Job Search"));
+        var folder = (await cloud.ListAsync()).Single();
+        Assert.Equal("Job Search", folder.Name);
+        await cloud.SyncAsync(folder.Id);
+        folder = (await cloud.ListAsync()).Single();
+        Assert.Equal(2, folder.Files); // the photo isn't text
+        Assert.Null(folder.Error);
+        var docs = _sp.GetRequiredService<DocumentStore>();
+        var names = (await docs.ListAsync()).Select(d => d.Name).ToList();
+        Assert.Contains("Cover letter.docx · OneDrive", names);
+        Assert.Contains("Offers/anduril.txt · OneDrive", names);
+        var hits = await docs.SearchAsync("Anduril offer", 3, default);
+        Assert.Contains(hits, h => h.Text.Contains("$245k"));
+
+        // Unchanged files aren't downloaded again; unlinking drops them from the library.
+        var downloads = _ms.Requests.Count(r => r.url.Contains("/content"));
+        await cloud.SyncAsync(folder.Id);
+        Assert.Equal(downloads, _ms.Requests.Count(r => r.url.Contains("/content")));
+        await cloud.RemoveAsync(folder.Id);
+        Assert.Empty(await docs.ListAsync());
+    }
+
+    [Fact]
     public async Task SendingAsksAndReadingCountsAsUntrusted()
     {
         await ConnectAsync();

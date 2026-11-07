@@ -27,7 +27,13 @@ public interface IChannelAdapter
     /// <summary>Sends text; <paramref name="buttons"/> (label, data) are attached under the last part.</summary>
     Task SendTextAsync(string chatId, string markdown, IReadOnlyList<(string label, string data)>? buttons = null);
     Task SendImageAsync(string chatId, ImageAttachment image, string? caption);
-    Task SendApprovalAsync(string chatId, string approvalId, string text);
+    /// <summary>Sends a file (a document a bot wrote, a spreadsheet…).</summary>
+    Task SendFileAsync(string chatId, string fileName, string mimeType, byte[] data, string? caption);
+    /// <summary>Sends a spoken reply: a voice note where the platform has them (OGG/Opus), otherwise an audio file.</summary>
+    Task SendVoiceAsync(string chatId, byte[] audio, string mimeType) =>
+        SendFileAsync(chatId, mimeType.Contains("ogg") ? "reply.ogg" : "reply.mp3", mimeType, audio, null);
+    /// <param name="alwaysFor">When set, an "Always allow for …" button is offered too (data "A:" + id).</param>
+    Task SendApprovalAsync(string chatId, string approvalId, string text, string? alwaysFor = null);
     Task TypingAsync(string chatId);
 }
 

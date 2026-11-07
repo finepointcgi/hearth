@@ -168,17 +168,43 @@ public sealed partial class TelegramAdapter(IHttpClientFactory http) : IChannelA
         using var res = await Http.PostAsync($"{_base}/sendPhoto", form);
     }
 
-    public Task SendApprovalAsync(string chatId, string approvalId, string text) => CallAsync("sendMessage", new JsonObject
+    public async Task SendFileAsync(string chatId, string fileName, string mimeType, byte[] data, string? caption) =>
+        await UploadAsync("sendDocument", "document", chatId, fileName, mimeType, data, caption);
+
+    public async Task SendVoiceAsync(string chatId, byte[] audio, string mimeType)
     {
-        ["chat_id"] = chatId,
-        ["text"] = text,
-        ["reply_markup"] = new JsonObject
+        if (mimeType.Contains("ogg")) await UploadAsync("sendVoice", "voice", chatId, "reply.ogg", mimeType, audio, null);
+        else await UploadAsync("sendAudio", "audio", chatId, "reply.mp3", mimeType, audio, null);
+    }
+
+    private async Task UploadAsync(string method, string field, string chatId, string fileName, string mimeType, byte[] data, string? caption)
+    {
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(chatId), "chat_id");
+        if (caption is not null) form.Add(new StringContent(caption.Length > 1000 ? caption[..1000] : caption), "caption");
+        var bytes = new ByteArrayContent(data);
+        bytes.Headers.ContentType = new(mimeType);
+        form.Add(bytes, field, fileName);
+        using var res = await Http.PostAsync($"{_base}/{method}", form);
+        var json = await res.Content.ReadFromJsonAsync<JsonObject>();
+        if (json?["ok"]?.GetValue<bool>() != true) throw new InvalidOperationException($"Telegram: {json?["description"] ?? res.ReasonPhrase}");
+    }
+
+    public Task SendApprovalAsync(string chatId, string approvalId, string text, string? alwaysFor = null)
+    {
+        var row = new JsonArray(
+            new JsonObject { ["text"] = "✅ Allow", ["callback_data"] = "a:" + approvalId },
+            new JsonObject { ["text"] = "✖ Deny", ["callback_data"] = "d:" + approvalId });
+        var keyboard = new JsonArray(row);
+        if (alwaysFor is not null)
+            keyboard.Add(new JsonArray(new JsonObject { ["text"] = $"♾ Always allow for {alwaysFor}", ["callback_data"] = "A:" + approvalId }));
+        return CallAsync("sendMessage", new JsonObject
         {
-            ["inline_keyboard"] = new JsonArray(new JsonArray(
-                new JsonObject { ["text"] = "✅ Allow", ["callback_data"] = "a:" + approvalId },
-                new JsonObject { ["text"] = "✖ Deny", ["callback_data"] = "d:" + approvalId })),
-        },
-    });
+            ["chat_id"] = chatId,
+            ["text"] = text,
+            ["reply_markup"] = new JsonObject { ["inline_keyboard"] = keyboard },
+        });
+    }
 
     public Task TypingAsync(string chatId) =>
         CallAsync("sendChatAction", new JsonObject { ["chat_id"] = chatId, ["action"] = "typing" }).ContinueWith(_ => { });

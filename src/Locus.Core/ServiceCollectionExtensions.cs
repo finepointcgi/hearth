@@ -22,6 +22,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SettingsStore>();
         services.AddSingleton<ConversationStore>();
         services.AddSingleton<UsageStore>();
+        services.AddSingleton<UndoLog>();
+        services.AddSingleton<SpokenReply>();
         services.TryAddSingleton<ServerEmbedder>();
         services.TryAddSingleton<IEmbedder>(sp => sp.GetRequiredService<ServerEmbedder>());
         services.TryAddSingleton<IMemoryProvider>(sp => new SqliteMemoryProvider(
@@ -51,6 +53,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<PeopleStore>();
         services.AddSingleton<IToolProvider, PeopleToolProvider>();
         services.AddSingleton<IToolProvider, PlanToolProvider>();
+        services.AddSingleton<IToolProvider, UndoToolProvider>();
         services.AddSingleton<SelfCheck>();
         services.AddSingleton<SkillTeacher>();
         services.AddSingleton<Services.Channels.ChannelStore>();
@@ -85,6 +88,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IToolProvider, GoogleDocsToolProvider>();
         services.AddSingleton<IToolProvider, ContactsToolProvider>();
         services.AddSingleton<LinkedFolders>();
+        services.AddSingleton<CloudFolders>();
         services.AddSingleton<ProjectContext>();
         services.AddSingleton<OpenAiApi>();
         services.AddSingleton<ContextReferences>();

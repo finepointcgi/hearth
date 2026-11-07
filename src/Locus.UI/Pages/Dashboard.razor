@@ -34,6 +34,10 @@
                         </span>
                         <span class="needs-actions">
                             <button class="btn ghost small" @onclick="() => Approvals.Decide(pending.Id, false)">Deny</button>
+                            @if (pending.AlwaysAllowFor is not null)
+                            {
+                                <button class="btn ghost small" title="Don't ask again when @pending.AlwaysAllowFor uses this (undo on the Permissions page)" @onclick="() => Approvals.AllowAlwaysAsync(pending.Id)">Always allow</button>
+                            }
                             <button class="btn primary small" @onclick="() => Approvals.Decide(pending.Id, true)">Allow</button>
                         </span>
                     </div>

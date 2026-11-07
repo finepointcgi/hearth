@@ -134,10 +134,81 @@ public sealed class GraphClient(MicrosoftAuth auth, IHttpClientFactory http)
             ev["attendees"] = new JsonArray(People(attendees).Select(p => (JsonNode)new JsonObject { ["emailAddress"] = p!["emailAddress"]!.DeepClone(), ["type"] = "required" }).ToArray());
         using var res = await SendAsync(HttpMethod.Post, "/me/events", ev, ct);
         var made = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+        if (made?["id"]?.ToString() is { } eventId)
+            UndoScope.Offer(new UndoStep("outlook_event", $"Delete the event \"{subject}\"", new JsonObject { ["id"] = eventId }));
         return $"Added \"{subject}\" on {start:ddd MMM d h:mm tt}{(string.IsNullOrWhiteSpace(attendees) ? "" : $"; invitations sent to {attendees}")} (id {made?["id"]}).";
     }
 
+    /// <summary>Deletes an event (attendees get a cancellation).</summary>
+    public async Task DeleteEventAsync(string id, CancellationToken ct) =>
+        (await SendAsync(HttpMethod.Delete, $"/me/events/{Q(id)}", null, ct)).Dispose();
+
     // ------------------------------------------------------------------ OneDrive files
+
+    /// <summary>A OneDrive folder by path from the root (Documents/Job Search) or by a link. Returns id, name, link.</summary>
+    public async Task<(string id, string name, string? link)> FindFolderAsync(string folder, CancellationToken ct)
+    {
+        JsonNode item;
+        if (folder.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            var share = "u!" + Convert.ToBase64String(Encoding.UTF8.GetBytes(folder)).TrimEnd('=').Replace('/', '_').Replace('+', '-');
+            item = await GetJsonAsync($"/shares/{share}/driveItem?$select=id,name,webUrl,folder", ct);
+        }
+        else
+        {
+            var path = folder.Trim().Trim('/');
+            if (path.Length == 0 || path.Contains("..")) throw new InvalidOperationException("Give a folder path like Documents/Job Search.");
+            item = await GetJsonAsync($"/me/drive/root:/{string.Join('/', path.Split('/').Select(Uri.EscapeDataString))}?$select=id,name,webUrl,folder", ct);
+        }
+        if (item["folder"] is null) throw new InvalidOperationException($"{item["name"]} isn't a folder.");
+        return (item["id"]!.ToString(), item["name"]!.ToString(), item["webUrl"]?.ToString());
+    }
+
+    /// <summary>Files in a OneDrive folder and its subfolders (up to <paramref name="max"/>; 6 levels deep).</summary>
+    public async Task<List<CloudFile>> ListFolderAsync(string folderId, int max, CancellationToken ct)
+    {
+        var files = new List<CloudFile>();
+        var queue = new Queue<(string id, string path, int depth)>([(folderId, "", 0)]);
+        while (queue.Count > 0 && files.Count < max)
+        {
+            var (id, path, depth) = queue.Dequeue();
+            string? next = $"/me/drive/items/{Q(id)}/children?$top=200&$select=id,name,size,lastModifiedDateTime,webUrl,file,folder";
+            while (next is not null && files.Count < max)
+            {
+                var json = await GetJsonAsync(next, ct);
+                foreach (var f in json["value"]?.AsArray() ?? [])
+                {
+                    var name = f!["name"]!.ToString();
+                    if (f["folder"] is not null) { if (depth < 6 && !name.StartsWith('.')) queue.Enqueue((f["id"]!.ToString(), path + name + "/", depth + 1)); continue; }
+                    if (f["file"] is null) continue;
+                    files.Add(new CloudFile(f["id"]!.ToString(), name, path + name, f["file"]?["mimeType"]?.ToString(),
+                        DateTimeOffset.Parse(f["lastModifiedDateTime"]!.ToString()).UtcDateTime, f["size"]?.GetValue<long>() ?? 0, f["webUrl"]?.ToString()));
+                }
+                next = json["@odata.nextLink"]?.ToString();
+            }
+        }
+        return files;
+    }
+
+    /// <summary>The text of a listed OneDrive file (Word, PDF, text…).</summary>
+    public async Task<string> TextOfAsync(CloudFile f, CancellationToken ct)
+    {
+        using var res = await SendAsync(HttpMethod.Get, $"/me/drive/items/{Q(f.Id)}/content", null, ct);
+        var bytes = await res.Content.ReadAsByteArrayAsync(ct);
+        return f.Name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ? WordDocs.ReadText(bytes) : TextExtractor.Extract(f.Name, bytes);
+    }
+
+    /// <summary>Moves a OneDrive item to the recycle bin.</summary>
+    public async Task DeleteItemAsync(string id, CancellationToken ct) =>
+        (await SendAsync(HttpMethod.Delete, $"/me/drive/items/{Q(id)}", null, ct)).Dispose();
+
+    /// <summary>Replaces a OneDrive file's content (for putting back an earlier version).</summary>
+    public async Task ReplaceContentAsync(string id, byte[] bytes, CancellationToken ct)
+    {
+        var body = new ByteArrayContent(bytes);
+        body.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        (await SendAsync(HttpMethod.Put, $"/me/drive/items/{Q(id)}/content", null, ct, content: body)).Dispose();
+    }
 
     public async Task<string> SearchFilesAsync(string query, CancellationToken ct)
     {
@@ -173,10 +244,26 @@ public sealed class GraphClient(MicrosoftAuth auth, IHttpClientFactory http)
         var bytes = word ? WordDocs.FromMarkdown(content, Path.GetFileNameWithoutExtension(path)) : Encoding.UTF8.GetBytes(content);
         if (bytes.Length > 4_000_000) throw new InvalidOperationException("That's too large to upload in one go (4 MB limit).");
         var encoded = string.Join('/', path.Split('/').Select(Uri.EscapeDataString));
+        // What was there before, so the change can be undone (files up to 2 MB).
+        byte[]? previous = null;
+        var existed = false;
+        if (UndoScope.Active)
+            try
+            {
+                using var old = await SendAsync(HttpMethod.Get, $"/me/drive/root:/{encoded}:/content", null, ct);
+                existed = true;
+                if (old.Content.Headers.ContentLength is null or <= 2_000_000) previous = await old.Content.ReadAsByteArrayAsync(ct);
+            }
+            catch (InvalidOperationException) { /* not there yet */ }
         var body = new ByteArrayContent(bytes);
         body.Headers.ContentType = new MediaTypeHeaderValue(word ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "text/plain");
         using var res = await SendAsync(HttpMethod.Put, $"/me/drive/root:/{encoded}:/content", null, ct, content: body);
         var made = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
+        if (made?["id"]?.ToString() is { } itemId && (!existed || previous is not null))
+            UndoScope.Offer(new UndoStep("onedrive_file", existed ? $"Put back the earlier {Path.GetFileName(path)}" : $"Delete {Path.GetFileName(path)}", new JsonObject
+            {
+                ["id"] = itemId, ["name"] = Path.GetFileName(path), ["previous"] = previous is null ? null : Convert.ToBase64String(previous),
+            }));
         return $"Saved {(word ? "Word document " : "")}{path} to OneDrive: {made?["webUrl"]} (id {made?["id"]})";
     }
 
@@ -200,12 +287,28 @@ public sealed class GraphClient(MicrosoftAuth auth, IHttpClientFactory http)
 
     public async Task<string> WriteExcelAsync(string id, string sheet, string range, JsonArray values, CancellationToken ct)
     {
+        if (UndoScope.Active)
+            try
+            {
+                var before = await GetJsonAsync($"/me/drive/items/{Q(id)}/workbook/worksheets('{Q(sheet.Replace("'", "''"))}')/range(address='{Q(range.Replace("'", ""))}')?$select=address,formulas", ct);
+                if (before["formulas"] is JsonArray formulas)
+                    UndoScope.Offer(new UndoStep("excel_values", $"Put back {sheet}!{range}", new JsonObject
+                    {
+                        ["id"] = id, ["sheet"] = sheet, ["range"] = range, ["formulas"] = formulas.DeepClone(),
+                    }));
+            }
+            catch (InvalidOperationException) { }
         using var res = await SendAsync(HttpMethod.Patch,
             $"/me/drive/items/{Q(id)}/workbook/worksheets('{Q(sheet.Replace("'", "''"))}')/range(address='{Q(range.Replace("'", ""))}')",
             new JsonObject { ["values"] = values.DeepClone() }, ct);
         var r = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
         return $"Wrote {values.Count} row(s) to {sheet}!{r?["address"]?.ToString().Split('!').Last() ?? range}.";
     }
+
+    public async Task WriteExcelFormulasAsync(string id, string sheet, string range, JsonArray formulas, CancellationToken ct) =>
+        (await SendAsync(HttpMethod.Patch,
+            $"/me/drive/items/{Q(id)}/workbook/worksheets('{Q(sheet.Replace("'", "''"))}')/range(address='{Q(range.Replace("'", ""))}')",
+            new JsonObject { ["formulas"] = formulas.DeepClone() }, ct)).Dispose();
 
     // ------------------------------------------------------------------ contacts
 

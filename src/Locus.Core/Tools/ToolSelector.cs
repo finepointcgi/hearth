@@ -19,7 +19,7 @@ public static partial class ToolSelector
         "calculate", "get_current_datetime", "convert_units", "web_search", "fetch_url",
         "save_memory", "recall_memory", "search_past_chats", "read_past_chat",
         "message_bot", "delegate_task", "use_skill", "follow_up", "rename_chat", "end_call", LoadToolsTool.ToolName,
-        "who_is", "note_about", "update_plan",
+        "who_is", "note_about", "update_plan", "undo_change",
     ];
 
     private static Regex R(string pattern) => new(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
