@@ -32,8 +32,12 @@ public sealed partial class SpeechService(IHttpClientFactory http)
         using var res = await Client.PostAsync($"{V1(s.SttUrl)}/audio/transcriptions", form, ct);
         var body = await res.Content.ReadAsStringAsync(ct);
         if (!res.IsSuccessStatusCode) throw new InvalidOperationException($"Transcription failed: {body}");
-        try { return JsonNode.Parse(body)?["text"]?.ToString().Trim() ?? ""; }
+        JsonNode? json;
+        try { json = JsonNode.Parse(body); }
         catch (System.Text.Json.JsonException) { return body.Trim(); }
+        // Some servers (mlx-audio) report a failure as 200 with {"error": …}: say so instead of hearing nothing.
+        if (json?["error"] is { } error) throw new InvalidOperationException($"Transcription failed: {error["message"] ?? error}");
+        return json?["text"]?.ToString().Trim() ?? "";
     }
 
     public async Task<(byte[] audio, string mime)> SynthesizeAsync(VoiceSettings s, string text, CancellationToken ct)
