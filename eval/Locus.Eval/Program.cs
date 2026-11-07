@@ -151,7 +151,8 @@ for (var i = 0; i < repeat; i++)
         // Handed off by @mention (short message, no tools), asked via message_bot only, or (direct) skipped
         // entirely so a specialist answered first — never did the work itself.
         r = r with { Handoff = first is not null && (first.BotId != chiefId && c.Name == "direct" || first.BotId == chiefId && (
-            first.ToolCalls.Count == 0 && first.Content.Contains('@') && first.Content.Length < 800 && said.Any(m => m.BotId != chiefId)
+            first.Ack && said.Any(m => m.BotId != chiefId) // the quick "on it", then the team did the work
+            || first.ToolCalls.Count == 0 && first.Content.Contains('@') && first.Content.Length < 800 && said.Any(m => m.BotId != chiefId)
             || first.ToolCalls.Count > 0 && first.ToolCalls.All(t => t.Name == "message_bot"))) };
         foreach (var m in said) Console.WriteLine($"  [{team.FirstOrDefault(b => b.Id == m.BotId)?.Name}] tools={m.ToolCalls.Count} {Short(m.Content, 300)}");
     }
