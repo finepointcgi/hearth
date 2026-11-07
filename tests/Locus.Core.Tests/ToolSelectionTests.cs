@@ -141,6 +141,24 @@ public sealed class ToolSelectionTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task AStepLostAtTheLengthLimitIsRetriedWithAnExplanation()
+    {
+        // oMLX drops a tool call that the length limit cut short: the step ends with nothing at all.
+        var calls = 0;
+        _team.Script = (_, messages, req) => ++calls switch
+        {
+            1 => new LlmChunk("", Notice: OpenAICompatibleClient.CutOffNotice(2048)),
+            2 => messages[^1].Content.Contains("before anything came through") && !messages[^1].Content.Contains("Continue exactly") && req.Tools is not null
+                ? new LlmChunk("Here's the comparison, in full.") : new LlmChunk("WRONG"),
+            _ => new LlmChunk("extra"),
+        };
+        var reply = (await AskAsync("compare three ways to build a search index, in depth")).Messages.Last();
+        Assert.Equal("Here's the comparison, in full.", reply.Content);
+        Assert.Contains(reply.Trace, t => t.Kind == "note" && t.Name.Contains("length limit"));
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
     public async Task ContinuingCanBeTurnedOff()
     {
         var store = _sp.GetRequiredService<SettingsStore>();

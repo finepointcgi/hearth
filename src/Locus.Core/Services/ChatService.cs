@@ -379,6 +379,12 @@ public sealed class ChatService(
             if (byName.ContainsKey("search_past_chats"))
                 system.AppendLine().AppendLine(
                     "When the user refers to something from an earlier conversation, look it up with search_past_chats instead of guessing.");
+            if (byName.Count > 0)
+                system.AppendLine().AppendLine(
+                    "Use tools for what you can't know yourself (current facts, the user's own files, email, calendar) or to do " +
+                    "something. Explanations, comparisons and advice you can give from what you know: answer directly, without " +
+                    "searching past chats or looking through files unless the user points to them. Put answers in the chat, not " +
+                    "in a file, unless the user asks for a file.");
             if (byName.ContainsKey("save_skill"))
                 system.AppendLine().AppendLine(
                     "Learn as you go: when you finish a multi-step task you'd likely be asked to repeat, save the method with " +
@@ -423,6 +429,9 @@ public sealed class ChatService(
             // Replies cut off at the length limit are continued (Settings → "Continue cut-off replies").
             var continuing = false;
             var continuations = 0;
+            // A step that hit the length limit with nothing to show: the server dropped an unfinished tool call
+            // (usually a long answer being written into a file). Say so, rather than "continue where you stopped".
+            var lostStep = false;
             for (var round = 0; round < maxRounds; round++)
             {
                 var room = budget - toolTokens;
@@ -446,6 +455,11 @@ public sealed class ChatService(
                     messages.Add(new LlmMessage { Role = "assistant", Content = content.ToString() });
                     messages.Add(LlmMessage.User("[Locus] Your reply was cut off by the length limit. Continue exactly where it " +
                         "stopped, mid-sentence if needed. Don't repeat or restate anything already written."));
+                }
+                if (lostStep)
+                {
+                    messages.Add(LlmMessage.User(LostStepPrompt(settings.MaxTokens)));
+                    lostStep = false;
                 }
                 // Without being told, local models answer a tool-less last round with yet another call written as text.
                 if (lastRound && definitions.Count > 0 && reply.ToolCalls.Count > 0)
@@ -564,7 +578,14 @@ public sealed class ChatService(
                 if (calls.Count == 0 && cutOff && settings.ContinueCutOffReplies && continuations < MaxContinuations && !ct.IsCancellationRequested)
                 {
                     continuations++;
-                    continuing = true;
+                    if (content.ToString(roundStart, content.Length - roundStart).Trim().Length == 0)
+                    {
+                        lostStep = true;
+                        content.Length = roundStart;
+                        while (content.Length > 0 && char.IsWhiteSpace(content[^1])) content.Length--;
+                        reply.Trace.Add(new TraceStep("note", "step hit the length limit with nothing to show; retried", 0));
+                    }
+                    else continuing = true;
                     reply.Notice = null;
                     round--; // continuing isn't a tool step
                     continue;
@@ -732,6 +753,12 @@ public sealed class ChatService(
     /// <summary>The memories listed in every prompt: not yet in long-term storage, newest <paramref name="max"/>, oldest first.</summary>
     public static List<Memory> RecentMemories(IReadOnlyList<Memory> all, int max) =>
         all.Where(m => !m.Archived).OrderByDescending(m => m.CreatedAt).Take(max).Reverse().ToList();
+
+    /// <summary>After a step that hit the length limit and produced nothing (a lost, unfinished tool call).</summary>
+    public static string LostStepPrompt(int maxTokens) =>
+        $"[Locus] Your last step reached the length limit ({maxTokens:N0} tokens) before anything came through — most likely a " +
+        "tool call carrying a lot of text, which was lost. Write your answer to the user directly in the chat. If it really " +
+        "has to go into a file, write the file in smaller parts (several calls, appending).";
 
     /// <summary>How a cut-off notice starts (see OpenAICompatibleClient.CutOffNotice).</summary>
     private const string CutOffPrefix = "The reply was cut off";
