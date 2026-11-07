@@ -1,0 +1,106 @@
+@inject AssistantImport Import
+@inject IJSRuntime JS
+
+<section class="card">
+    <h3><span aria-hidden="true">📥</span> Bring over what ChatGPT or Claude knows</h3>
+    <p class="muted">Already taught another assistant about you? Bring it here so Locus doesn't start from scratch. You pick what's kept.</p>
+
+    <p class="small"><b>Quick way:</b> ask ChatGPT or Claude this, then paste its answer below.</p>
+    <div class="row">
+        <code class="grow small">@AssistantImport.AskOtherAssistant</code>
+        <button class="btn small ghost" @onclick="Copy">@(_copied ? "Copied" : "Copy")</button>
+    </div>
+    <textarea rows="4" @bind="_pasted" placeholder="Paste the list here (one fact per line)"></textarea>
+    <div class="row end">
+        <button class="btn ghost" @onclick="FromText" disabled="@(_busy || string.IsNullOrWhiteSpace(_pasted))">Look at it</button>
+    </div>
+
+    <p class="small"><b>Thorough way:</b> upload your data export (.zip). Locus reads what you wrote in your most recent chats and picks out
+        lasting facts and preferences. In ChatGPT: Settings → Data controls → Export data. In Claude: Settings → Privacy → Export data.</p>
+    <p class="muted small">Picking facts out uses your default model; if that's a cloud model, your recent messages are sent to it.
+        The export file stays on this computer and isn't kept.</p>
+    <div class="row">
+        <label class="btn ghost file-btn">@(_busy ? "Working…" : "Upload export (.zip or conversations.json)")
+            <InputFile OnChange="FromExport" accept=".zip,.json,application/zip,application/json" style="display:none" disabled="@_busy" /></label>
+    </div>
+    @if (_status is not null) { <p class="muted small">@_status</p> }
+
+    @if (_found is { } f)
+    {
+        <div class="sub">
+            @if (f.Facts.Count == 0)
+            {
+                <p class="muted small">Nothing new: Locus already knows all of it@(f.Chats > 0 ? $" (looked at {f.Chats} chat{(f.Chats == 1 ? "" : "s")})" : "").</p>
+            }
+            else
+            {
+                <div class="row"><b class="grow">@f.Facts.Count new from @f.Source@(f.Chats > 0 ? $" ({f.Chats} chat{(f.Chats == 1 ? "" : "s")})" : "")</b>
+                    <button class="btn ghost small" @onclick="() => _picked = f.Facts.ToHashSet()">All</button>
+                    <button class="btn ghost small" @onclick="() => _picked.Clear()">None</button></div>
+                @foreach (var x in f.Facts)
+                {
+                    var fact = x;
+                    <label class="check small"><input type="checkbox" checked="@_picked.Contains(fact)" @onchange="e => Toggle(fact, (bool)e.Value!)" /> @fact</label>
+                }
+                <div class="row end">
+                    <button class="btn ghost" @onclick="() => { _found = null; _status = null; }">Cancel</button>
+                    <button class="btn primary" @onclick="Save" disabled="@(_picked.Count == 0)">Remember @_picked.Count</button>
+                </div>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private string _pasted = "";
+    private bool _busy, _copied;
+    private string? _status;
+    private AssistantImport.Found? _found;
+    private HashSet<string> _picked = [];
+
+    private async Task Copy()
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", AssistantImport.AskOtherAssistant); _copied = true; }
+        catch { _status = "Couldn't copy: select the text and copy it yourself."; }
+    }
+
+    private void Toggle(string fact, bool on) { if (on) _picked.Add(fact); else _picked.Remove(fact); }
+
+    private void Show(AssistantImport.Found f)
+    {
+        _found = f;
+        _picked = f.Facts.ToHashSet();
+        _status = null;
+    }
+
+    private async Task FromText()
+    {
+        _busy = true;
+        try { Show(await Import.FromTextAsync(_pasted)); }
+        catch (Exception ex) { _status = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task FromExport(InputFileChangeEventArgs e)
+    {
+        _busy = true; _found = null;
+        try
+        {
+            await using var s = e.File.OpenReadStream(maxAllowedSize: 2_000_000_000);
+            Show(await Import.FromExportAsync(s, e.File.Name, async msg => { _status = msg; await InvokeAsync(StateHasChanged); }));
+        }
+        catch (Exception ex) { _status = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task Save()
+    {
+        try
+        {
+            var n = await Import.SaveAsync(_picked);
+            _status = $"Remembered {n} thing{(n == 1 ? "" : "s")}. Change or delete any of it on the Memory page.";
+            _found = null; _pasted = "";
+        }
+        catch (Exception ex) { _status = ex.Message; }
+    }
+}

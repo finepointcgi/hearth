@@ -39,7 +39,7 @@
         <p class="muted">When a bot handles something well, tap <Icon Name="zap" Size="14" /> <b>Save as skill</b> under its reply. It writes
             down the method, step by step, and does it the same way next time. Run a skill any time by typing <code>/</code> and its name.</p>
         <p class="muted small">Bots also save methods on their own after jobs that took several steps@(State.Settings.SkillLearning.Enabled ? "" : " (turned off right now)").
-            Fix or write skills yourself on the <a href="skills">Skills</a> page.</p>
+            Fix or write skills yourself on the <a href="skills">Skills</a> page, which also flags skills that keep getting 👎 or go unused.</p>
         <div class="teach-examples">
             @foreach (var e in SkillExamples)
             {
@@ -79,6 +79,8 @@
             <li>Give a bot standing instructions on its page under <a href="bots">Bots</a> (its personality and job).</li>
         </ul>
     </section>
+
+    <AssistantImportCard />
 
     <section class="card">
         <h3><span aria-hidden="true">📱</span> From your phone</h3>

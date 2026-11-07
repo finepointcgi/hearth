@@ -164,6 +164,7 @@ public static class AccountStartup
     public static void Start(IServiceProvider sp)
     {
         sp.GetRequiredService<RoutineRunner>().EnsureStarted();
+        _ = sp.GetRequiredService<Briefing>().RefreshAsync();
         sp.GetRequiredService<HealthMonitor>().EnsureStarted();
         sp.GetRequiredService<TaskRunner>().EnsureStarted(); // long-running tasks resume after a restart
         sp.GetRequiredService<BotInbox>().EnsureStarted();

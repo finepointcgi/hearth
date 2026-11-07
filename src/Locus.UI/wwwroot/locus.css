@@ -812,3 +812,9 @@ html, body { overflow: hidden; }
 .learned-item.inline { padding: .05rem .45rem; font-size: .8rem; }
 .teach-link { display: inline-flex; align-items: center; gap: .35rem; margin-top: 1rem; font-size: .85rem; color: var(--muted); text-decoration: none; }
 .teach-link:hover { color: var(--text); }
+
+/* Skill health */
+.skill-health { align-items: flex-start; flex-wrap: wrap; }
+.health-notes { margin: 4px 0 0; padding-left: 18px; color: var(--muted, inherit); }
+.health-notes li { margin: 2px 0; }
+.health-actions { display: flex; gap: 6px; flex-wrap: wrap; }

@@ -23,6 +23,22 @@ public sealed partial class Skill
     public bool Pending { get; set; }
     public int Uses { get; set; }
     public DateTimeOffset? LastUsed { get; set; }
+    /// <summary>How many times a reply that followed it got 👎 (all time).</summary>
+    public int Wrong { get; set; }
+    /// <summary>What the user said was wrong since the skill last changed (newest last, at most 5).</summary>
+    public List<string> WrongNotes { get; set; } = [];
+    /// <summary>When the user chose to keep it although it wasn't being used.</summary>
+    public DateTimeOffset? KeptAt { get; set; }
+
+    /// <summary>How long a skill can go unused before Locus asks whether to keep it.</summary>
+    public static readonly TimeSpan IdleAfter = TimeSpan.FromDays(60);
+
+    /// <summary>Not used (or kept) for <see cref="IdleAfter"/>.</summary>
+    public bool IsIdle(DateTimeOffset now) =>
+        !Pending && now - new[] { LastUsed ?? CreatedAt, KeptAt ?? DateTimeOffset.MinValue, CreatedAt }.Max() > IdleAfter;
+
+    /// <summary>Got 👎 since it last changed.</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public bool NeedsFixing => !Pending && WrongNotes.Count > 0;
     /// <summary>Earlier versions (newest first, at most 5) so a bad rewrite can be undone.</summary>
     public List<SkillRevision> Revisions { get; set; } = [];
     /// <summary>Where it was imported from (URL or file name).</summary>

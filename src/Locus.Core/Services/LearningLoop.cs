@@ -217,12 +217,35 @@ public sealed partial class LearningLoop(ILlmClientFactory factory, SettingsStor
             items.Add(new LearnedItem { Kind = LearnedItem.Memory, Text = text, Ref = m.Id, Scope = memoryScope });
         }
 
+        // Skill health: a skill this reply followed that wasn't fixed just now collects the complaint.
+        foreach (var used in usedSkills.Where(u => !items.Any(i => i.Kind == LearnedItem.ImprovedSkill && i.Ref == u.Id)))
+            await skills.RecordWrongAsync(used.Id, feedback);
+
         reply.Feedback = feedback;
         lock (reply.LearnedItems) reply.LearnedItems.AddRange(items);
         await store.SaveAsync(conv, notify: false);
         await onUpdate();
         await CheckConflictsAsync(conv, reply, client, model, onUpdate, ct);
         return items.Count == 0 ? "Noted." : "Fixed: " + string.Join(" · ", items.Select(i => i.Label));
+    }
+
+    /// <summary>Skill health: rewrites a skill using what the user said was wrong with it (its 👎 notes).</summary>
+    public async Task<string> FixSkillAsync(Skill skill, CancellationToken ct = default)
+    {
+        if (skill.WrongNotes.Count == 0) return "Nothing to fix: no complaints since it last changed.";
+        var settings = await settingsStore.GetAsync();
+        var client = factory.CreateForBot(settings, null);
+        var model = await ModelPicker.DefaultForAsync(factory, settings.ProviderFor(null)) ?? throw new InvalidOperationException("No model is available.");
+        using var usageScope = UsageScope.Begin("Corrections", null, null);
+        var rewritten = await AskAsync(client, model,
+            "You edit a skill: step-by-step instructions an AI assistant follows. Replies that followed it were marked wrong; change the " +
+            "steps so those problems don't happen again, keep everything that still works, and reply with the complete new instructions only.",
+            $"Instructions:\n{skill.Instructions}\n\nWhat the user said was wrong:\n{string.Join("\n", skill.WrongNotes.Select(n => "- " + n))}",
+            1500, TimeSpan.FromMinutes(3), ct);
+        if (rewritten.Trim().Length < 40) throw new InvalidOperationException("The model didn't return usable instructions. Try again, or edit it yourself.");
+        var notes = skill.WrongNotes.Count;
+        await skills.ReviseAsync(skill, rewritten, null, $"Fixed from {notes} 👎 note{(notes == 1 ? "" : "s")}", "Locus", pending: false);
+        return $"Rewrote /{skill.Name} from {notes} complaint{(notes == 1 ? "" : "s")}. ↶ undoes it.";
     }
 
     // ------------------------------------------------------------------ 3. contradictions

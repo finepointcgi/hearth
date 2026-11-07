@@ -38,6 +38,7 @@
         @if (_b.News) { <input @bind="_b.NewsTopics" placeholder="e.g. defense tech, autonomous vehicles, AI chips" /> }
         <label class="check"><input type="checkbox" @bind="_b.Weather" /> 🌤️ Weather</label>
         @if (_b.Weather) { <input @bind="_b.Location" placeholder="City, e.g. Detroit" /> }
+        <label class="check"><input type="checkbox" @bind="_b.Learned" /> 🧠 What Locus learned since the last brief</label>
         <label>Anything else <input @bind="_b.Extra" placeholder="e.g. a motivational line, or my Shield AI application status" /></label>
     </div>
     @if (Missing.Count > 0)

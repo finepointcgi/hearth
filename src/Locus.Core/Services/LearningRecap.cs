@@ -54,6 +54,29 @@ public sealed class LearningRecap(SettingsStore settingsStore, ConversationStore
         return sb.ToString();
     }
 
+    /// <summary>In a routine's prompt, replaced when it runs by what Locus learned since the routine last ran.</summary>
+    public const string LearnedToken = "{what-locus-learned}";
+
+    /// <summary>Fills in <see cref="LearnedToken"/>: the list for the bot to pass on, or a note to skip that part.</summary>
+    public async Task<string> ExpandAsync(string prompt, DateTimeOffset? lastRun)
+    {
+        if (!prompt.Contains(LearnedToken)) return prompt;
+        var since = lastRun is { } l && DateTimeOffset.Now - l < TimeSpan.FromDays(7) ? l : DateTimeOffset.Now.AddDays(-1);
+        var items = await SinceAsync(since);
+        string part;
+        if (items.Count == 0) part = "What I learned: nothing new was learned since the last brief, so leave this part out.";
+        else
+        {
+            var sb = new StringBuilder($"What I learned: end with a short \"What I learned\" part listing these {items.Count} things Locus " +
+                "picked up from the user's chats since the last brief, word for word and numbered, then one line saying anything wrong can be " +
+                "undone on the What Locus learned page or fixed by just saying so:");
+            foreach (var (e, i) in items.Take(12).Select((e, i) => (e, i))) sb.Append($"\n  {i + 1}. {e.Item.Icon} {e.Item.Label}");
+            if (items.Count > 12) sb.Append($"\n  …and {items.Count - 12} more.");
+            part = sb.ToString();
+        }
+        return prompt.Replace(LearnedToken, part);
+    }
+
     public void EnsureStarted() => _timer ??= new Timer(_ => _ = AutoAsync(), null, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(20));
 
     /// <summary>When the recap is due this week (the set day and time).</summary>

@@ -78,6 +78,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ToolRegistry>();
         services.AddSingleton<LearningLoop>();
         services.AddSingleton<LearningRecap>();
+        services.AddSingleton<AssistantImport>();
         services.AddSingleton<ChatService>();
         services.AddSingleton<ChatRuns>();
         services.AddSingleton<FollowUpStore>();

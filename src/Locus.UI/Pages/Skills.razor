@@ -3,6 +3,7 @@
 @inject SkillStore Store
 @inject SettingsStore Settings
 @inject SkillPorter Porter
+@inject LearningLoop Loop
 @inject IJSRuntime JS
 
 <header class="topbar">
@@ -116,6 +117,41 @@
 
     <TeachSkill />
 
+    @{ var now = DateTimeOffset.Now; var sick = State.Skills.Where(x => x.NeedsFixing).ToList(); var idle = State.Skills.Where(x => !x.NeedsFixing && x.IsIdle(now)).ToList(); }
+    @if (sick.Count + idle.Count > 0)
+    {
+        <section class="card">
+            <h3><span aria-hidden="true">🩺</span> Skills that need a look</h3>
+            @foreach (var s in sick)
+            {
+                var skill = s;
+                <div class="memory-row skill-health">
+                    <span class="tool-icon">👎</span>
+                    <span class="grow"><b>/@skill.Name</b> <span class="muted small">marked wrong @skill.WrongNotes.Count× since it last changed@(skill.Uses > 0 ? $" ({skill.Wrong} of {skill.Uses} uses in all)" : "")</span>
+                        <ul class="small health-notes">@foreach (var n in skill.WrongNotes) { <li>“@n”</li> }</ul></span>
+                    <span class="health-actions">
+                        <button class="btn small primary" @onclick="() => FixSkill(skill)" disabled="@(_fixing == skill.Id)">@(_fixing == skill.Id ? "Fixing…" : "Fix it from this")</button>
+                        <button class="btn small ghost" @onclick="() => Edit(skill)">Edit</button>
+                        <button class="btn small ghost" title="Clear these notes without changing the skill" @onclick="() => Store.ClearWrongAsync(skill)">It's fine</button>
+                    </span>
+                </div>
+            }
+            @foreach (var s in idle)
+            {
+                var skill = s;
+                <div class="memory-row skill-health">
+                    <span class="tool-icon">💤</span>
+                    <span class="grow"><b>/@skill.Name</b> <span class="muted small">@(skill.LastUsed is { } u ? $"last used {u:MMM d}" : $"never used since {skill.CreatedAt:MMM d}")</span></span>
+                    <span class="health-actions">
+                        <button class="btn small ghost" @onclick="() => Store.KeepAsync(skill)">Keep</button>
+                        <button class="btn small ghost" @onclick="() => Store.DeleteAsync(skill.Id)">Delete</button>
+                    </span>
+                </div>
+            }
+            @if (_healthMessage is not null) { <p class="muted small">@_healthMessage</p> }
+        </section>
+    }
+
     <section class="card">
         <h3>Your skills (@State.Skills.Count(s => !s.Pending))</h3>
         @foreach (var s in State.Skills.Where(s => !s.Pending))
@@ -124,7 +160,7 @@
             <div class="memory-row">
                 <span class="tool-icon">@skill.Icon</span>
                 <span class="grow"><b>/@skill.Name</b> <span class="muted small">@skill.Description</span>
-                    <br /><span class="muted small">@(skill.WrittenByBot ? $"Written by {Author(skill)}" : "Yours")@(skill.Uses > 0 ? $" · used {skill.Uses}×" : "")@(skill.Revisions.Count > 0 ? $" · last changed {skill.UpdatedAt:MMM d} by {skill.Revisions[0].By ?? "you"}" : "")</span></span>
+                    <br /><span class="muted small">@(skill.WrittenByBot ? $"Written by {Author(skill)}" : "Yours")@(skill.Uses > 0 ? $" · used {skill.Uses}×" : "")@(skill.Wrong > 0 ? $" · 👎 {skill.Wrong}×" : "")@(skill.Revisions.Count > 0 ? $" · last changed {skill.UpdatedAt:MMM d} by {skill.Revisions[0].By ?? "you"}" : "")</span></span>
                 @if (skill.Revisions.Count > 0)
                 {
                     <button class="icon-btn" title="Undo the last change (@skill.Revisions[0].Note)" @onclick="() => Store.UndoAsync(skill)">↶</button>
@@ -155,6 +191,15 @@
     [SupplyParameterFromQuery(Name = "from")] public string? From { get; set; }
 
     private Skill? _editing;
+    private string? _fixing, _healthMessage;
+
+    private async Task FixSkill(Skill skill)
+    {
+        _fixing = skill.Id; _healthMessage = null;
+        try { _healthMessage = await Loop.FixSkillAsync(skill); }
+        catch (Exception ex) { _healthMessage = ex.Message; }
+        finally { _fixing = null; }
+    }
     private bool _isNew;
     private string? _error;
 

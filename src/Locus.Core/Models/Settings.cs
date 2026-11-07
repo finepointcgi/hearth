@@ -241,6 +241,8 @@ public sealed class BriefingSettings
     public string NewsTopics { get; set; } = "";
     public bool Weather { get; set; }
     public string Location { get; set; } = "";
+    /// <summary>What Locus learned since the last brief, so mistakes are caught early.</summary>
+    public bool Learned { get; set; } = true;
     /// <summary>Anything else to include, in the user's words.</summary>
     public string Extra { get; set; } = "";
     /// <summary>The routine Locus made for it (so it's updated, not duplicated).</summary>

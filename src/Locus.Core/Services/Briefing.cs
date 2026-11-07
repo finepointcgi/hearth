@@ -28,6 +28,7 @@ public sealed class Briefing(SettingsStore settingsStore, BotStore bots)
         if (b.News && !string.IsNullOrWhiteSpace(b.NewsTopics))
             sb.Append($"\n- News: the most important new developments on {b.NewsTopics.Trim()}, two or three items each, with sources.");
         if (b.Weather) sb.Append($"\n- Weather today{(string.IsNullOrWhiteSpace(b.Location) ? "" : $" in {b.Location.Trim()}")}: high/low, rain, anything notable.");
+        if (b.Learned) sb.Append("\n- " + LearningRecap.LearnedToken);
         if (!string.IsNullOrWhiteSpace(b.Extra)) sb.Append($"\n- {b.Extra.Trim()}");
         return sb.ToString();
     }
@@ -37,6 +38,17 @@ public sealed class Briefing(SettingsStore settingsStore, BotStore bots)
     {
         var team = await bots.ListAsync();
         return team.FirstOrDefault(x => x.Id == b.BotId) ?? team.FirstOrDefault(x => x.IsCoordinator) ?? team.FirstOrDefault();
+    }
+
+    /// <summary>At startup: brings an existing brief's routine up to date with the current wording.</summary>
+    public async Task RefreshAsync()
+    {
+        try
+        {
+            var b = (await settingsStore.GetAsync()).Briefing;
+            if (b.Enabled) await ApplyAsync(b);
+        }
+        catch { /* the routine keeps its old wording */ }
     }
 
     /// <summary>Saves the settings and makes the bot's routine match them (added, updated, moved or removed).</summary>

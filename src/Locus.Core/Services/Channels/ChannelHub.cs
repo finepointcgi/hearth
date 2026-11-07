@@ -47,8 +47,9 @@ public sealed class ChannelHub
         ApprovalCenter approvals, ActivityLog activity, RoutineRunner routines, IHttpClientFactory http, HealthMonitor health,
         SettingsStore settings, SpeechService speech, DocumentStore documents, TaskRunner tasks, TaskStore taskStore,
         HeartbeatRunner heartbeat, AudioTranscriber transcriber, Ocr ocr, SpokenReply spoken, IBotComputer computer,
-        LearningLoop loop, LearningRecap recap)
+        LearningLoop loop, LearningRecap recap, IAppPaths paths)
     {
+        _keys = new ButtonKeys(Path.Combine(paths.DataDirectory, "button-keys.json"));
         _loop = loop;
         _recap = recap;
         _spoken = spoken;
@@ -537,7 +538,7 @@ public sealed class ChannelHub
             body.Append(reply.Content);
             if (reply.Sources.Count > 0)
                 body.Append("\n\n").AppendJoin("\n", reply.Sources.Take(8).Select((s, n) => $"[{n + 1}] {s.Url}"));
-            if (body.Length > 0) await a.SendTextAsync(link.ChatId, body.ToString(), i == replies.Count - 1 ? ReplyButtons(conv.Id, reply) : null);
+            if (body.Length > 0) await a.SendTextAsync(link.ChatId, body.ToString(), i == replies.Count - 1 ? await ReplyButtonsAsync(conv.Id, reply) : null);
             // The documents it made, as files (the cover letter itself, not just a link).
             if (link.SendFiles)
                 foreach (var f in await ReplyFiles.CollectAsync(reply, _computer.WorkspaceDirectory))
@@ -556,24 +557,17 @@ public sealed class ChannelHub
     // ------------------------------------------------------------------ teaching from chat apps
 
     /// <summary>Short keys for buttons (callback data is limited to 64 bytes): key → (chat, message).</summary>
-    private readonly ConcurrentDictionary<string, (string conv, string msg)> _replyKeys = new();
+    private readonly ButtonKeys _keys;
     /// <summary>Chats asked "what was wrong?": chat id → the reply it's about.</summary>
     private readonly ConcurrentDictionary<string, (string conv, string msg, DateTime at)> _awaitingFix = new();
-    private IReadOnlyList<LearnedEntry> _recapItems = [];
 
-    private string KeyFor(string convId, string msgId)
-    {
-        if (_replyKeys.Count > 5000) _replyKeys.Clear();
-        var key = Convert.ToHexString(RandomNumberGenerator.GetBytes(4)).ToLowerInvariant();
-        _replyKeys[key] = (convId, msgId);
-        return key;
-    }
+    private Task<string> KeyFor(string convId, string msgId) => _keys.NewAsync(convId, msgId);
 
     /// <summary>Under an answer: the quick follow-ups, plus 👎 and Save as skill.</summary>
-    private IReadOnlyList<(string label, string data)> ReplyButtons(string convId, ChatMessage reply)
+    private async Task<IReadOnlyList<(string label, string data)>> ReplyButtonsAsync(string convId, ChatMessage reply)
     {
         if (reply.Content.Length <= 40) return QuickButtons;
-        var key = KeyFor(convId, reply.Id);
+        var key = await KeyFor(convId, reply.Id);
         return [.. QuickButtons, ("👎 Wrong", "w:" + key), ("⚡ Save as skill", "s:" + key)];
     }
 
@@ -585,7 +579,7 @@ public sealed class ChannelHub
             await SendLearnedAsync(a, chatId, convId, reply);
             if (reply.Nudge is { Outcome: null } n)
             {
-                var key = KeyFor(convId, reply.Id);
+                var key = await KeyFor(convId, reply.Id);
                 await a.SendTextAsync(chatId, n.Kind == Nudge.Routine
                         ? $"💡 You've asked for this {n.Times} times. Make it a routine ({n.When})?"
                         : $"💡 You've asked for this {n.Times} times. Save how it's done as a skill?",
@@ -600,7 +594,7 @@ public sealed class ChannelHub
     {
         var items = reply.LearnedItems.Select((item, i) => (item, i)).Where(x => !x.item.Undone).TakeLast(6).ToList();
         if (items.Count == 0) return;
-        var key = KeyFor(convId, reply.Id);
+        var key = await KeyFor(convId, reply.Id);
         var text = new StringBuilder(heading ?? "🧠 Learned:");
         var buttons = new List<(string label, string data)>();
         for (var n = 0; n < items.Count; n++)
@@ -643,14 +637,13 @@ public sealed class ChannelHub
         var parts = data.Split(':');
         if (parts[0] == "R" && parts.Length == 2 && int.TryParse(parts[1], out var r))
         {
-            if (r < 0 || r >= _recapItems.Count) return new ButtonResult("That recap has expired: undo it on the What Locus learned page.", false);
-            var e = _recapItems[r];
-            if (await _recap.FindAsync(e.ConversationId, e.MessageId, e.Index) is not { } found) return new ButtonResult("It's gone already.", false);
+            if (await _keys.RecapAsync(r) is not { } e) return new ButtonResult("That recap has expired: undo it on the What Locus learned page.", false);
+            if (await _recap.FindAsync(e.Conv, e.Msg, e.Index) is not { } found) return new ButtonResult("It's gone already.", false);
             return new ButtonResult(await Safe(() => _chat.UndoLearnedAsync(found.conv, found.item)), false);
         }
         if (parts.Length < 2 || parts[0] is not ("u" or "c" or "w" or "s" or "r" or "n")) return null;
-        if (!_replyKeys.TryGetValue(parts[1], out var target)) return new ButtonResult("That's expired: open the chat in Locus to change it.", false);
-        if (await _conversations.GetAsync(target.conv) is not { } conv || conv.Messages.FirstOrDefault(x => x.Id == target.msg) is not { } reply)
+        if (await _keys.FindAsync(parts[1]) is not { } found2) return new ButtonResult("That's expired: open the chat in Locus to change it.", false);
+        if (await _conversations.GetAsync(found2.Conv) is not { } conv || conv.Messages.FirstOrDefault(x => x.Id == found2.Msg) is not { } reply)
             return new ButtonResult("I can't find that reply any more.", true);
         LearnedItem? Item() => parts.Length >= 3 && int.TryParse(parts[2], out var i) && i >= 0 && i < reply.LearnedItems.Count ? reply.LearnedItems[i] : null;
         switch (parts[0])
@@ -702,7 +695,7 @@ public sealed class ChannelHub
     {
         try
         {
-            _recapItems = items;
+            await _keys.SetRecapAsync(items.Take(8).Select(i => new ButtonKeys.RecapRef(i.ConversationId, i.MessageId, i.Index)));
             var buttons = Enumerable.Range(0, Math.Min(8, items.Count)).Select(i => ($"↩ Undo {i + 1}", $"R:{i}")).ToList();
             foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Routine, DateTimeOffset.Now)))
                 if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendTextAsync(l.ChatId, text, buttons);

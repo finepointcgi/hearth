@@ -23,7 +23,8 @@ public sealed class RoutineRunner(
     Google.SheetsClient sheets,
     ActivityLog activity,
     ModelPicker models,
-    Google.WorkspaceClient workspace) : IDisposable
+    Google.WorkspaceClient workspace,
+    LearningRecap recap) : IDisposable
 {
     private const int MaxPayloadChars = 20000;
     private Timer? _timer;
@@ -71,6 +72,7 @@ public sealed class RoutineRunner(
         await gate.WaitAsync(ct);
         try
         {
+            var lastRun = routine.LastRun;
             await bots.MarkRoutineRunAsync(bot.Id, routine.Id, DateTimeOffset.Now);
             var model = await PickModelAsync(bot);
             var conv = await conversations.GetOrCreateDirectAsync(bot);
@@ -84,7 +86,7 @@ public sealed class RoutineRunner(
             conv.Messages.Add(new ChatMessage
             {
                 Role = ChatRole.User,
-                Content = routine.Prompt,
+                Content = await recap.ExpandAsync(routine.Prompt, lastRun),
                 RoutineName = routine.Name,
                 EventPayload = eventPayload is null ? null : Truncate(eventPayload, MaxPayloadChars),
             });
