@@ -770,8 +770,11 @@ table.selfcheck tr.bad td:nth-child(3) { color: var(--danger, #e5484d); font-wei
 .pending-reply { display: flex; align-items: center; gap: .5rem; max-width: 760px; margin: .5rem 0; color: var(--muted, #888); font-size: .92rem; animation: pulse 1.6s ease-in-out infinite; }
 .pending-dot { width: .55rem; height: .55rem; border-radius: 50%; background: currentColor; }
 
-/* Pages scroll inside their own panels; the page itself never does (no gap under the chat). */
-@media (min-width: 821px) { html, body { overflow: hidden; } }
+/* The app fills exactly the visible screen — on phones that's what's left between the browser's address bar and its
+   toolbar (100dvh), not the full screen height — and pages scroll inside their own panels, so the page itself never
+   scrolls and there's no gap under the chat. */
+@supports (height: 100dvh) { html, body { height: 100dvh; } }
+html, body { overflow: hidden; }
 #blazor-error-ui { display: none; position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); z-index: 1000; padding: .6rem 1rem; border-radius: var(--radius, 10px); background: var(--bg-2); border: 1px solid var(--line-strong, #444); box-shadow: var(--shadow); color: var(--text); font-size: .92rem; }
 #blazor-error-ui .reload { margin-left: .6rem; color: var(--brand); font-weight: 600; }
 .page-error { margin: 1rem; }
