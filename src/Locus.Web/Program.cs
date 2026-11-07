@@ -26,11 +26,23 @@ builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 4 * 1024 * 1024);
 // Python and stdio MCP servers would let anyone who can open the page run code on this server,
 // so they're off unless you opt in: "Locus": { "AllowLocalProcesses": true } in appsettings.json.
 var allowProcesses = builder.Configuration.GetValue<bool>("Locus:AllowLocalProcesses");
-builder.Services.AddLocus(new PlatformInfo("Web server", IsMobile: false, CanRunProcesses: allowProcesses, WebhookBaseUrl: ""));
-builder.Services.AddLocusComputer(); // the bots' browser; only usable when AllowLocalProcesses is on
-builder.Services.Replace(Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<IAppRestarter, WebRestarter>());
-builder.Services.AddSingleton<IAccessInfo>(sp => new ServerAccessInfo(
-    sp.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>(), !string.IsNullOrEmpty(builder.Configuration["Locus:Password"])));
+var passwordSet = !string.IsNullOrEmpty(builder.Configuration["Locus:Password"]);
+// Everything Locus is, for one account (each account gets its own set; see AccountHosts).
+void ConfigureAccount(IServiceCollection s)
+{
+    s.AddLocus(new PlatformInfo("Web server", IsMobile: false, CanRunProcesses: allowProcesses, WebhookBaseUrl: ""));
+    s.AddLocusComputer(); // the bots' browser; only usable when AllowLocalProcesses is on
+    s.Replace(Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<IAppRestarter, WebRestarter>());
+    s.AddSingleton<IAccessInfo>(sp => new ServerAccessInfo(sp.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>(), passwordSet));
+}
+ConfigureAccount(builder.Services);
+// The app's Locus services forward to the signed-in account's own set (the owner's when accounts are off).
+Locus.Web.AccountHosts.ForwardToAccounts(builder.Services);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton(new AccountStore(new DefaultAppPaths().DataDirectory));
+builder.Services.AddSingleton(sp => new Locus.Web.AccountHosts(sp, sp.GetRequiredService<AccountStore>(), ConfigureAccount));
+builder.Services.AddScoped<Locus.Web.CurrentAccount>();
+builder.Services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<Locus.Web.CurrentAccount>());
 
 var app = builder.Build();
 // Behind "tailscale serve" (or another local HTTPS proxy): honour its X-Forwarded-* headers. Only loopback proxies are trusted.
@@ -41,42 +53,61 @@ app.UseForwardedHeaders(new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
 
 if (!app.Environment.IsDevelopment()) app.UseExceptionHandler("/error", createScopeForErrors: true);
 
-// Optional password (Locus:Password / Locus__Password env var). Strongly recommended whenever Locus is reachable
-// from other machines, e.g. in Docker. Webhooks keep their own per-routine tokens; /health stays open.
+// Sign-in. With separate accounts on (Settings → Accounts), each person signs in with their name and password and
+// sees only their own Locus. Otherwise an optional single password (Locus:Password / Locus__Password env var),
+// strongly recommended whenever Locus is reachable from other machines. Webhooks keep their own per-routine tokens,
+// the API its key, Twilio its signatures; /health stays open.
 var password = app.Configuration["Locus:Password"];
-if (!string.IsNullOrEmpty(password))
+var accounts = app.Services.GetRequiredService<AccountStore>();
+var cookieValue = string.IsNullOrEmpty(password) ? "" : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("locus-session:" + password)));
+app.Use(async (ctx, next) =>
 {
-    var cookieValue = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("locus-session:" + password)));
-    app.Use(async (ctx, next) =>
+    var path = ctx.Request.Path.Value ?? "";
+    var open = path.StartsWith("/login") || path == "/health" || path.StartsWith("/hooks/") || path.StartsWith("/v1/") || path.StartsWith("/phone/")
+        || path == "/favicon.ico" || path is "/manifest.webmanifest" or "/sw.js" or "/apple-touch-icon.png" || path.StartsWith("/icon-");
+    var allowed = open;
+    if (accounts.Enabled)
     {
-        var path = ctx.Request.Path.Value ?? "";
-        // The API (/v1/…) checks its own key instead of the sign-in cookie.
-        // /phone/… is Twilio: every request there is checked against Twilio's signature instead.
-        if (path.StartsWith("/login") || path == "/health" || path.StartsWith("/hooks/") || path.StartsWith("/v1/") || path.StartsWith("/phone/") || path == "/favicon.ico"
-            || path is "/manifest.webmanifest" or "/sw.js" or "/apple-touch-icon.png" || path.StartsWith("/icon-")
-            || (ctx.Request.Cookies.TryGetValue("locus_auth", out var c)
-                && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(c), Encoding.UTF8.GetBytes(cookieValue))))
+        if (accounts.FromCookie(ctx.Request.Cookies["locus_user"]) is { } who)
         {
-            await next();
-            return;
+            ctx.User = Locus.Web.CurrentAccount.Principal(who);
+            allowed = true;
         }
-        if (HttpMethods.IsGet(ctx.Request.Method) && !path.StartsWith("/_")) ctx.Response.Redirect("/login");
-        else ctx.Response.StatusCode = 401;
-    });
-    app.MapGet("/login", (HttpRequest req) => Results.Content(LoginPage(req.Query.ContainsKey("wrong")), "text/html"));
-    app.MapPost("/login", async (HttpContext ctx) =>
+    }
+    else if (password is { Length: > 0 })
+        allowed |= ctx.Request.Cookies.TryGetValue("locus_auth", out var c)
+                   && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(c), Encoding.UTF8.GetBytes(cookieValue));
+    else allowed = true;
+    if (allowed) { await next(); return; }
+    if (HttpMethods.IsGet(ctx.Request.Method) && !path.StartsWith("/_")) ctx.Response.Redirect("/login");
+    else ctx.Response.StatusCode = 401;
+});
+app.MapGet("/login", (HttpRequest req) => accounts.Enabled || password is { Length: > 0 }
+    ? Results.Content(LoginPage(req.Query.ContainsKey("wrong"), accounts.Enabled), "text/html")
+    : Results.Redirect("/"));
+app.MapPost("/login", async (HttpContext ctx) =>
+{
+    var form = await ctx.Request.ReadFormAsync();
+    await Task.Delay(400); // slow down guessing
+    var cookie = new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = ctx.Request.IsHttps, MaxAge = TimeSpan.FromDays(30) };
+    if (accounts.Enabled)
     {
-        var form = await ctx.Request.ReadFormAsync();
-        await Task.Delay(400); // slow down guessing
-        if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(form["password"].ToString()), Encoding.UTF8.GetBytes(password)))
-            return Results.Redirect("/login?wrong=1");
-        ctx.Response.Cookies.Append("locus_auth", cookieValue, new CookieOptions
-        {
-            HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = ctx.Request.IsHttps, MaxAge = TimeSpan.FromDays(30),
-        });
+        if (accounts.Verify(form["name"].ToString(), form["password"].ToString()) is not { } who) return Results.Redirect("/login?wrong=1");
+        ctx.Response.Cookies.Append("locus_user", accounts.CookieFor(who), cookie);
         return Results.Redirect("/");
-    }).DisableAntiforgery();
-}
+    }
+    if (password is not { Length: > 0 }) return Results.Redirect("/");
+    if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(form["password"].ToString()), Encoding.UTF8.GetBytes(password)))
+        return Results.Redirect("/login?wrong=1");
+    ctx.Response.Cookies.Append("locus_auth", cookieValue, cookie);
+    return Results.Redirect("/");
+}).DisableAntiforgery();
+app.MapGet("/signout", (HttpContext ctx) =>
+{
+    ctx.Response.Cookies.Delete("locus_user");
+    ctx.Response.Cookies.Delete("locus_auth");
+    return Results.Redirect("/login");
+});
 
 app.UseAntiforgery();
 app.MapStaticAssets();
@@ -223,41 +254,11 @@ app.Map(Locus.Core.Services.Phone.PhoneService.RelayPath, async (HttpContext ctx
         await socket.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
 });
 
-// Routines, triggers, Telegram/Discord and the health monitor run on the server even when nobody has the page open.
-app.Services.GetRequiredService<RoutineRunner>().EnsureStarted();
-app.Services.GetRequiredService<HealthMonitor>().EnsureStarted();
-app.Services.GetRequiredService<TaskRunner>().EnsureStarted(); // long-running tasks resume after a restart
-app.Services.GetRequiredService<BotInbox>().EnsureStarted();
-app.Services.GetRequiredService<HeartbeatRunner>().EnsureStarted();
-app.Services.GetRequiredService<SkillPorter>().EnsureStarted();
-app.Services.GetRequiredService<MemoryCurator>().EnsureStarted();
-// The starter skills, once.
-_ = Task.Run(async () =>
-{
-    try
-    {
-        var settingsStore = app.Services.GetRequiredService<SettingsStore>();
-        var current = await settingsStore.GetAsync();
-        if (current.StarterSkillsAdded) return;
-        await StarterSkills.AddMissingAsync(app.Services.GetRequiredService<SkillStore>());
-        current.StarterSkillsAdded = true;
-        await settingsStore.SaveAsync(current);
-    }
-    catch { /* they can be added from the Skills page */ }
-});
-app.Services.GetRequiredService<SelfCheck>().EnsureStarted(); // nightly self-check (off unless turned on in Settings)
-app.Services.GetRequiredService<ChatHistoryIndex>().EnsureStarted();
-app.Services.GetRequiredService<PushNotifier>().EnsureStarted();
-app.Services.GetRequiredService<BackupService>().EnsureStarted();
-// Chat replies run in the background; ones a restart interrupts resume on the next start.
-var chatRuns = app.Services.GetRequiredService<ChatRuns>();
-chatRuns.EnsureStarted();
-app.Services.GetRequiredService<FollowUpRunner>().EnsureStarted(); // bots coming back to chats on their own
-app.Services.GetRequiredService<LinkedFolders>().EnsureStarted();
-app.Services.GetRequiredService<CloudFolders>().EnsureStarted(); // Google Drive and OneDrive folders linked on the Documents page
-app.Services.GetRequiredService<EventWebhooks>().EnsureStarted(); // your webhooks hear about approvals, tasks, follow-ups… // folders linked on the Documents page stay indexed
-app.Lifetime.ApplicationStopping.Register(chatRuns.PrepareForShutdown);
-_ = app.Services.GetRequiredService<Locus.Core.Services.Channels.ChannelHub>().EnsureStartedAsync().ContinueWith(_ => { });
+// Routines, triggers, chat apps and the health monitor run on the server even when nobody has the page open —
+// for every account.
+var hosts = app.Services.GetRequiredService<Locus.Web.AccountHosts>();
+hosts.StartAll();
+app.Lifetime.ApplicationStopping.Register(hosts.PrepareForShutdown);
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()
@@ -278,7 +279,7 @@ static string ContentText(System.Text.Json.Nodes.JsonNode? content) => content s
     _ => content.ToString(),
 };
 
-static string LoginPage(bool wrong) => $$"""
+static string LoginPage(bool wrong, bool withName) => $$"""
     <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Locus — sign in</title>
     <style>
@@ -289,8 +290,9 @@ static string LoginPage(bool wrong) => $$"""
       .err{color:#ff6b6b;font-size:.9rem}
     </style></head><body>
     <form method="post" action="/login"><h1>◎ Locus</h1>
-      {{(wrong ? "<div class=\"err\">Wrong password.</div>" : "")}}
-      <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
+      {{(wrong ? $"<div class=\"err\">Wrong {(withName ? "name or password" : "password")}.</div>" : "")}}
+      {{(withName ? "<input name=\"name\" placeholder=\"Your name\" autofocus autocomplete=\"username\" autocapitalize=\"none\">" : "")}}
+      <input type="password" name="password" placeholder="Password" {{(withName ? "" : "autofocus")}} autocomplete="current-password">
       <button type="submit">Sign in</button></form></body></html>
     """;
 

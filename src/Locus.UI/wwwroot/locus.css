@@ -121,6 +121,9 @@ code { font-family: var(--mono); font-size: .9em; background: var(--bg-3); paddi
 .sidebar-foot { border-top: 1px solid var(--line); padding-top: .6rem; padding-bottom: env(safe-area-inset-bottom); font-size: .85rem; }
 .provider-pill { display: flex; align-items: center; gap: .45rem; color: var(--muted); text-decoration: none; padding: .3rem .4rem; border-radius: var(--radius-sm); min-width: 0; }
 .provider-pill:hover { background: var(--bg-3); color: var(--text); }
+.account-pill { display: flex; align-items: center; gap: .45rem; color: var(--text); padding: .3rem .4rem; min-width: 0; }
+.account-pill a { text-decoration: none; }
+.account-pill a:hover { color: var(--text); }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex-shrink: 0; }
 .dot.ok { background: var(--ok); }

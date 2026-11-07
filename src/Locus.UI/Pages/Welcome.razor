@@ -4,6 +4,7 @@
 @inject BotStore Bots
 @inject Locus.Core.Llm.ILlmClientFactory Llms
 @inject NavigationManager Nav
+@inject IServiceProvider Services
 
 <div class="settings welcome-setup">
     <div class="setup-head">
@@ -119,7 +120,16 @@
     private string _url = "", _key = "";
     private string? _error;
 
-    protected override async Task OnInitializedAsync() => await ScanAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        // A second account on a shared Locus already has the owner's model servers: start at the bots.
+        if (Services.GetService<ICurrentUser>()?.Account is { IsOwner: false } && (await Settings.GetAsync()).Providers.Count > 0)
+        {
+            _step = 2;
+            return;
+        }
+        await ScanAsync();
+    }
 
     private async Task ScanAsync()
     {

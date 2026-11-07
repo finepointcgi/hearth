@@ -5,6 +5,7 @@
 @inject NavigationManager Nav
 @inject HeartbeatRunner Heartbeat
 @inject SettingsStore SettingsStore
+@inject IServiceProvider Services
 
 <aside class="sidebar">
     <div class="sidebar-head">
@@ -155,6 +156,13 @@
     }
 
     <div class="sidebar-foot">
+        @if (Services.GetService<ICurrentUser>()?.Account is { } me)
+        {
+            <div class="account-pill">
+                <Icon Name="user" Size="14" /> <span class="ellipsis grow">@me.Name</span>
+                <a class="small muted" href="signout" data-enhance-nav="false" @onclick="SignOut" @onclick:preventDefault>Sign out</a>
+            </div>
+        }
         <a class="provider-pill" href="settings" @onclick="Close" title="@State.Settings.ActiveProvider.BaseUrl">
             <span class="dot @(State.ModelError is null && State.Models.Count > 0 ? "ok" : "bad")"></span>
             <span class="ellipsis">@State.Settings.ActiveProvider.Name</span>
@@ -163,6 +171,8 @@
 </aside>
 
 @code {
+    private void SignOut() => Nav.NavigateTo("/signout", forceLoad: true);
+
     private string _filter = "";
     private string? _renaming;
     private string _renameText = "";

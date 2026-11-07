@@ -3,6 +3,7 @@
 @inject IHttpClientFactory HttpFactory
 @inject ProjectContext Soul
 @inject SettingsStore Store
+@inject IServiceProvider Services
 @inherits StatefulComponent
 @inject ILlmClientFactory Factory
 @inject ConversationStore Conversations
@@ -28,11 +29,19 @@
         <button role="tab" aria-selected="@(_tab == "voice")" class="tab @(_tab == "voice" ? "on" : "")" @onclick='() => _tab = "voice"'><Icon Name="mic" Size="16" /> Voice</button>
         <button role="tab" aria-selected="@(_tab == "daily")" class="tab @(_tab == "daily" ? "on" : "")" @onclick='() => _tab = "daily"'><Icon Name="clock" Size="16" /> Daily</button>
         <button role="tab" aria-selected="@(_tab == "data")" class="tab @(_tab == "data" ? "on" : "")" @onclick='() => _tab = "data"'><Icon Name="hard-drive-download" Size="16" /> Data</button>
+        @if (Services.GetService<AccountStore>() is not null)
+        {
+            <button role="tab" aria-selected="@(_tab == "accounts")" class="tab @(_tab == "accounts" ? "on" : "")" @onclick='() => _tab = "accounts"'><Icon Name="users" Size="16" /> Accounts</button>
+        }
     </div>
     @if (_tab == "models")
     {
     <section class="card">
         <h3>Model servers</h3>
+        @if (Services.GetService<ICurrentUser>()?.Account is { IsOwner: false } && Services.GetService<AccountStore>()?.Owner is { } owner)
+        {
+            <p class="notice small">Model servers are shared from @owner.Name's account: changes they make there replace this list.</p>
+        }
         <p class="muted">Locus talks to LLMs running on your own machines. Pick the active server; phones and tablets should point at your computer's LAN IP (running on @Platform.Name).</p>
 
         @foreach (var p in _s.Providers)
@@ -250,6 +259,10 @@
         </div>
         <span class="muted small">Setting up installs whisper.cpp with Homebrew and downloads an English speech model (about 148 MB) into Locus's data folder.</span>
     </section>
+    }
+    @if (_tab == "accounts")
+    {
+    <AccountsCard />
     }
     @if (_tab == "daily")
     {
