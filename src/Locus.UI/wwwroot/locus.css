@@ -766,3 +766,12 @@ table.selfcheck tr.bad td:nth-child(3) { color: var(--danger, #e5484d); font-wei
 .team-work-body { padding: .25rem .6rem .6rem; border-top: 1px solid var(--line); }
 .team-work-body .message { font-size: .93rem; }
 @media (max-width: 640px) { .team-work { margin-left: 0; } }
+
+.pending-reply { display: flex; align-items: center; gap: .5rem; max-width: 760px; margin: .5rem 0; color: var(--muted, #888); font-size: .92rem; animation: pulse 1.6s ease-in-out infinite; }
+.pending-dot { width: .55rem; height: .55rem; border-radius: 50%; background: currentColor; }
+
+/* Pages scroll inside their own panels; the page itself never does (no gap under the chat). */
+@media (min-width: 821px) { html, body { overflow: hidden; } }
+#blazor-error-ui { display: none; position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); z-index: 1000; padding: .6rem 1rem; border-radius: var(--radius, 10px); background: var(--bg-2); border: 1px solid var(--line-strong, #444); box-shadow: var(--shadow); color: var(--text); font-size: .92rem; }
+#blazor-error-ui .reload { margin-left: .6rem; color: var(--brand); font-weight: 600; }
+.page-error { margin: 1rem; }

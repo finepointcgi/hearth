@@ -18,6 +18,10 @@
 </head>
 <body>
     <LocusRoutes @rendermode="new InteractiveServerRenderMode(prerender: false)" />
+    @* If the page's connection to Locus ever breaks, say so (instead of a page whose menus silently stop working). *@
+    <div id="blazor-error-ui" role="alert">
+        Locus lost its connection to this page. <a href="" class="reload" onclick="location.reload(); return false;">Reload</a>
+    </div>
     <script src="_content/Locus.UI/locus.js"></script>
     <script src="_framework/blazor.web.js"></script>
     <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});</script>

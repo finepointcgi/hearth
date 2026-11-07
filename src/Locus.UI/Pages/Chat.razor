@@ -187,13 +187,16 @@
                 {
                     // The work behind a team answer, folded into one dropdown per turn.
                     var start = i;
-                    while (i + 1 < _conv.Messages.Count && _conv.Messages[i + 1] is { Behind: true } next && next.TeamTurn == m.TeamTurn) i++;
+                    // The turn's work, including notices that landed in the middle of it ("Chief added Researcher…").
+                    while (i + 1 < _conv.Messages.Count && (_conv.Messages[i + 1] is { Behind: true } next && next.TeamTurn == m.TeamTurn
+                           || _conv.Messages[i + 1] is { Notice: not null, Content.Length: 0, TeamTurn: null } && i + 2 < _conv.Messages.Count
+                              && _conv.Messages[i + 2] is { Behind: true } after && after.TeamTurn == m.TeamTurn)) i++;
                     var work = _conv.Messages.GetRange(start, i - start + 1);
                     var working = work.FirstOrDefault(w => w.IsStreaming);
                     var done = !Busy || _conv.Messages.Skip(i + 1).Any(x => x.TeamTurn == m.TeamTurn);
                     var who = work.Where(w => w.BotId is not null).Select(w => State.BotById(w.BotId!)).OfType<Bot>().DistinctBy(b => b.Id)
                         .Where(b => !b.IsCoordinator).ToList();
-                    <details class="team-work @(done ? "" : "working")" @key="@("team-" + m.TeamTurn)">
+                    <details class="team-work @(done ? "" : "working")" @key="@("team-" + m.Id)">
                         <summary>
                             <Icon Name="users" Size="14" />
                             @if (!done && working is not null && State.BotById(working.BotId ?? "") is { } busyBot)
@@ -224,6 +227,12 @@
                     <MessageView @key="m.Id" Message="m" IsLast="index == _conv.Messages.Count - 1" Busy="Busy"
                                  OnRegenerate="Regenerate" OnEdit="text => EditAndResend(index, text)" />
                 }
+            }
+            @if (Busy && _conv.Messages.LastOrDefault() is { Role: ChatRole.User } || Busy && _conv.Messages.LastOrDefault() is { Notice: not null, Content.Length: 0, IsStreaming: false, ToolCalls.Count: 0 })
+            {
+                // Before the first reply appears (the lead deciding who takes it): show that something is happening.
+                var lead = Members.FirstOrDefault(b => b.IsCoordinator) ?? Members.FirstOrDefault();
+                <div class="pending-reply"><span class="pending-dot"></span> @(lead?.Name ?? "Locus") is thinking…</div>
             }
         </div>
     }

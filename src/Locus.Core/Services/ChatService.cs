@@ -328,7 +328,10 @@ public sealed class ChatService(
         await SayAsync(AckText(plan), hidden: false, ack: true);
         var handout = string.Join("\n", plan.Assign.Select(a => $"@{a.bot.Name}: {a.task}"));
         await SayAsync(handout, hidden: true);
+        var before = conv.Messages.Count;
         await JoinMentionedBotsAsync(conv, handout + (plan.Review ? $" @{plan.Reviewer!.Name}" : ""), coordinator, onUpdate);
+        // "Chief added Researcher…" belongs with the work, not between the hand-out and the rest of it.
+        foreach (var notice in conv.Messages.Skip(before).Where(x => x.TeamTurn is null)) { notice.TeamTurn = turn; notice.Behind = true; }
 
         var worked = new List<Bot>();
         foreach (var (bot, _) in plan.Assign)

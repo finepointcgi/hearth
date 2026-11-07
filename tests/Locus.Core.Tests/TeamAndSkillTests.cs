@@ -298,7 +298,7 @@ public sealed class TeamAndSkillTests : IDisposable
         // The Chief says "on it" at once (no model call), then the Researcher's answer goes straight to the user.
         Assert.Equal(["On it — I've asked Researcher to take this. Back shortly.", "Researcher answered"], replies.Select(r => r.Content));
         Assert.True(replies[0].Ack);
-        Assert.Single(conv.Messages, m => m.Behind); // the hand-out, folded
+        Assert.Equal(2, conv.Messages.Count(m => m.Behind)); // the hand-out and "Chief added Researcher", folded
         Assert.Contains(conv.Messages, m => m.Notice?.Contains("added") == true && m.Notice.Contains("Researcher"));
 
         // Chat and anything unclear stay with the coordinator.
@@ -355,6 +355,10 @@ public sealed class TeamAndSkillTests : IDisposable
         var assistant = conv.Messages.Where(m => m.Role == ChatRole.Assistant && m.Notice is null).ToList();
         Assert.Equal([false, true, true, true, true, true, true, true, false], assistant.Select(m => m.Behind));
         Assert.Single(assistant.Select(m => m.TeamTurn).Distinct());
+        // "Chief added Researcher, Writer…" is part of the folded work too, so the work stays in one piece.
+        var joined = Assert.Single(conv.Messages, m => m.Notice?.Contains("added") == true);
+        Assert.True(joined.Behind);
+        Assert.Equal(assistant[0].TeamTurn, joined.TeamTurn);
         // A later turn doesn't carry the folded work in its history.
         conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "thanks!" });
         string? seen = null;

@@ -9,14 +9,32 @@
     <Sidebar />
     <div class="scrim" @onclick="CloseSidebar"></div>
     <main class="main">
-        @Body
+        @* A page that breaks shows its error here instead of taking the whole app (menus, sidebar) down with it. *@
+        <ErrorBoundary @ref="_boundary">
+            <ChildContent>@Body</ChildContent>
+            <ErrorContent Context="ex">
+                <div class="error-box page-error">
+                    <b>Something on this page broke.</b> @ex.Message
+                    <button class="btn small" @onclick="Recover">Try again</button>
+                </div>
+            </ErrorContent>
+        </ErrorBoundary>
     </main>
 </div>
 
 @code {
+    private ErrorBoundary? _boundary;
+
+    private void Recover() => _boundary?.Recover();
+
+    // Going to another page clears an error shown for the last one.
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) =>
+        InvokeAsync(() => _boundary?.Recover());
+
     protected override async Task OnInitializedAsync()
     {
         State.Changed += OnChanged;
+        Nav.LocationChanged += OnLocationChanged;
         await State.EnsureInitializedAsync();
         // First run: walk through setup. Installs already in use are marked as set up.
         var settings = await SettingsStore.GetAsync();
@@ -33,5 +51,5 @@
 
     private void CloseSidebar() { State.SidebarOpen = false; State.NotifyChanged(); }
     private void OnChanged() => InvokeAsync(StateHasChanged);
-    public void Dispose() => State.Changed -= OnChanged;
+    public void Dispose() { State.Changed -= OnChanged; Nav.LocationChanged -= OnLocationChanged; }
 }
