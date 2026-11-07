@@ -94,6 +94,7 @@ public sealed class AppSettings
     public Dictionary<string, List<string>> AlwaysAllow { get; set; } = [];
     public BriefingSettings Briefing { get; set; } = new();
     public CheckInSettings CheckIns { get; set; } = new();
+    public TeachingSettings Teaching { get; set; } = new();
     /// <summary>The starter skills were added (once; deleted ones aren't brought back on their own).</summary>
     public bool StarterSkillsAdded { get; set; }
     public SelfCheckSettings SelfCheck { get; set; } = new();
@@ -189,6 +190,21 @@ public sealed class ModelRoutingSettings
     public string FastModel { get; set; } = "";
     public string? StrongProviderId { get; set; }
     public string StrongModel { get; set; } = "";
+}
+
+/// <summary>How Locus helps you teach it: offers to make repeated requests skills or routines, and a weekly recap.</summary>
+public sealed class TeachingSettings
+{
+    /// <summary>Offer to make a request that keeps coming up into a skill or a routine.</summary>
+    public bool Nudges { get; set; } = true;
+    /// <summary>What Locus learned this week, sent once a week (in Locus, by push and to chat apps that get routine results).</summary>
+    public bool WeeklyRecap { get; set; } = true;
+    public DayOfWeek RecapDay { get; set; } = DayOfWeek.Sunday;
+    /// <summary>Local time, HH:mm.</summary>
+    public string RecapTime { get; set; } = "18:00";
+    public DateTimeOffset? LastRecap { get; set; }
+    /// <summary>Offers turned down with "Not now" (their keys), so they aren't made again.</summary>
+    public List<string> DismissedNudges { get; set; } = [];
 }
 
 /// <summary>Check-ins: short, friendly messages from your lead bot — a morning hello and an evening "how did it go?".</summary>

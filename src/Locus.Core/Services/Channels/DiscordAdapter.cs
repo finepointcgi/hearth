@@ -134,7 +134,9 @@ public sealed class DiscordAdapter(IHttpClientFactory http) : IChannelAdapter
                                 ["type"] = 7, // update the message: remove buttons, show the outcome
                                 ["data"] = new JsonObject { ["content"] = (d["message"]?["content"]?.ToString() ?? "") + (result.Text is null ? "" : $"\n**{result.Text}**"), ["components"] = new JsonArray() },
                             }
-                            : new JsonObject { ["type"] = 6 }, ct); // acknowledge silently
+                            : result.Text is { Length: > 0 } said
+                                ? new JsonObject { ["type"] = 4, ["data"] = new JsonObject { ["content"] = said, ["flags"] = 64 } } // just for the tapper
+                                : new JsonObject { ["type"] = 6 }, ct); // acknowledge silently
                     }
                 }
             }
@@ -178,11 +180,11 @@ public sealed class DiscordAdapter(IHttpClientFactory http) : IChannelAdapter
         {
             var msg = new JsonObject { ["content"] = parts[i] };
             if (i == parts.Count - 1 && buttons is { Count: > 0 })
-                msg["components"] = new JsonArray(new JsonObject
+                msg["components"] = new JsonArray(buttons.Take(25).Chunk(5).Select(row => (JsonNode)new JsonObject
                 {
                     ["type"] = 1,
-                    ["components"] = new JsonArray(buttons.Take(5).Select(b => (JsonNode)new JsonObject { ["type"] = 2, ["style"] = 2, ["label"] = b.label, ["custom_id"] = b.data }).ToArray()),
-                });
+                    ["components"] = new JsonArray(row.Select(b => (JsonNode)new JsonObject { ["type"] = 2, ["style"] = 2, ["label"] = b.label, ["custom_id"] = b.data }).ToArray()),
+                }).ToArray());
             await CallAsync(HttpMethod.Post, $"/channels/{chatId}/messages", msg);
         }
     }

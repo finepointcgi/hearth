@@ -31,7 +31,8 @@ public sealed class ChatService(
     PeopleStore people,
     Companion companion,
     UsageStore usage,
-    UndoLog undoLog)
+    UndoLog undoLog,
+    LearningLoop loop)
 {
     private const int MaxToolResultChars = 16000;
     private const int MaxBotCallDepth = 2;
@@ -483,6 +484,7 @@ public sealed class ChatService(
         conv.Messages.Add(reply);
         conv.Model = opts.Model;
         await onUpdate();
+        List<Memory> recalledMemories = [];
 
         try
         {
@@ -598,6 +600,7 @@ public sealed class ChatService(
             if (settings.MemoryEnabled && baseMessages.FindLastIndex(m => m.Role == "user") is var ask and >= 0
                 && await RelevantMemoriesAsync(bot, lastUser.Content, Math.Max(5, bot?.Memory.MaxInPrompt ?? 60)) is { Count: > 0 } recalled)
             {
+                recalledMemories = recalled;
                 var m = baseMessages[ask];
                 baseMessages[ask] = new LlmMessage
                 {
@@ -844,6 +847,10 @@ public sealed class ChatService(
         {
             reply.IsStreaming = false;
             conv.UpdatedAt = DateTimeOffset.Now;
+            // What the reply drew on (memories, skills, people, threads), shown under it.
+            if (reply.Error is null && reply.Content.Length > 0 && !reply.Ack)
+                try { reply.Used = await loop.UsedAsync(bot, settings, reply, recalledMemories); }
+                catch { /* a nicety */ }
             var failed = reply.Error is not null && reply.Content.Length == 0 && reply.ToolCalls.Count == 0;
             if (failed) conv.Messages.Remove(reply);
             await store.SaveAsync(conv);
@@ -859,16 +866,33 @@ public sealed class ChatService(
                       && lastUser.RoutineName != "Heartbeat" // routine check-ins aren't methods worth keeping
                       && (bot is null || bot.Abilities.Skills) && reply.SkillNotes.Count == 0
                       && reply.ToolCalls.Count(t => t.Status == ToolCallStatus.Done) >= Math.Max(2, settings.SkillLearning.MinToolCalls);
-        if (reflect)
-            _ = Task.Run(() => ReflectAsync(conv, bot, reply, client, model, settings, onUpdate));
-
         var learnMemory = learn && reply.Error is null && reply.Content.Length > 0 && depth == 0 && settings.MemoryEnabled
                     && (bot is null ? settings.MemoryAutoLearn : bot.Memory is { Enabled: true, AutoLearn: true });
-        if (learnMemory)
-            _ = Task.Run(() => LearnAsync(conv, bot, reply, client, model, onUpdate));
+        // "You keep asking for this": only for the user's own requests, under the answer they see.
+        var nudge = learn && reply.Error is null && reply.Content.Length > 0 && depth == 0 && !unattended && !reply.Behind && !reply.Ack
+                    && lastUser is { RoutineName: null, FromBotId: null } && settings.Teaching.Nudges;
+        if (reflect || learnMemory || nudge)
+        {
+            var after = Task.Run(async () =>
+            {
+                var jobs = new List<Task>();
+                if (reflect) jobs.Add(ReflectAsync(conv, bot, reply, client, model, settings, onUpdate));
+                if (learnMemory) jobs.Add(LearnAsync(conv, bot, reply, client, model, onUpdate));
+                await Task.WhenAll(jobs);
+                if (settings.MemoryEnabled) await loop.CheckConflictsAsync(conv, reply, client, model, onUpdate);
+                if (nudge) await loop.NudgeAsync(conv, lastUser, reply, client, model, onUpdate);
+            });
+            _afterReply[reply.Id] = after;
+            _ = after.ContinueWith(_ => _afterReply.TryRemove(reply.Id, out var _), TaskScheduler.Default);
+        }
 
         return reply;
     }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task> _afterReply = new();
+
+    /// <summary>Finishes when what runs after a reply is done: learning, skill writing, the contradiction check and offers.</summary>
+    public Task AfterReplyAsync(string messageId) => _afterReply.TryGetValue(messageId, out var t) ? t : Task.CompletedTask;
 
     /// <summary>Instructions for a code session: how to work in the folder (like Claude Code), the folder's own
     /// instruction file (CLAUDE.md / AGENTS.md…), the git state and the current task list.</summary>
@@ -1950,6 +1974,14 @@ public sealed class ChatService(
             case LearnedItem.NewSkill:
                 await skillStore.DeleteAsync(item.Ref ?? "");
                 result = $"Deleted {item.Text}.";
+                break;
+            case LearnedItem.FixedMemory:
+                result = await memories.UpdateAsync(item.Ref ?? "", item.Extra ?? "", item.Scope) ? "Put the memory back as it was." : "That memory is gone.";
+                break;
+            case LearnedItem.ForgotMemory:
+                var back = await memories.AddAsync(item.Extra ?? item.Text, item.Scope);
+                item.Ref = back.Id;
+                result = "Remembered again.";
                 break;
             case LearnedItem.ImprovedSkill:
                 var skill = (await skillStore.ListAsync()).FirstOrDefault(s => s.Id == item.Ref);

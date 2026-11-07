@@ -76,6 +76,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<BuiltInToolProvider>();
         services.AddSingleton<McpManager>();
         services.AddSingleton<ToolRegistry>();
+        services.AddSingleton<LearningLoop>();
+        services.AddSingleton<LearningRecap>();
         services.AddSingleton<ChatService>();
         services.AddSingleton<ChatRuns>();
         services.AddSingleton<FollowUpStore>();

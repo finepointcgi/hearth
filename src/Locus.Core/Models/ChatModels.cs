@@ -45,6 +45,12 @@ public sealed class ChatMessage
     /// <summary>Everything this reply taught Locus (memories, people notes, skills…), each with what's needed to undo it.
     /// Shown under the reply. Older replies only have <see cref="Learned"/> and <see cref="SkillNotes"/>.</summary>
     public List<LearnedItem> LearnedItems { get; set; } = [];
+    /// <summary>What this reply drew on: memories, skills, people and threads that show in it (Kind as in LearnedItem).</summary>
+    public List<LearnedItem> Used { get; set; } = [];
+    /// <summary>What the user said was wrong with this reply (👎), once they've said it.</summary>
+    public string? Feedback { get; set; }
+    /// <summary>"You keep asking for this": an offer to make the request a skill or a routine.</summary>
+    public Nudge? Nudge { get; set; }
     /// <summary>How this reply was produced: each model round and tool call with its time and tokens.</summary>
     public List<TraceStep> Trace { get; set; } = [];
     /// <summary>Informational note, e.g. "this model doesn't support tools".</summary>
@@ -179,7 +185,8 @@ public sealed record TraceStep(string Kind, string Name, long Ms, int? InputToke
 /// <summary>One thing a reply taught Locus, and how to take it back.</summary>
 public sealed class LearnedItem
 {
-    public const string Memory = "memory", Person = "person", Vibe = "vibe", Thread = "thread", NewSkill = "skill", ImprovedSkill = "skill-improved";
+    public const string Memory = "memory", Person = "person", Vibe = "vibe", Thread = "thread", NewSkill = "skill", ImprovedSkill = "skill-improved",
+        FixedMemory = "memory-fixed", ForgotMemory = "memory-forgotten", UsedSkill = "skill-used";
 
     /// <summary><see cref="Memory"/>, <see cref="Person"/>, <see cref="Vibe"/>, <see cref="Thread"/>, <see cref="NewSkill"/> or <see cref="ImprovedSkill"/>.</summary>
     public string Kind { get; set; } = "";
@@ -189,9 +196,54 @@ public sealed class LearnedItem
     public string? Ref { get; set; }
     /// <summary>Memory: the bot whose memory it's in (null = shared). Vibe: the bot whose note it is.</summary>
     public string? Scope { get; set; }
-    /// <summary>Memory: the id of a shared copy also saved. Person and thread: the exact note text added.</summary>
+    /// <summary>Memory: the id of a shared copy also saved. Person and thread: the exact note text added. Fixed or
+    /// forgotten memory: the text it had before.</summary>
     public string? Extra { get; set; }
     public bool Undone { get; set; }
 
-    public string Icon => Kind switch { Memory => "🧠", Person => "👤", Vibe => "💬", Thread => "🧵", _ => "📒" };
+    /// <summary>A new memory that contradicts an older one: the older memory (id, text, scope) until the user picks.</summary>
+    public string? ConflictRef { get; set; }
+    public string? ConflictText { get; set; }
+    public string? ConflictScope { get; set; }
+    /// <summary>How the user settled the conflict: "new", "old" or "both".</summary>
+    public string? ConflictResolved { get; set; }
+    /// <summary>Looked for contradictions already.</summary>
+    public bool ConflictChecked { get; set; }
+
+    [JsonIgnore] public bool HasOpenConflict => ConflictRef is not null && ConflictResolved is null && !Undone;
+
+    public string Icon => Kind switch
+    {
+        Memory => "🧠", Person => "👤", Vibe => "💬", Thread => "🧵", FixedMemory => "✏️", ForgotMemory => "🗑", _ => "📒",
+    };
+
+    /// <summary>How it reads in a list: "Improved /x", "Forgot: …".</summary>
+    [JsonIgnore] public string Label => Kind switch
+    {
+        ImprovedSkill => "Improved " + Text,
+        FixedMemory => "Corrected: " + Text,
+        ForgotMemory => "Forgot: " + Text,
+        _ => Text,
+    };
+}
+
+/// <summary>An offer under a reply to make a request that keeps coming up into a skill or a routine.</summary>
+public sealed class Nudge
+{
+    public const string Skill = "skill", Routine = "routine";
+    /// <summary><see cref="Skill"/> or <see cref="Routine"/>.</summary>
+    public string Kind { get; set; } = Skill;
+    /// <summary>How many times it's been asked, this one included.</summary>
+    public int Times { get; set; }
+    /// <summary>Routine: when, e.g. "every Monday at 9am".</summary>
+    public string? When { get; set; }
+    /// <summary>Routine: what to do each time.</summary>
+    public string? Task { get; set; }
+    /// <summary>"done" (taken up) or "dismissed".</summary>
+    public string? Outcome { get; set; }
+    /// <summary>What it's about, to not offer the same thing again once dismissed.</summary>
+    public string Key { get; set; } = "";
+
+    /// <summary>What "Make it a routine" puts in the message box.</summary>
+    [JsonIgnore] public string RoutineDraft => $"Make this a routine: {When?.Trim()}, {Task?.Trim()}".Trim(' ', ',');
 }

@@ -187,6 +187,7 @@ public static class AccountStartup
         sp.GetRequiredService<SelfCheck>().EnsureStarted(); // nightly self-check (off unless turned on in Settings)
         sp.GetRequiredService<ChatHistoryIndex>().EnsureStarted();
         sp.GetRequiredService<PushNotifier>().EnsureStarted();
+        sp.GetRequiredService<LearningRecap>().EnsureStarted(); // the weekly "what Locus learned"
         sp.GetRequiredService<BackupService>().EnsureStarted();
         sp.GetRequiredService<ChatRuns>().EnsureStarted(); // replies a restart interrupted resume
         sp.GetRequiredService<FollowUpRunner>().EnsureStarted(); // bots coming back to chats on their own

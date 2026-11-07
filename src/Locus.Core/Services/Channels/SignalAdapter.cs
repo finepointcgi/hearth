@@ -118,7 +118,7 @@ public sealed class SignalAdapter(IHttpClientFactory http) : IChannelAdapter
         for (var i = 0; i < parts.Count; i++)
         {
             var text = parts[i];
-            if (i == parts.Count - 1 && buttons is { Count: > 0 } && !buttons.All(b => b.data.StartsWith("q:")))
+            if (i == parts.Count - 1 && buttons is { Count: > 0 } && !buttons.All(b => TextButtons.UnderReply(b.data)))
                 text += _buttons.Render(chatId, buttons);
             await PostAsync(new JsonObject { ["message"] = text, ["recipients"] = new JsonArray(chatId) });
         }

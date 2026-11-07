@@ -226,7 +226,7 @@
                 else
                 {
                     <MessageView @key="m.Id" Message="m" Conv="_conv" IsLast="index == _conv.Messages.Count - 1" Busy="Busy"
-                                 OnRegenerate="Regenerate" OnEdit="text => EditAndResend(index, text)" />
+                                 OnRegenerate="Regenerate" OnEdit="text => EditAndResend(index, text)" OnDraft="SetDraft" />
                 }
             }
             @if (Busy && _conv.Messages.LastOrDefault() is { Role: ChatRole.User } || Busy && _conv.Messages.LastOrDefault() is { Notice: not null, Content.Length: 0, IsStreaming: false, ToolCalls.Count: 0 })
@@ -306,6 +306,11 @@
     private Conversation? _conv;
     private ElementReference _scroller;
     private Composer? _composer;
+
+    private async Task SetDraft(string text)
+    {
+        if (_composer is not null) await _composer.SetTextAsync(text);
+    }
     private DateTime _lastRender;
     private bool _forceScroll;
 

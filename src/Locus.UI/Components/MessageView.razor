@@ -2,6 +2,7 @@
 @inject AppState State
 @inject ISpeechOutput Speech
 @inject ChatService Chat
+@inject LearningLoop Loop
 
 <div class="msg @(Message.Role == ChatRole.User ? "user" : "assistant")">
     @if (Message.Role == ChatRole.User)
@@ -159,6 +160,18 @@
         {
             <div class="error-box">⚠ @Message.Error</div>
         }
+        @if (Message.Used.Count > 0 && !Message.IsStreaming)
+        {
+            <div class="used-box" title="What this reply drew on: memories, skills, people and life threads that show in it">
+                <span class="learned-head">Drew on</span>
+                @foreach (var u in Message.Used)
+                {
+                    <a class="used-item" href="@(u.Kind == LearnedItem.UsedSkill ? "skills" : "memory")" title="@u.Text">
+                        <span aria-hidden="true">@u.Icon</span> @(u.Text.Length > 60 ? u.Text[..60] + "…" : u.Text)
+                    </a>
+                }
+            </div>
+        }
         @if (Message.LearnedItems.Count > 0 && !Message.IsStreaming)
         {
             <div class="learned-box">
@@ -170,11 +183,11 @@
                         <span aria-hidden="true">@it.Icon</span>
                         @if (it.Kind is LearnedItem.NewSkill or LearnedItem.ImprovedSkill && !it.Undone)
                         {
-                            <a href="skills" title="@(it.Kind == LearnedItem.NewSkill ? "New skill" : "Improved skill") — open the Skills page">@(it.Kind == LearnedItem.ImprovedSkill ? "Improved " : "")@it.Text</a>
+                            <a href="skills" title="@(it.Kind == LearnedItem.NewSkill ? "New skill" : "Improved skill") — open the Skills page">@it.Label</a>
                         }
                         else
                         {
-                            <span>@it.Text</span>
+                            <span>@it.Label</span>
                         }
                         @if (it.Undone)
                         {
@@ -186,8 +199,24 @@
                         }
                     </span>
                 }
+                @foreach (var item in LearningLoop.OpenConflicts(Message))
+                {
+                    var it = item;
+                    <div class="conflict">
+                        <span>⚠ “@it.Text” contradicts what it knew: “@it.ConflictText”. Which is right?</span>
+                        <span class="conflict-actions">
+                            <button class="btn small" @onclick='() => Resolve(it, "new")'>The new one</button>
+                            <button class="btn small" @onclick='() => Resolve(it, "old")'>What it knew</button>
+                            <button class="btn small ghost" @onclick='() => Resolve(it, "both")'>Both are true</button>
+                        </span>
+                    </div>
+                }
                 @if (_learnMessage is not null) { <span class="muted small">@_learnMessage</span> }
             </div>
+        }
+        else if (_learnMessage is not null)
+        {
+            <div class="learned-box"><span class="muted small">@_learnMessage</span></div>
         }
         else
         {
@@ -204,6 +233,42 @@
                 </div>
             }
         }
+        @if (Message.Nudge is { Outcome: null } nudge && !Message.IsStreaming && Conv is not null)
+        {
+            <div class="nudge">
+                <span>💡 You've asked for this @nudge.Times times.
+                    @(nudge.Kind == Nudge.Routine ? $"Make it a routine ({nudge.When})?" : "Save how it's done as a skill, so it's done the same way every time?")</span>
+                <span class="conflict-actions">
+                    @if (nudge.Kind == Nudge.Routine)
+                    {
+                        <button class="btn small" @onclick="MakeRoutine">⏰ Make it a routine</button>
+                    }
+                    else
+                    {
+                        <button class="btn small" @onclick="SaveAsSkill" disabled="@_savingSkill">⚡ Make it a skill</button>
+                    }
+                    <button class="btn small ghost" @onclick="DismissNudge">Not now</button>
+                </span>
+            </div>
+        }
+        @if (_fixing)
+        {
+            <div class="fix-box">
+                <label class="muted small" for="fix-@Message.Id">What was wrong? Locus fixes what caused it (a memory, a skill, or a new rule).</label>
+                <div class="fix-row">
+                    <input id="fix-@Message.Id" class="input" placeholder="e.g. The report goes to Sarah, not Sam" @bind="_fixText" @bind:event="oninput"
+                           @onkeydown="FixKey" disabled="@_fixBusy" />
+                    <button class="btn small primary" @onclick="Fix" disabled="@(_fixBusy || string.IsNullOrWhiteSpace(_fixText))">@(_fixBusy ? "Fixing…" : "Fix it")</button>
+                    <button class="btn small ghost" @onclick="() => _fixing = false" disabled="@_fixBusy">Cancel</button>
+                </div>
+            </div>
+        }
+        @if (Message.Feedback is not null && !_fixing)
+        {
+            <div class="feedback-note muted small">👎 You said: “@Message.Feedback”
+                @if (IsLast && !Busy) { <button class="learned-undo" @onclick="OnRegenerate">Try again</button> }
+            </div>
+        }
         @if (!Message.IsStreaming)
         {
             <div class="msg-tools">
@@ -212,6 +277,11 @@
                 @if (IsLast && !Busy)
                 {
                     <button title="Regenerate" aria-label="Regenerate" @onclick="OnRegenerate"><Icon Name="refresh-cw" Size="15" /></button>
+                }
+                @if (CanCorrect)
+                {
+                    <button class="@(_fixing ? "on" : "")" title="That's wrong — tell Locus what, and it fixes the cause" aria-label="That's wrong"
+                            @onclick="ToggleFix"><Icon Name="thumbs-down" Size="15" /></button>
                 }
                 @if (CanSaveAsSkill)
                 {
@@ -251,6 +321,53 @@
     [Parameter] public EventCallback<string> OnEdit { get; set; }
     /// <summary>The chat this message is in (for undoing what it learned and saving it as a skill).</summary>
     [Parameter] public Conversation? Conv { get; set; }
+    /// <summary>Puts text in the message box (e.g. "Make this a routine: …"), for the user to check and send.</summary>
+    [Parameter] public EventCallback<string> OnDraft { get; set; }
+
+    private bool _fixing, _fixBusy;
+    private string _fixText = "";
+
+    private void ToggleFix() { _fixing = !_fixing; _fixText = ""; }
+
+    private bool CanCorrect => Conv is not null && Message is { Role: ChatRole.Assistant, Error: null, Ack: false, Behind: false, Content.Length: > 0 };
+
+    private async Task FixKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_fixText)) await Fix();
+        else if (e.Key == "Escape") _fixing = false;
+    }
+
+    private async Task Fix()
+    {
+        _fixBusy = true;
+        _learnMessage = null;
+        try
+        {
+            _learnMessage = await Loop.CorrectAsync(Conv!, Message, _fixText, () => InvokeAsync(StateHasChanged));
+            _fixing = false;
+        }
+        catch (Exception ex) { _learnMessage = "Couldn't fix it: " + ex.Message; }
+        finally { _fixBusy = false; }
+    }
+
+    private async Task Resolve(LearnedItem item, string keep)
+    {
+        try { _learnMessage = await Loop.ResolveConflictAsync(Conv!, item, keep); }
+        catch (Exception ex) { _learnMessage = ex.Message; }
+    }
+
+    private async Task MakeRoutine()
+    {
+        if (Message.Nudge is not { } n) return;
+        await Loop.NudgeTakenAsync(Conv!, Message);
+        await OnDraft.InvokeAsync(n.RoutineDraft);
+    }
+
+    private async Task DismissNudge()
+    {
+        await Loop.DismissNudgeAsync(Conv!, Message);
+        _learnMessage = "OK, it won't offer that again.";
+    }
 
     private LearnedItem? _undoing;
     private string? _learnMessage;
@@ -275,6 +392,7 @@
         try
         {
             var item = await Chat.SaveReplyAsSkillAsync(Conv!, Message, () => InvokeAsync(StateHasChanged));
+            if (Message.Nudge is { Outcome: null }) await Loop.NudgeTakenAsync(Conv!, Message);
             _learnMessage = item.Kind == LearnedItem.NewSkill ? $"Saved {item.Text}. Use it any time by typing {item.Text}." : $"Improved {item.Text}.";
         }
         catch (Exception ex) { _learnMessage = ex.Message; Message.Notice = $"Couldn't save a skill: {ex.Message}"; }

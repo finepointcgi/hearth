@@ -17,6 +17,8 @@
         {
             <p class="muted small">So far: <a href="memory">@c.memories things remembered</a> · <a href="memory">@c.people people and companies</a> · <a href="skills">@c.skills skills</a></p>
         }
+        <p class="muted small">Under each reply, <b>Drew on</b> shows the memories, skills and people it used, so you can see your teaching at work.
+            See everything it learned lately, with Undo, on <a href="learned">What Locus learned</a>.</p>
     </section>
 
     <section class="card">
@@ -54,6 +56,7 @@
 
     <section class="card">
         <h3><span aria-hidden="true">⏰</span> 4. Make it a habit</h3>
+        <p class="muted small">Ask for the same kind of thing a few times and Locus offers to make it a skill, or a routine when it comes up on a schedule.</p>
         <p class="muted">Ask for anything on a schedule, or when something happens, and it becomes a routine.</p>
         <div class="teach-examples">
             @foreach (var e in RoutineExamples)
@@ -67,11 +70,21 @@
     <section class="card">
         <h3><span aria-hidden="true">🛠</span> When it gets something wrong</h3>
         <ul class="teach-tips">
-            <li>Tell it straight away: <i>"No, the report goes to Sarah, not Sam. Remember that."</i></li>
+            <li>Tap <Icon Name="thumbs-down" Size="14" /> under the reply and say what was wrong in a line. Locus works out the cause and fixes it:
+                corrects or forgets a wrong memory, fixes the skill it followed, or keeps a new rule. Each fix has Undo.</li>
+            <li>Or tell it straight away: <i>"No, the report goes to Sarah, not Sam. Remember that."</i></li>
+            <li>When something new contradicts what it knew ("prefers long answers" after "likes short answers"), it asks which is right.</li>
             <li>Press <b>Undo</b> on anything under a reply that it shouldn't have learned.</li>
             <li>If a skill went wrong, say <i>"fix the /weekly-report skill: …"</i> or edit it on the Skills page. Earlier versions are kept.</li>
             <li>Give a bot standing instructions on its page under <a href="bots">Bots</a> (its personality and job).</li>
         </ul>
+    </section>
+
+    <section class="card">
+        <h3><span aria-hidden="true">📱</span> From your phone</h3>
+        <p class="muted">In Telegram (and Discord, Slack), answers come with <b>👎 Wrong</b> and <b>⚡ Save as skill</b> buttons. What a reply taught
+            Locus follows as a short <b>🧠 Learned</b> message with Undo buttons, and once a week you get a recap of everything it learned
+            (set the day on <a href="learned">What Locus learned</a>).</p>
     </section>
 </div>
 

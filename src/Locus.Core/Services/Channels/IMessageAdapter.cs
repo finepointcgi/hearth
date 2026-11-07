@@ -136,7 +136,7 @@ public sealed class IMessageAdapter : IChannelAdapter
         {
             var text = parts[i];
             // Only the important choices become numbered replies; the "again/shorter" extras would just be noise in SMS.
-            if (i == parts.Count - 1 && buttons is { Count: > 0 } && !buttons.All(b => b.data.StartsWith("q:")))
+            if (i == parts.Count - 1 && buttons is { Count: > 0 } && !buttons.All(b => TextButtons.UnderReply(b.data)))
                 text += _buttons.Render(chatId, buttons);
             var (code, output) = await RunAsync("/usr/bin/osascript", "-e", "on run argv", "-e", "tell application \"Messages\"",
                 "-e", chatId.StartsWith("chat:") ? "send (item 2 of argv) to chat id (item 1 of argv)"

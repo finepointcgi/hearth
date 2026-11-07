@@ -145,7 +145,9 @@ public sealed partial class TelegramAdapter(IHttpClientFactory http) : IChannelA
             if (i == parts.Count - 1 && buttons is { Count: > 0 })
                 msg["reply_markup"] = new JsonObject
                 {
-                    ["inline_keyboard"] = new JsonArray(new JsonArray(buttons.Select(b => (JsonNode)new JsonObject { ["text"] = b.label, ["callback_data"] = b.data }).ToArray())),
+                    // Rows of three, so labels stay readable on a phone.
+                    ["inline_keyboard"] = new JsonArray(buttons.Chunk(3).Select(row =>
+                        (JsonNode)new JsonArray(row.Select(b => (JsonNode)new JsonObject { ["text"] = b.label, ["callback_data"] = b.data }).ToArray())).ToArray()),
                 };
             try { await CallAsync("sendMessage", msg); }
             catch (InvalidOperationException)

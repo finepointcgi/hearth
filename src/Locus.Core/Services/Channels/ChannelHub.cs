@@ -35,6 +35,8 @@ public sealed class ChannelHub
     private readonly HeartbeatRunner _heartbeat;
     private readonly SpokenReply _spoken;
     private readonly IBotComputer _computer;
+    private readonly LearningLoop _loop;
+    private readonly LearningRecap _recap;
     private readonly Dictionary<string, IChannelAdapter> _adapters;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _running = new();
     private readonly ConcurrentDictionary<string, (string channel, string chatId)> _convToChat = new();
@@ -44,8 +46,11 @@ public sealed class ChannelHub
     public ChannelHub(ChannelStore store, ChatService chat, ConversationStore conversations, BotStore bots, ModelPicker models,
         ApprovalCenter approvals, ActivityLog activity, RoutineRunner routines, IHttpClientFactory http, HealthMonitor health,
         SettingsStore settings, SpeechService speech, DocumentStore documents, TaskRunner tasks, TaskStore taskStore,
-        HeartbeatRunner heartbeat, AudioTranscriber transcriber, Ocr ocr, SpokenReply spoken, IBotComputer computer)
+        HeartbeatRunner heartbeat, AudioTranscriber transcriber, Ocr ocr, SpokenReply spoken, IBotComputer computer,
+        LearningLoop loop, LearningRecap recap)
     {
+        _loop = loop;
+        _recap = recap;
         _spoken = spoken;
         _computer = computer;
         _heartbeat = heartbeat;
@@ -87,6 +92,7 @@ public sealed class ChannelHub
         _health.Changed += OnHealthChanged;
         _tasks.Milestone += OnTaskMilestone;
         _heartbeat.Alert += OnHeartbeatAlert;
+        _recap.Ready += OnRecapReady;
         _health.EnsureStarted();
         await _store.GetAsync();
         foreach (var ch in _adapters.Keys)
@@ -208,6 +214,13 @@ public sealed class ChannelHub
 
         var bots = await _bots.ListAsync();
         if (text.StartsWith('/')) { await CommandAsync(a, link, text, bots); return; }
+
+        // The answer to "👎 What was wrong?".
+        if (_awaitingFix.TryRemove(m.ChatId, out var fix) && DateTime.UtcNow - fix.at < TimeSpan.FromMinutes(30) && (m.Files ?? []).Count == 0)
+        {
+            await FixAsync(a, link, fix.conv, fix.msg, text);
+            return;
+        }
 
         // Attachments: voice → transcript, images → for vision models, documents → text (or the library if large).
         var images = new List<ImageAttachment>();
@@ -524,7 +537,7 @@ public sealed class ChannelHub
             body.Append(reply.Content);
             if (reply.Sources.Count > 0)
                 body.Append("\n\n").AppendJoin("\n", reply.Sources.Take(8).Select((s, n) => $"[{n + 1}] {s.Url}"));
-            if (body.Length > 0) await a.SendTextAsync(link.ChatId, body.ToString(), i == replies.Count - 1 ? QuickButtons : null);
+            if (body.Length > 0) await a.SendTextAsync(link.ChatId, body.ToString(), i == replies.Count - 1 ? ReplyButtons(conv.Id, reply) : null);
             // The documents it made, as files (the cover letter itself, not just a link).
             if (link.SendFiles)
                 foreach (var f in await ReplyFiles.CollectAsync(reply, _computer.WorkspaceDirectory))
@@ -535,6 +548,166 @@ public sealed class ChannelHub
                 try { if (await _spoken.SpeakAsync(reply.Content) is { } audio) await a.SendVoiceAsync(link.ChatId, audio.audio, audio.mime); }
                 catch (Exception ex) { await a.SendTextAsync(link.ChatId, $"⚠ Couldn't read the reply aloud: {ex.Message}"); }
         }
+        // What the answer taught Locus (with Undo), and offers, once the learning after it is done.
+        if (replies.LastOrDefault(r => r.Error is null) is { } last)
+            _ = Task.Run(() => AfterReplyAsync(a, link.ChatId, conv.Id, last));
+    }
+
+    // ------------------------------------------------------------------ teaching from chat apps
+
+    /// <summary>Short keys for buttons (callback data is limited to 64 bytes): key → (chat, message).</summary>
+    private readonly ConcurrentDictionary<string, (string conv, string msg)> _replyKeys = new();
+    /// <summary>Chats asked "what was wrong?": chat id → the reply it's about.</summary>
+    private readonly ConcurrentDictionary<string, (string conv, string msg, DateTime at)> _awaitingFix = new();
+    private IReadOnlyList<LearnedEntry> _recapItems = [];
+
+    private string KeyFor(string convId, string msgId)
+    {
+        if (_replyKeys.Count > 5000) _replyKeys.Clear();
+        var key = Convert.ToHexString(RandomNumberGenerator.GetBytes(4)).ToLowerInvariant();
+        _replyKeys[key] = (convId, msgId);
+        return key;
+    }
+
+    /// <summary>Under an answer: the quick follow-ups, plus 👎 and Save as skill.</summary>
+    private IReadOnlyList<(string label, string data)> ReplyButtons(string convId, ChatMessage reply)
+    {
+        if (reply.Content.Length <= 40) return QuickButtons;
+        var key = KeyFor(convId, reply.Id);
+        return [.. QuickButtons, ("👎 Wrong", "w:" + key), ("⚡ Save as skill", "s:" + key)];
+    }
+
+    private async Task AfterReplyAsync(IChannelAdapter a, string chatId, string convId, ChatMessage reply)
+    {
+        try
+        {
+            await _chat.AfterReplyAsync(reply.Id).WaitAsync(TimeSpan.FromMinutes(4));
+            await SendLearnedAsync(a, chatId, convId, reply);
+            if (reply.Nudge is { Outcome: null } n)
+            {
+                var key = KeyFor(convId, reply.Id);
+                await a.SendTextAsync(chatId, n.Kind == Nudge.Routine
+                        ? $"💡 You've asked for this {n.Times} times. Make it a routine ({n.When})?"
+                        : $"💡 You've asked for this {n.Times} times. Save how it's done as a skill?",
+                    [(n.Kind == Nudge.Routine ? "⏰ Make it a routine" : "⚡ Make it a skill", (n.Kind == Nudge.Routine ? "r:" : "s:") + key), ("Not now", "n:" + key)]);
+            }
+        }
+        catch { /* best effort */ }
+    }
+
+    /// <summary>"🧠 Learned: …" with an Undo button for each (and which is right, when one contradicts an older memory).</summary>
+    private async Task SendLearnedAsync(IChannelAdapter a, string chatId, string convId, ChatMessage reply, string? heading = null)
+    {
+        var items = reply.LearnedItems.Select((item, i) => (item, i)).Where(x => !x.item.Undone).TakeLast(6).ToList();
+        if (items.Count == 0) return;
+        var key = KeyFor(convId, reply.Id);
+        var text = new StringBuilder(heading ?? "🧠 Learned:");
+        var buttons = new List<(string label, string data)>();
+        for (var n = 0; n < items.Count; n++)
+        {
+            text.Append($"\n{n + 1}. {items[n].item.Icon} {items[n].item.Label}");
+            buttons.Add(($"↩ Undo {n + 1}", $"u:{key}:{items[n].i}"));
+        }
+        if (items.FirstOrDefault(x => x.item.HasOpenConflict) is { item: not null } c)
+        {
+            var at = items.IndexOf(c) + 1;
+            text.Append($"\n\n⚠ {at} contradicts what I knew: “{c.item.ConflictText}”. Which is right?");
+            buttons.Add(($"New ({at})", $"c:{key}:{c.i}:n"));
+            buttons.Add(("What I knew", $"c:{key}:{c.i}:o"));
+            buttons.Add(("Both", $"c:{key}:{c.i}:b"));
+        }
+        await a.SendTextAsync(chatId, text.ToString(), buttons);
+    }
+
+    private async Task FixAsync(IChannelAdapter a, ChannelLink link, string convId, string msgId, string feedback)
+    {
+        try
+        {
+            if (await _conversations.GetAsync(convId) is not { } conv || conv.Messages.FirstOrDefault(x => x.Id == msgId) is not { } reply)
+            {
+                await a.SendTextAsync(link.ChatId, "I can't find that reply any more.");
+                return;
+            }
+            await a.TypingAsync(link.ChatId);
+            var before = reply.LearnedItems.Count;
+            var result = await _loop.CorrectAsync(conv, reply, feedback, () => Task.CompletedTask);
+            await a.SendTextAsync(link.ChatId, "✅ " + result, [("🔄 Try again", "q:again")]);
+            if (reply.LearnedItems.Skip(before).Any(i => i.HasOpenConflict)) await SendLearnedAsync(a, link.ChatId, convId, reply, "Fixed:");
+        }
+        catch (Exception ex) { await a.SendTextAsync(link.ChatId, $"⚠ Couldn't fix it: {ex.Message}"); }
+    }
+
+    /// <summary>Teaching buttons: u: undo, c: settle a contradiction, w: 👎, s: save as skill, r: make a routine, n: not now, R: undo from the recap.</summary>
+    private async Task<ButtonResult?> TeachingButtonAsync(IChannelAdapter a, ChannelLink link, string data)
+    {
+        var parts = data.Split(':');
+        if (parts[0] == "R" && parts.Length == 2 && int.TryParse(parts[1], out var r))
+        {
+            if (r < 0 || r >= _recapItems.Count) return new ButtonResult("That recap has expired: undo it on the What Locus learned page.", false);
+            var e = _recapItems[r];
+            if (await _recap.FindAsync(e.ConversationId, e.MessageId, e.Index) is not { } found) return new ButtonResult("It's gone already.", false);
+            return new ButtonResult(await Safe(() => _chat.UndoLearnedAsync(found.conv, found.item)), false);
+        }
+        if (parts.Length < 2 || parts[0] is not ("u" or "c" or "w" or "s" or "r" or "n")) return null;
+        if (!_replyKeys.TryGetValue(parts[1], out var target)) return new ButtonResult("That's expired: open the chat in Locus to change it.", false);
+        if (await _conversations.GetAsync(target.conv) is not { } conv || conv.Messages.FirstOrDefault(x => x.Id == target.msg) is not { } reply)
+            return new ButtonResult("I can't find that reply any more.", true);
+        LearnedItem? Item() => parts.Length >= 3 && int.TryParse(parts[2], out var i) && i >= 0 && i < reply.LearnedItems.Count ? reply.LearnedItems[i] : null;
+        switch (parts[0])
+        {
+            case "u":
+                return Item() is { } undo ? new ButtonResult(await Safe(() => _chat.UndoLearnedAsync(conv, undo)), false) : new ButtonResult(null, false);
+            case "c":
+                if (Item() is not { } item || parts.Length < 4) return new ButtonResult(null, false);
+                var keep = parts[3] switch { "n" => "new", "o" => "old", _ => "both" };
+                return new ButtonResult(await Safe(() => _loop.ResolveConflictAsync(conv, item, keep)), false);
+            case "w":
+                _awaitingFix[link.ChatId] = (conv.Id, reply.Id, DateTime.UtcNow);
+                await a.SendTextAsync(link.ChatId, "👎 What was wrong? Reply in a line and I'll fix what caused it.");
+                return new ButtonResult(null, false);
+            case "s":
+                _ = Task.Run(async () =>
+                {
+                    await a.TypingAsync(link.ChatId);
+                    try
+                    {
+                        var made = await _chat.SaveReplyAsSkillAsync(conv, reply, () => Task.CompletedTask);
+                        if (reply.Nudge is not null) await _loop.NudgeTakenAsync(conv, reply);
+                        await a.SendTextAsync(link.ChatId, made.Kind == LearnedItem.NewSkill
+                            ? $"📒 Saved {made.Text}. Send {made.Text} any time to have it done the same way."
+                            : $"📒 Improved {made.Text}.");
+                    }
+                    catch (Exception ex) { await a.SendTextAsync(link.ChatId, $"⚠ Couldn't save a skill: {ex.Message}"); }
+                });
+                return new ButtonResult("Writing the skill…", parts[0] == "s" && reply.Nudge is not null);
+            case "r":
+                if (reply.Nudge is not { Kind: Nudge.Routine } routine) return new ButtonResult(null, true);
+                await _loop.NudgeTakenAsync(conv, reply);
+                _ = Task.Run(() => ReplyAsync(a, link, null, routine.RoutineDraft, "button"));
+                return new ButtonResult("Setting it up…", true);
+            default: // "n"
+                await _loop.DismissNudgeAsync(conv, reply);
+                return new ButtonResult("OK, I won't offer that again.", true);
+        }
+    }
+
+    private static async Task<string> Safe(Func<Task<string>> work)
+    {
+        try { return await work(); }
+        catch (Exception ex) { return ex.Message; }
+    }
+
+    /// <summary>The weekly recap goes to chats that get routine results, with Undo buttons.</summary>
+    private async void OnRecapReady(string text, IReadOnlyList<LearnedEntry> items)
+    {
+        try
+        {
+            _recapItems = items;
+            var buttons = Enumerable.Range(0, Math.Min(8, items.Count)).Select(i => ($"↩ Undo {i + 1}", $"R:{i}")).ToList();
+            foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Routine, DateTimeOffset.Now)))
+                if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendTextAsync(l.ChatId, text, buttons);
+        }
+        catch { /* best effort */ }
     }
 
     // ------------------------------------------------------------------ approvals and notifications
@@ -573,6 +746,7 @@ public sealed class ChannelHub
             var allow = data[0] == 'a';
             return new ButtonResult(_approvals.Decide(data[2..], allow) ? (allow ? "✅ Allowed" : "✖ Denied") : "Already answered (or it timed out).", true);
         }
+        if (await TeachingButtonAsync(a, link, data) is { } taught) return taught;
         string? prompt = data switch
         {
             "q:again" => null,

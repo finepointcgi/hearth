@@ -1,0 +1,179 @@
+@page "/learned"
+@inherits StatefulComponent
+@inject LearningRecap Recap
+@inject LearningLoop Loop
+@inject ChatService Chat
+@inject SettingsStore SettingsStore
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <h2 class="topbar-title">What Locus learned</h2>
+</header>
+
+<div class="settings teach">
+    <section class="card">
+        <p>Everything your chats taught Locus lately: memories, notes about people, how to talk with you, what's going on in your life,
+            and skills. Undo anything that's wrong. <a href="teach">How to teach Locus</a></p>
+        <div class="row">
+            <label>Show
+                <select value="@_days" @onchange="ChangeDays">
+                    <option value="7">the last 7 days</option>
+                    <option value="30">the last 30 days</option>
+                    <option value="90">the last 90 days</option>
+                </select>
+            </label>
+            <label class="check"><input type="checkbox" checked="@_showUndone" @onchange="ToggleUndone" /> Show undone</label>
+        </div>
+        @if (_message is not null) { <p class="muted small">@_message</p> }
+    </section>
+
+    @if (_items is null)
+    {
+        <p class="muted">Loading…</p>
+    }
+    else if (_items.Count == 0)
+    {
+        <section class="card"><p class="muted">Nothing learned in this time. It shows up here as you chat.</p></section>
+    }
+    else
+    {
+        @foreach (var day in _items.GroupBy(e => e.At.LocalDateTime.Date))
+        {
+            <section class="card">
+                <h3>@Day(day.Key)</h3>
+                <ul class="learned-list">
+                    @foreach (var entry in day)
+                    {
+                        var e = entry;
+                        <li class="@(e.Item.Undone ? "undone" : "")">
+                            <span aria-hidden="true">@e.Item.Icon</span>
+                            <span class="grow">@e.Item.Label
+                                <a class="muted small" href="c/@e.ConversationId">· @e.ConversationTitle</a>
+                                @if (e.Item.HasOpenConflict)
+                                {
+                                    <span class="conflict small">⚠ contradicts “@e.Item.ConflictText”
+                                        <button class="learned-undo" @onclick='() => Resolve(e, "new")'>New is right</button>
+                                        <button class="learned-undo" @onclick='() => Resolve(e, "old")'>Old is right</button>
+                                        <button class="learned-undo" @onclick='() => Resolve(e, "both")'>Both</button>
+                                    </span>
+                                }
+                            </span>
+                            @if (e.Item.Undone)
+                            {
+                                <span class="muted small">undone</span>
+                            }
+                            else
+                            {
+                                <button class="learned-undo" @onclick="() => Undo(e)">Undo</button>
+                            }
+                        </li>
+                    }
+                </ul>
+            </section>
+        }
+    }
+
+    <section class="card">
+        <h3><span aria-hidden="true">📬</span> Weekly recap and offers</h3>
+        <label class="check"><input type="checkbox" @bind="_t.WeeklyRecap" /> Send a weekly recap of what Locus learned</label>
+        <div class="row">
+            <label>On
+                <select @bind="_t.RecapDay">
+                    @foreach (var d in Enum.GetValues<DayOfWeek>()) { <option value="@d">@d</option> }
+                </select>
+            </label>
+            <label>at <input type="time" value="@_t.RecapTime" @onchange="e => _t.RecapTime = e.Value?.ToString() ?? _t.RecapTime" /></label>
+        </div>
+        <p class="muted small">It goes to the activity feed, to push notifications (if they're on) and to chat apps that get routine results, with Undo buttons.</p>
+        <label class="check"><input type="checkbox" @bind="_t.Nudges" /> Offer to make requests I keep repeating into a skill or a routine</label>
+        @if (_t.DismissedNudges.Count > 0)
+        {
+            <p class="muted small">@_t.DismissedNudges.Count offer@(_t.DismissedNudges.Count == 1 ? "" : "s") turned down. <button class="learned-undo" @onclick="() => _t.DismissedNudges.Clear()">Allow them again</button></p>
+        }
+        <div class="row end">
+            @if (_saved is not null) { <span class="muted small grow">@_saved</span> }
+            <button class="btn ghost" @onclick="SendNow" disabled="@_sending">@(_sending ? "Sending…" : "Send a recap now")</button>
+            <button class="btn primary" @onclick="Save">Save</button>
+        </div>
+    </section>
+</div>
+
+@code {
+    private List<LearnedEntry>? _items;
+    private int _days = 7;
+    private bool _showUndone;
+    private string? _message, _saved;
+    private bool _sending;
+    private TeachingSettings _t = new();
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var s = await SettingsStore.GetAsync();
+        _t = System.Text.Json.JsonSerializer.Deserialize<TeachingSettings>(System.Text.Json.JsonSerializer.Serialize(s.Teaching))!;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() => _items = await Recap.SinceAsync(DateTimeOffset.Now.AddDays(-_days), _showUndone);
+
+    private async Task ChangeDays(ChangeEventArgs e)
+    {
+        _days = int.TryParse(e.Value?.ToString(), out var d) ? d : 7;
+        await LoadAsync();
+    }
+
+    private async Task ToggleUndone(ChangeEventArgs e)
+    {
+        _showUndone = e.Value is true;
+        await LoadAsync();
+    }
+
+    private static string Day(DateTime d) =>
+        d == DateTime.Today ? "Today" : d == DateTime.Today.AddDays(-1) ? "Yesterday" : d.ToString("dddd, MMMM d");
+
+    private async Task Undo(LearnedEntry e)
+    {
+        try
+        {
+            if (await Recap.FindAsync(e.ConversationId, e.MessageId, e.Index) is not { } found) { _message = "It's gone already."; return; }
+            _message = await Chat.UndoLearnedAsync(found.conv, found.item);
+            e.Item.Undone = true;
+        }
+        catch (Exception ex) { _message = ex.Message; }
+    }
+
+    private async Task Resolve(LearnedEntry e, string keep)
+    {
+        try
+        {
+            if (await Recap.FindAsync(e.ConversationId, e.MessageId, e.Index) is not { } found) { _message = "It's gone already."; return; }
+            _message = await Loop.ResolveConflictAsync(found.conv, found.item, keep);
+            e.Item.ConflictResolved = keep;
+            if (keep == "old") e.Item.Undone = true;
+        }
+        catch (Exception ex) { _message = ex.Message; }
+    }
+
+    private async Task Save()
+    {
+        var s = await SettingsStore.GetAsync();
+        _t.LastRecap = s.Teaching.LastRecap;
+        s.Teaching = _t;
+        await SettingsStore.SaveAsync(s);
+        _saved = _t.WeeklyRecap ? $"Saved: recaps on {_t.RecapDay}s at {_t.RecapTime}." : "Saved: no weekly recap.";
+    }
+
+    private async Task SendNow()
+    {
+        _sending = true;
+        try
+        {
+            await Save();
+            var n = await Recap.SendAsync();
+            _saved = n == 0 ? "Nothing learned in the last 7 days, so nothing was sent." : $"Sent a recap of {n} things.";
+        }
+        catch (Exception ex) { _saved = ex.Message; }
+        finally { _sending = false; }
+    }
+}

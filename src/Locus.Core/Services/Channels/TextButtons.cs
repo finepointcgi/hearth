@@ -28,6 +28,9 @@ public sealed class TextButtons
         return hit.data;
     }
 
+    /// <summary>The buttons under every answer (again, shorter, 👎, save as skill): left off where they'd be a "Reply 1…" line each time.</summary>
+    public static bool UnderReply(string data) => data.StartsWith("q:") || data.StartsWith("w:") || data.StartsWith("s:");
+
     private static string StripEmoji(string s) => new string(s.Where(c => char.IsLetterOrDigit(c) || c == ' ').ToArray()).Trim().ToLowerInvariant();
 }
 

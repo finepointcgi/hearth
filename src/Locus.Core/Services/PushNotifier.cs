@@ -24,12 +24,14 @@ public sealed class NotificationSettings
     /// <summary>A bot came back to a chat with something new (follow_up).</summary>
     public bool FollowUps { get; set; } = true;
     public bool Problems { get; set; } = true;
+    /// <summary>The weekly "what Locus learned" (when that's on in Teach Locus).</summary>
+    public bool Recap { get; set; } = true;
 
     public static string NewTopic() => "locus-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant();
 }
 
 public sealed class PushNotifier(SettingsStore settingsStore, IHttpClientFactory http, ApprovalCenter approvals, HeartbeatRunner heartbeat,
-    TaskRunner tasks, RoutineRunner routines, ActivityLog activity, BotStore bots, FollowUpRunner followUps)
+    TaskRunner tasks, RoutineRunner routines, ActivityLog activity, BotStore bots, FollowUpRunner followUps, LearningRecap recap)
 {
     private bool _started;
     private DateTimeOffset _lastProblem;
@@ -43,6 +45,7 @@ public sealed class PushNotifier(SettingsStore settingsStore, IHttpClientFactory
         tasks.Milestone += (task, text) => _ = SendIfAsync(s => s.Tasks, $"Task: {task.Title}", text, "dart", task.ConversationId);
         followUps.Posted += (conv, text) => _ = SendIfAsync(s => s.FollowUps, "A bot followed up", text, "alarm_clock", conv);
         routines.RoutineFinished += conv => _ = SendIfAsync(s => s.Routines, "Routine finished", "A routine has new results.", "alarm_clock", conv);
+        recap.Ready += (text, items) => _ = SendIfAsync(s => s.Recap, "What Locus learned this week", text, "brain", null);
         activity.Added += a =>
         {
             if (a.Ok || a.Kind is not (ActivityKind.Error) || DateTimeOffset.Now - _lastProblem < TimeSpan.FromMinutes(10)) return;
