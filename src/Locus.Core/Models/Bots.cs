@@ -60,7 +60,7 @@ public sealed class BotAbilities
         "search_documents" or "read_linked_file" or "list_linked_files" => nameof(Documents),
         "use_skill" or "save_skill" or "improve_skill" => nameof(Skills),
         "message_bot" => nameof(MessageBots),
-        "save_memory" or "delete_memory" or "recall_memory" or "search_past_chats" or "read_past_chat" or "who_is" or "note_about" => "Memory",
+        "save_memory" or "delete_memory" or "recall_memory" or "search_past_chats" or "read_past_chat" or "who_is" or "note_about" or "life_threads" => "Memory",
         _ when tool.StartsWith("sheets_") => nameof(GoogleSheets),
         _ when tool.StartsWith("gmail_") => nameof(Gmail),
         _ when tool.StartsWith("calendar_") => nameof(Calendar),
@@ -146,6 +146,9 @@ public sealed class Routine
     public bool Enabled { get; set; } = true;
     /// <summary>Also send results to linked chat apps (Telegram, Discord…) that have routine notifications on.</summary>
     public bool NotifyChannels { get; set; } = true;
+    /// <summary>A check-in: in chat apps it arrives as an ordinary message in your chat (no routine header), so a reply
+    /// carries on the conversation.</summary>
+    public bool Conversational { get; set; }
     public DateTimeOffset? LastRun { get; set; }
 
     public TriggerKind Trigger { get; set; } = TriggerKind.Schedule;

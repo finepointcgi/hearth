@@ -3,6 +3,7 @@
 @inject BotStore Store
 @inject ConversationStore Conversations
 @inject NavigationManager Nav
+@inject SettingsStore SettingsStore
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
@@ -25,6 +26,30 @@
         </div>
         @if (_error is not null) { <div class="error-box">@_error</div> }
     </section>
+
+    @if (State.Bots.Count > 0)
+    {
+        <section class="card">
+            <h3>Teamwork</h3>
+            <div class="row">
+                <label class="grow">New chats go to
+                    <select value="@(_defaultBot ?? "auto")" @onchange="SetDefault">
+                        <option value="auto">@(State.Bots.FirstOrDefault(b => b.IsCoordinator)?.Name is { } c ? $"{c} (the coordinator)" : "the coordinator, once there is one")</option>
+                        @foreach (var b in State.Bots.Where(b => !b.IsCoordinator))
+                        {
+                            <option value="@b.Id">@b.Name</option>
+                        }
+                        <option value="none">Plain Locus (no bot)</option>
+                    </select>
+                </label>
+            </div>
+            <label class="check"><input type="checkbox" checked="@_plan" @onchange="e => SetTeamwork(plan: (bool)e.Value!)" />
+                The coordinator plans first: answers small things itself, hands clear jobs to one specialist, and splits bigger requests across the team (later bots build on earlier ones' work)</label>
+            <label class="check"><input type="checkbox" checked="@_review" @onchange="e => SetTeamwork(review: (bool)e.Value!)" />
+                When it matters, the reviewer (Critic) checks the team's work and it's fixed before the final answer</label>
+            <p class="muted small">You can always @@mention a bot to ask it directly. Team answers take longer on a local model: each bot's step is its own model call.</p>
+        </section>
+    }
 
     @if (_picking)
     {
@@ -99,6 +124,34 @@
 </div>
 
 @code {
+    private string? _defaultBot;
+    private bool _plan = true, _review = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var s = await SettingsStore.GetAsync();
+        _defaultBot = s.DefaultBotId switch { null => null, "" => "none", var id => id };
+        _plan = s.Teamwork.Plan;
+        _review = s.Teamwork.Review;
+    }
+
+    private async Task SetDefault(ChangeEventArgs e)
+    {
+        var v = e.Value?.ToString();
+        var s = await SettingsStore.GetAsync();
+        s.DefaultBotId = v switch { "auto" or null => null, "none" => "", _ => v };
+        _defaultBot = v == "auto" ? null : v;
+        await SettingsStore.SaveAsync(s);
+    }
+
+    private async Task SetTeamwork(bool? plan = null, bool? review = null)
+    {
+        var s = await SettingsStore.GetAsync();
+        if (plan is { } p) s.Teamwork.Plan = _plan = p;
+        if (review is { } r) s.Teamwork.Review = _review = r;
+        await SettingsStore.SaveAsync(s);
+    }
+
     private bool _picking;
     private string _groupName = "";
     private readonly HashSet<string> _selected = [];

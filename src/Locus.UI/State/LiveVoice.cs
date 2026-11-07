@@ -75,13 +75,7 @@ public sealed class LiveVoice(IJSRuntime js, SpeechService speech) : IAsyncDispo
                 if (cts.IsCancellationRequested) break;
                 var spoken = reply is null ? "" : SpeechService.ForSpeech(reply);
                 if (spoken.Length == 0) continue;
-                Set(LivePhase.Speaking);
-                if (!string.IsNullOrWhiteSpace(settings.Voice.TtsUrl))
-                {
-                    var (audio, mime) = await speech.SynthesizeAsync(settings.Voice, spoken, cts.Token);
-                    await js.InvokeVoidAsync("locus.live.play", cts.Token, Convert.ToBase64String(audio), mime);
-                }
-                else await js.InvokeVoidAsync("locus.live.speak", cts.Token, spoken, settings.Voice.Language);
+                await SpeakAsync(settings, spoken, cts.Token);
             }
         }
         catch (OperationCanceledException) { }
@@ -93,6 +87,26 @@ public sealed class LiveVoice(IJSRuntime js, SpeechService speech) : IAsyncDispo
             try { await js.InvokeVoidAsync("locus.live.end"); } catch { /* page gone */ }
             Set(LivePhase.Off);
         }
+    }
+
+    private async Task SpeakAsync(AppSettings settings, string spoken, CancellationToken ct)
+    {
+        Set(LivePhase.Speaking);
+        if (!string.IsNullOrWhiteSpace(settings.Voice.TtsUrl))
+        {
+            var (audio, mime) = await speech.SynthesizeAsync(settings.Voice, spoken, ct);
+            await js.InvokeVoidAsync("locus.live.play", ct, Convert.ToBase64String(audio), mime);
+        }
+        else await js.InvokeVoidAsync("locus.live.speak", ct, spoken, settings.Voice.Language);
+    }
+
+    /// <summary>Says something while the reply is still being worked on (the lead's "on it"), then goes back to thinking.</summary>
+    public async Task SayMeanwhileAsync(AppSettings settings, string text)
+    {
+        if (_cts is not { } cts || SpeechService.ForSpeech(text) is not { Length: > 0 } spoken) return;
+        try { await SpeakAsync(settings, spoken, cts.Token); }
+        catch (Exception ex) when (ex is OperationCanceledException or JSDisconnectedException) { }
+        if (_cts is not null) Set(LivePhase.Thinking);
     }
 
     /// <summary>Stops talking and listens right away (barge-in).</summary>

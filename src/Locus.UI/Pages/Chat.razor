@@ -183,8 +183,47 @@
             {
                 var m = _conv.Messages[i];
                 var index = i;
-                <MessageView @key="m.Id" Message="m" IsLast="index == _conv.Messages.Count - 1" Busy="Busy"
-                             OnRegenerate="Regenerate" OnEdit="text => EditAndResend(index, text)" />
+                @if (m.Behind)
+                {
+                    // The work behind a team answer, folded into one dropdown per turn.
+                    var start = i;
+                    while (i + 1 < _conv.Messages.Count && _conv.Messages[i + 1] is { Behind: true } next && next.TeamTurn == m.TeamTurn) i++;
+                    var work = _conv.Messages.GetRange(start, i - start + 1);
+                    var working = work.FirstOrDefault(w => w.IsStreaming);
+                    var done = !Busy || _conv.Messages.Skip(i + 1).Any(x => x.TeamTurn == m.TeamTurn);
+                    var who = work.Where(w => w.BotId is not null).Select(w => State.BotById(w.BotId!)).OfType<Bot>().DistinctBy(b => b.Id)
+                        .Where(b => !b.IsCoordinator).ToList();
+                    <details class="team-work @(done ? "" : "working")" @key="@("team-" + m.TeamTurn)">
+                        <summary>
+                            <Icon Name="users" Size="14" />
+                            @if (!done && working is not null && State.BotById(working.BotId ?? "") is { } busyBot)
+                            {
+                                <span>@busyBot.Name is working…</span>
+                            }
+                            else if (!done)
+                            {
+                                <span>The team is working…</span>
+                            }
+                            else
+                            {
+                                <span>How the team got here</span>
+                            }
+                            <span class="muted small">@string.Join(", ", who.Select(b => b.Name)) · @work.Count(w => w.Content.Length > 0 || w.ToolCalls.Count > 0) steps</span>
+                        </summary>
+                        <div class="team-work-body">
+                            @foreach (var w in work)
+                            {
+                                var wi = _conv.Messages.IndexOf(w);
+                                <MessageView @key="w.Id" Message="w" IsLast="false" Busy="Busy" OnRegenerate="Regenerate" OnEdit="text => EditAndResend(wi, text)" />
+                            }
+                        </div>
+                    </details>
+                }
+                else
+                {
+                    <MessageView @key="m.Id" Message="m" IsLast="index == _conv.Messages.Count - 1" Busy="Busy"
+                                 OnRegenerate="Regenerate" OnEdit="text => EditAndResend(index, text)" />
+                }
             }
         </div>
     }
@@ -640,11 +679,23 @@
         await Live.RunAsync(State.Settings, async text =>
         {
             var before = _conv?.Messages.Count ?? 0;
-            await Send(new ComposerInput(text, [], []));
+            var sending = Send(new ComposerInput(text, [], []));
+            // When the team takes it on, the lead's "on it" is said right away; the answer follows when it's ready.
+            string? said = null;
+            while (!sending.IsCompleted)
+            {
+                await Task.WhenAny(sending, Task.Delay(300));
+                if (said is null && _conv?.Messages.Skip(before).ToArray().FirstOrDefault(m => m.Ack) is { } ack)
+                {
+                    said = ack.Id;
+                    await Live.SayMeanwhileAsync(State.Settings, ack.Content);
+                }
+            }
+            await sending;
             if (_conv is null) return null;
-            // Everything that came back for this turn (several bots may answer in a group).
+            // Everything that came back for this turn (several bots may answer in a group), not the folded team work.
             var replies = _conv.Messages.Skip(before + 1)
-                .Where(m => m is { Role: ChatRole.Assistant, Error: null } && m.Content.Length > 0).ToList();
+                .Where(m => m is { Role: ChatRole.Assistant, Error: null, Behind: false } && m.Content.Length > 0 && m.Id != said).ToList();
             if (replies.Count == 0) return null;
             if (replies.Count == 1 || Members.Count < 2) return string.Join("\n\n", replies.Select(r => r.Content));
             return string.Join("\n\n", replies.Select(r => $"{State.BotById(r.BotId ?? "")?.Name ?? "Locus"} says: {r.Content}"));

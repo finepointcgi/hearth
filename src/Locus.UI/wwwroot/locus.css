@@ -755,3 +755,14 @@ table.selfcheck tr.bad td:nth-child(3) { color: var(--danger, #e5484d); font-wei
 .checked-note { font-size: .8rem; color: var(--muted); margin: .2rem 0 .3rem; }
 .checked-note > summary { cursor: pointer; }
 .checked-note div { white-space: pre-wrap; margin-top: .25rem; }
+
+/* The work behind a team's answer, folded per turn */
+.team-work { max-width: 760px; margin: .25rem 0 .5rem 2.6rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-2); }
+.team-work > summary { display: flex; align-items: center; gap: .5rem; padding: .45rem .8rem; cursor: pointer; list-style: none; font-size: .9rem; }
+.team-work > summary::-webkit-details-marker { display: none; }
+.team-work > summary::after { content: "▸"; margin-left: auto; opacity: .6; transition: transform .15s; }
+.team-work[open] > summary::after { transform: rotate(90deg); }
+.team-work.working > summary span:first-of-type { animation: pulse 1.6s ease-in-out infinite; }
+.team-work-body { padding: .25rem .6rem .6rem; border-top: 1px solid var(--line); }
+.team-work-body .message { font-size: .93rem; }
+@media (max-width: 640px) { .team-work { margin-left: 0; } }

@@ -93,12 +93,17 @@ public sealed class AppSettings
     /// <summary>"Always allow": bot id (or "locus") → tools that bot may run without asking, chosen on approval cards.</summary>
     public Dictionary<string, List<string>> AlwaysAllow { get; set; } = [];
     public BriefingSettings Briefing { get; set; } = new();
+    public CheckInSettings CheckIns { get; set; } = new();
     /// <summary>The starter skills were added (once; deleted ones aren't brought back on their own).</summary>
     public bool StarterSkillsAdded { get; set; }
     public SelfCheckSettings SelfCheck { get; set; } = new();
     public List<McpServerConfig> McpServers { get; set; } = [];
     /// <summary>Max bot replies triggered by one user message in a group (stops bots looping).</summary>
     public int MaxBotHops { get; set; } = 8;
+    /// <summary>Who answers new chats: null = the coordinator (Chief of Staff) when there is one; "" = plain Locus;
+    /// otherwise that bot's id.</summary>
+    public string? DefaultBotId { get; set; }
+    public TeamworkSettings Teamwork { get; set; } = new();
     public ComputerSettings Computer { get; set; } = new();
     public GoogleSettings Google { get; set; } = new();
 
@@ -186,6 +191,20 @@ public sealed class ModelRoutingSettings
     public string StrongModel { get; set; } = "";
 }
 
+/// <summary>Check-ins: short, friendly messages from your lead bot — a morning hello and an evening "how did it go?".</summary>
+public sealed class CheckInSettings
+{
+    public bool Morning { get; set; }
+    /// <summary>Local time, HH:mm.</summary>
+    public string MorningTime { get; set; } = "08:30";
+    public bool Evening { get; set; }
+    public string EveningTime { get; set; } = "20:30";
+    /// <summary>Who checks in (null = the default bot, else the coordinator).</summary>
+    public string? BotId { get; set; }
+    public string? MorningRoutineId { get; set; }
+    public string? EveningRoutineId { get; set; }
+}
+
 /// <summary>The morning brief: a routine Locus keeps on the chosen bot, built from these choices.</summary>
 public sealed class BriefingSettings
 {
@@ -213,6 +232,17 @@ public sealed class BriefingSettings
 }
 
 /// <summary>Nightly self-check: a few quick test questions to catch a model or server getting worse.</summary>
+/// <summary>How the coordinator runs the team on bigger requests.</summary>
+public sealed class TeamworkSettings
+{
+    /// <summary>Before answering, the coordinator decides: answer itself, hand to one specialist, or split the work.</summary>
+    public bool Plan { get; set; } = true;
+    /// <summary>Team answers that matter get checked by the reviewer (Critic) and fixed before the final answer.</summary>
+    public bool Review { get; set; } = true;
+    /// <summary>Most specialists on one request.</summary>
+    public int MaxSpecialists { get; set; } = 3;
+}
+
 public sealed class SelfCheckSettings
 {
     public bool Enabled { get; set; }

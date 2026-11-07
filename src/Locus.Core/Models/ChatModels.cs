@@ -46,6 +46,13 @@ public sealed class ChatMessage
     public List<TraceStep> Trace { get; set; } = [];
     /// <summary>Informational note, e.g. "this model doesn't support tools".</summary>
     public string? Notice { get; set; }
+    /// <summary>A team turn this message is part of: the quick reply, the work behind the answer, and the answer share it.</summary>
+    public string? TeamTurn { get; set; }
+    /// <summary>The work behind a team's answer (hand-outs, specialists' results, reviews and fixes): folded under the
+    /// answer, left out of later turns' history and not sent to chat apps.</summary>
+    public bool Behind { get; set; }
+    /// <summary>The lead's quick "on it" reply, sent before the team starts working.</summary>
+    public bool Ack { get; set; }
 }
 
 public sealed record ImageAttachment(string FileName, string MimeType, string Base64)

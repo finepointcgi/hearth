@@ -83,6 +83,10 @@ var cases = new List<Case>
             st.ModelRouting = new ModelRoutingSettings { Enabled = true, FastProviderId = st.ActiveProviderId, FastModel = model,
                 StrongProviderId = st.ActiveProviderId, StrongModel = model };
         }),
+    // The whole team: the coordinator splits the work, specialists build on each other, the reviewer checks, one answer.
+    new("team", ["Find out Shield AI's most recent funding round, then write me a three-sentence paragraph about it I could use in a cover letter."],
+        r => r.Conv.Messages.Where(m => m.Role == ChatRole.Assistant && m.Content.Length > 0).Select(m => m.BotId).Distinct().Count() >= 3
+             && r.Answer.Length > 150),
     new("contacts", ["Find my contact Mitch and give me their email."], r => r.Tools.Contains("find_contact"), Needs: "find_contact"),
 };
 var only = args.Where(a => !a.StartsWith("--") && a != "run").ToHashSet();
@@ -100,7 +104,7 @@ for (var i = 0; i < repeat; i++)
     var before = System.Text.Json.JsonSerializer.Serialize(await store.GetAsync());
     if (c.Setup is not null) { var st = await store.GetAsync(); c.Setup(st); await store.SaveAsync(st); }
     var conv = new Conversation();
-    if (c.Name is "handoff" or "direct")
+    if (c.Name is "handoff" or "direct" or "team")
     {
         var team = await sp.GetRequiredService<BotStore>().ListAsync();
         conv.BotIds = [team.First(b => b.IsCoordinator).Id];
@@ -119,7 +123,7 @@ for (var i = 0; i < repeat; i++)
             // user who ignores the card would, so the run carries on instead of waiting until the timeout.
             while (!run.IsCompleted)
             {
-                foreach (var tc in conv.Messages.SelectMany(m => m.ToolCalls).Where(t => t.Status == ToolCallStatus.AwaitingApproval))
+                foreach (var tc in conv.Messages.ToArray().SelectMany(m => m.ToolCalls.ToArray()).Where(t => t.Status == ToolCallStatus.AwaitingApproval))
                     if (tc.Approval?.TrySetResult(false) == true) Console.WriteLine($"  [declined] {tc.Name} asked for approval");
                 await Task.WhenAny(run, Task.Delay(500, cts.Token));
             }
@@ -139,7 +143,7 @@ for (var i = 0; i < repeat; i++)
     };
     if (c.Setup is not null) await store.SaveAsync(System.Text.Json.JsonSerializer.Deserialize<AppSettings>(before)!);
     var said = conv.Messages.Where(m => m.Role == ChatRole.Assistant && m.Content.Length > 0).ToList(); // a reply can carry a notice too
-    if (c.Name is "handoff" or "direct")
+    if (c.Name is "handoff" or "direct" or "team")
     {
         var team = await sp.GetRequiredService<BotStore>().ListAsync();
         var chiefId = team.First(b => b.IsCoordinator).Id;

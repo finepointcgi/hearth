@@ -339,26 +339,64 @@ window.locus.live = {
     });
   },
 
-  // Resolves when playback finishes (or is interrupted).
-  speak(text, lang) {
-    return new Promise((resolve) => {
+  // Barge-in: while a reply plays, talking over it stops it (so you can interrupt by just speaking). The first half
+  // second sets the bar (the reply leaking into the mic); a voice clearly louder than that for ~0.35 s counts.
+  async _watchForVoice(onVoice) {
+    try {
+      if (!this._stream || !this._stream.active)
+        this._stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      this._ctx ??= new (window.AudioContext || window.webkitAudioContext)();
+      if (this._ctx.state === "suspended") await this._ctx.resume();
+      const source = this._ctx.createMediaStreamSource(this._stream);
+      const analyser = this._ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      const samples = new Float32Array(analyser.fftSize);
+      const started = performance.now();
+      let bar = 0, loudSince = 0;
+      const timer = setInterval(() => {
+        analyser.getFloatTimeDomainData(samples);
+        let sum = 0;
+        for (const v of samples) sum += v * v;
+        const rms = Math.sqrt(sum / samples.length);
+        const now = performance.now();
+        if (now - started < 500) { bar = Math.max(bar, rms); return; }
+        if (rms > Math.max(0.05, bar * 3)) {
+          loudSince ||= now;
+          if (now - loudSince > 350) { stop(); onVoice(); }
+        } else loudSince = 0;
+      }, 50);
+      const stop = () => { clearInterval(timer); try { source.disconnect(); } catch {} };
+      return stop;
+    } catch { return () => {}; }
+  },
+
+  // Resolves when playback finishes (or is interrupted, by a tap or by talking over it).
+  async speak(text, lang) {
+    let unwatch = () => {};
+    await new Promise((resolve) => {
       speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = lang || navigator.language;
       u.onend = u.onerror = () => resolve();
       this._cancel = () => { speechSynthesis.cancel(); resolve(); };
       speechSynthesis.speak(u);
+      this._watchForVoice(() => this.cancel()).then((stop) => (unwatch = stop));
     });
+    unwatch();
   },
 
-  play(base64, mime) {
-    return new Promise((resolve) => {
+  async play(base64, mime) {
+    let unwatch = () => {};
+    await new Promise((resolve) => {
       const a = new Audio(`data:${mime};base64,${base64}`);
       this._audio = a;
       a.onended = a.onerror = () => { this._audio = null; resolve(); };
       this._cancel = () => { a.pause(); this._audio = null; resolve(); };
       a.play().catch(() => resolve());
+      this._watchForVoice(() => this.cancel()).then((stop) => (unwatch = stop));
     });
+    unwatch();
   },
 
   cancel() {

@@ -48,10 +48,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SkillPorter>();
         services.AddSingleton<MemoryCurator>();
         services.AddSingleton<Briefing>();
+        services.AddSingleton<CheckIns>();
         services.AddSingleton<AudioTranscriber>();
         services.AddSingleton<Ocr>();
         services.AddSingleton<PeopleStore>();
         services.AddSingleton<IToolProvider, PeopleToolProvider>();
+        services.AddSingleton<Companion>();
+        services.AddSingleton<IToolProvider, LifeThreadToolProvider>();
         services.AddSingleton<IToolProvider, PlanToolProvider>();
         services.AddSingleton<IToolProvider, UndoToolProvider>();
         services.AddSingleton<SelfCheck>();

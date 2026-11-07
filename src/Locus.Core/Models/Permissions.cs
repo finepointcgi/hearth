@@ -78,6 +78,7 @@ public static class PermissionCatalog
             "find_contact" => ("contacts", false),
             "outlook_draft" or "outlook_add_event" or "onedrive_write" or "excel_write" => ("microsoft", true),
             "recall_memory" or "search_past_chats" or "read_past_chat" or "who_is" => ("memory", false),
+            "life_threads" => ("memory", false), // the user's own life notes: no approval card for each update
             "save_memory" or "delete_memory" or "note_about" => ("memory", true),
             "message_bot" => ("teamwork", true),
             "save_skill" or "improve_skill" => ("skills", true),

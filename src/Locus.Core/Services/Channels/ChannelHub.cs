@@ -487,11 +487,15 @@ public sealed class ChannelHub
         _running[runKey] = cts;
         _convToChat[conv.Id] = (link.Channel, link.ChatId);
         var lastTyping = DateTime.MinValue;
+        var sentEarly = new HashSet<string>();
         try
         {
             await a.TypingAsync(link.ChatId);
             await _chat.GenerateAsync(conv, new SendOptions(model, false, false, true), async () =>
             {
+                // The lead's quick "on it" goes out at once; the answer follows when the team is done.
+                foreach (var ack in conv.Messages.Skip(firstNew).ToArray().Where(m => m.Ack && m.Content.Length > 0))
+                    if (sentEarly.Add(ack.Id)) await a.SendTextAsync(link.ChatId, ack.Content);
                 if (DateTime.UtcNow - lastTyping > TimeSpan.FromSeconds(4))
                 {
                     lastTyping = DateTime.UtcNow;
@@ -506,7 +510,8 @@ public sealed class ChannelHub
             _convToChat.TryRemove(conv.Id, out _);
         }
 
-        var replies = conv.Messages.Skip(firstNew).Where(m => m.Role == ChatRole.Assistant).ToList();
+        // The work behind a team's answer stays in Locus (it's folded under the answer there).
+        var replies = conv.Messages.Skip(firstNew).Where(m => m.Role == ChatRole.Assistant && !m.Behind && !sentEarly.Contains(m.Id)).ToList();
         var allBots = isGroup ? await _bots.ListAsync() : [];
         for (var i = 0; i < replies.Count; i++)
         {
@@ -621,6 +626,30 @@ public sealed class ChannelHub
         catch { /* best effort */ }
     }
 
+    /// <summary>
+    /// A check-in arrives like any message from the bot: sent plainly and added to the chat that link talks in, so the
+    /// reply carries on the conversation with the check-in in view.
+    /// </summary>
+    private async Task CheckInAsync(Bot bot, string text)
+    {
+        foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Routine, DateTimeOffset.Now)))
+        {
+            if (!_adapters[l.Channel].Running) continue;
+            var link = l;
+            var key = link.ActiveBotId ?? "locus";
+            var conv = link.Conversations.TryGetValue(key, out var id) ? await _conversations.GetAsync(id) : null;
+            if (conv is null)
+            {
+                conv = new Conversation { Title = $"📱 {Title(link.Channel)} · {bot.Name}", BotIds = [link.ActiveBotId ?? bot.Id] };
+                var newId = conv.Id;
+                await _store.UpdateAsync(c => Find(c, link)!.Conversations[key] = newId);
+            }
+            conv.Messages.Add(new ChatMessage { Role = ChatRole.Assistant, BotId = bot.Id, Content = text });
+            await _conversations.SaveAsync(conv);
+            await _adapters[link.Channel].SendTextAsync(link.ChatId, text, QuickButtons);
+        }
+    }
+
     private async void OnRoutineFinished(string conversationId)
     {
         try
@@ -631,7 +660,13 @@ public sealed class ChannelHub
             if (conv is null || reply is null || trigger is null) return;
             var bot = await _bots.GetAsync(conv.BotIds.FirstOrDefault() ?? "");
             // Each routine can keep its results in Locus (Bots → bot → Routines → "Send results to chat apps").
-            if (bot?.Routines.FirstOrDefault(r => r.Name == trigger) is { NotifyChannels: false }) return;
+            var routine = bot?.Routines.FirstOrDefault(r => r.Name == trigger);
+            if (routine is { NotifyChannels: false }) return;
+            if (routine is { Conversational: true } && reply.Error is null && reply.Content.Length > 0)
+            {
+                await CheckInAsync(bot!, reply.Content);
+                return;
+            }
             var text = $"⏰ {bot?.Emoji} {bot?.Name ?? "Locus"} · {trigger}\n\n{(reply.Error is not null ? "⚠ " + reply.Error : reply.Content)}";
             foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Routine, DateTimeOffset.Now)))
             {

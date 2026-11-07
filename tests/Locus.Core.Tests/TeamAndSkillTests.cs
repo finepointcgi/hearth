@@ -284,7 +284,9 @@ public sealed class TeamAndSkillTests : IDisposable
         var researcher = new Bot { Name = "Researcher", Title = "Research" };
         foreach (var b in new[] { chief, researcher }) await bots.SaveAsync(b);
         _team.Script = (bot, messages, _) =>
-            messages[0].Content.StartsWith("You route") ? new LlmChunk(messages[^1].Content.Contains("stock") ? "Researcher" : "Chief")
+            messages[0].Content.Contains("Decide how to handle") ? new LlmChunk(messages[^1].Content.Contains("stock")
+                ? "{\"mode\":\"one\",\"assign\":[{\"bot\":\"Researcher\",\"task\":\"Research Google's stock\"}],\"review\":false}"
+                : "{\"mode\":\"self\",\"assign\":[]}")
             : new LlmChunk(bot + " answered");
         var chat = _sp.GetRequiredService<ChatService>();
         var opts = new SendOptions("main-model", false, false, true);
@@ -292,9 +294,11 @@ public sealed class TeamAndSkillTests : IDisposable
         var conv = new Conversation { BotIds = [chief.Id] };
         conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "research Google's stock" });
         await chat.GenerateAsync(conv, opts, () => Task.CompletedTask, CancellationToken.None);
-        var replies = conv.Messages.Where(m => m.Role == ChatRole.Assistant && m.Notice is null).ToList();
-        Assert.Equal("Researcher answered", Assert.Single(replies).Content); // no Chief call at all
-        Assert.DoesNotContain(_team.Calls, c => c.bot == "Chief");
+        var replies = conv.Messages.Where(m => m.Role == ChatRole.Assistant && m.Notice is null && !m.Behind).ToList();
+        // The Chief says "on it" at once (no model call), then the Researcher's answer goes straight to the user.
+        Assert.Equal(["On it — I've asked Researcher to take this. Back shortly.", "Researcher answered"], replies.Select(r => r.Content));
+        Assert.True(replies[0].Ack);
+        Assert.Single(conv.Messages, m => m.Behind); // the hand-out, folded
         Assert.Contains(conv.Messages, m => m.Notice?.Contains("added") == true && m.Notice.Contains("Researcher"));
 
         // Chat and anything unclear stay with the coordinator.
@@ -303,6 +307,109 @@ public sealed class TeamAndSkillTests : IDisposable
         await chat.GenerateAsync(other, opts, () => Task.CompletedTask, CancellationToken.None);
         Assert.Equal("Chief answered", other.Messages.Last().Content);
         Assert.Equal([chief.Id], other.BotIds);
+    }
+
+    [Fact]
+    public async Task TheTeamSplitsTheWorkReviewsItAndTheCoordinatorAnswers()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        var researcher = new Bot { Name = "Researcher", Title = "Research" };
+        var writer = new Bot { Name = "Writer", Title = "Writing" };
+        var critic = new Bot { Name = "Critic", Title = "Reviewer & devil's advocate" };
+        foreach (var b in new[] { chief, researcher, writer, critic }) await bots.SaveAsync(b);
+        var reviews = 0;
+        _team.Script = (bot, messages, _) =>
+        {
+            var system = messages[0].Content;
+            if (system.Contains("Decide how to handle"))
+                return new LlmChunk("Sure! ```json\n{\"mode\":\"team\",\"assign\":[{\"bot\":\"Researcher\",\"task\":\"Find Shield AI's latest funding\"}," +
+                    "{\"bot\":\"@writer\",\"task\":\"Write a 3-line summary\"}],\"review\":true}\n```");
+            Assert.Contains("RIGHT NOW:", system); // each step is told exactly what it's doing
+            return bot switch
+            {
+                "Researcher" => new LlmChunk("Raised $240M in March 2025."),
+                "Writer" => new LlmChunk(messages.Any(m => m.Content.Contains("please fix")) ? "Fixed summary: $240M, March 2025." : "Summary: raised $2.4B."),
+                "Critic" => new LlmChunk(reviews++ == 0 ? "@Writer says $2.4B but Researcher found $240M." : "Looks good."),
+                _ => new LlmChunk(messages.Any(m => m.Content.Contains("Fixed summary")) ? "Final: Shield AI raised $240M in March 2025." : "WRONG"),
+            };
+        };
+        var conv = new Conversation { BotIds = [chief.Id] };
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "What's Shield AI's latest funding? Short summary please." });
+        await _sp.GetRequiredService<ChatService>().GenerateAsync(conv, new SendOptions("main-model", false, false, true), () => Task.CompletedTask, CancellationToken.None);
+
+        var said = conv.Messages.Where(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)
+            .Select(m => $"{bots.GetAsync(m.BotId!).Result!.Name}: {m.Content.Split('\n')[0]}").ToList();
+        Assert.Equal([
+            "Chief: On it — I've got Researcher and Writer on this, and Critic will check the work. I'll come back with the answer.",
+            "Chief: @Researcher: Find Shield AI's latest funding",
+            "Researcher: Raised $240M in March 2025.",
+            "Writer: Summary: raised $2.4B.",
+            "Chief: @Critic, please check the work above against what the user asked.",
+            "Critic: @Writer says $2.4B but Researcher found $240M.",
+            "Chief: @Writer, please fix what Critic raised.",
+            "Writer: Fixed summary: $240M, March 2025.",
+            "Chief: Final: Shield AI raised $240M in March 2025.",
+        ], said);
+        // Only the quick reply and the answer are out front; everything between is the work behind it, in one team turn.
+        var assistant = conv.Messages.Where(m => m.Role == ChatRole.Assistant && m.Notice is null).ToList();
+        Assert.Equal([false, true, true, true, true, true, true, true, false], assistant.Select(m => m.Behind));
+        Assert.Single(assistant.Select(m => m.TeamTurn).Distinct());
+        // A later turn doesn't carry the folded work in its history.
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "thanks!" });
+        string? seen = null;
+        _team.Script = (bot, messages, _) => { if (!messages[0].Content.Contains("Decide how to handle")) seen = string.Join("\n", messages.Select(m => m.Content)); return new LlmChunk(messages[0].Content.Contains("Decide how to handle") ? "{\"mode\":\"self\"}" : "You're welcome"); };
+        await _sp.GetRequiredService<ChatService>().GenerateAsync(conv, new SendOptions("main-model", false, false, true), () => Task.CompletedTask, CancellationToken.None);
+        Assert.Contains("Final: Shield AI raised $240M", seen);
+        Assert.DoesNotContain("Summary: raised $2.4B", seen);
+        Assert.Equal(4, conv.BotIds.Count); // everyone who worked on it is in the chat now
+
+        Assert.True(ChatService.LooksGood("**Looks good.** Nothing to add."));
+        // An answer check's rewrite that only says what it's about to do never replaces the answer.
+        var answer = "Alphabet closed at $284.78 on Nov 5, down 30% from its high. " + new string('x', 400);
+        Assert.False(ChatService.IsRealRewrite("Checking each claim against the tool output before rewriting.", answer));
+        Assert.False(ChatService.IsRealRewrite("Alphabet closed at $284.78.", answer));
+        Assert.True(ChatService.IsRealRewrite(answer.Replace("30%", "about 30%"), answer));
+        Assert.False(ChatService.LooksGood("Looks good overall, but the date is wrong and the total doesn't add up, and also " + new string('x', 400)));
+    }
+
+    [Fact]
+    public async Task NewChatsGoToTheDefaultBot()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        var writer = new Bot { Name = "Writer", Title = "Writing" };
+        foreach (var b in new[] { chief, writer }) await bots.SaveAsync(b);
+        _team.Script = (bot, messages, _) => new LlmChunk(messages[0].Content.Contains("Decide how to handle") ? "{\"mode\":\"self\"}" : (bot ?? "") + " here");
+        var chat = _sp.GetRequiredService<ChatService>();
+        var opts = new SendOptions("main-model", false, false, true);
+        async Task<Conversation> AskAsync()
+        {
+            var c = new Conversation();
+            c.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "hi" });
+            await chat.GenerateAsync(c, opts, () => Task.CompletedTask, CancellationToken.None);
+            return c;
+        }
+
+        Assert.Equal([chief.Id], (await AskAsync()).BotIds); // the coordinator, by default
+        var store = _sp.GetRequiredService<SettingsStore>();
+        var s = await store.GetAsync();
+        s.DefaultBotId = writer.Id;
+        await store.SaveAsync(s);
+        Assert.Equal([writer.Id], (await AskAsync()).BotIds);
+        s.DefaultBotId = "";
+        await store.SaveAsync(s);
+        Assert.Empty((await AskAsync()).BotIds); // plain Locus
+
+        // A chat that already has plain replies stays plain.
+        s.DefaultBotId = null;
+        await store.SaveAsync(s);
+        var old = new Conversation();
+        old.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "hi" });
+        old.Messages.Add(new ChatMessage { Role = ChatRole.Assistant, Content = "hello" });
+        old.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "again" });
+        await chat.GenerateAsync(old, opts, () => Task.CompletedTask, CancellationToken.None);
+        Assert.Empty(old.BotIds);
     }
 
     [Fact]
@@ -479,6 +586,83 @@ public sealed class TeamAndSkillTests : IDisposable
         await skills.UndoAsync(skill);
         Assert.StartsWith("1. Open the airline site.", (await skills.FindAsync("check-flights"))!.Instructions);
         Assert.Contains("saved /check-flights", ctx.Reply.SkillNotes);
+    }
+
+    [Fact]
+    public async Task TheLeadPicksUpHowToBeWithYouAndWhatsGoingOn()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        await bots.SaveAsync(chief);
+        var companion = _sp.GetRequiredService<Companion>();
+        var store = _sp.GetRequiredService<SettingsStore>();
+        _settings.MemoryEnabled = true;
+        await store.SaveAsync(_settings);
+        string? system = null;
+        _team.Script = (bot, messages, _) =>
+        {
+            var first = messages[0].Content;
+            if (first.Contains("You extract memories"))
+                return new LlmChunk("vibe: dry humor; likes short, blunt answers\nthread: Job search | Final round at Shield AI on Friday\nuser: lives in Detroit");
+            if (first.Contains("Decide how to handle")) return new LlmChunk("{\"mode\":\"self\"}");
+            if (bot == "Chief") system = first;
+            return new LlmChunk("Good luck Friday!");
+        };
+        var chat = _sp.GetRequiredService<ChatService>();
+        var opts = new SendOptions("main-model", false, false, true);
+        var conv = new Conversation { BotIds = [chief.Id] };
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "ugh, final round at Shield AI is Friday. nervous." });
+        await chat.GenerateAsync(conv, opts, () => Task.CompletedTask, CancellationToken.None);
+        for (var i = 0; i < 100 && (await companion.ActiveAsync()).Count == 0; i++) await Task.Delay(20); // learning runs after the reply
+
+        var thread = Assert.Single(await companion.ActiveAsync());
+        Assert.Equal("Job search", thread.Title);
+        Assert.Equal("dry humor; likes short, blunt answers", Assert.Single(await companion.NotesForAsync(chief.Id)).Text);
+
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = "morning" });
+        await chat.GenerateAsync(conv, opts, () => Task.CompletedTask, CancellationToken.None);
+        Assert.Contains("- dry humor; likes short, blunt answers", system);
+        Assert.Contains("- Job search: Final round at Shield AI on Friday (today)", system);
+        Assert.Contains(await _sp.GetRequiredService<ToolRegistry>().GetToolsAsync(_settings, default), t => t.Name == "life_threads");
+    }
+
+    [Fact]
+    public async Task ThreadsGrowCloseAndDropOutWhenDone()
+    {
+        var companion = _sp.GetRequiredService<Companion>();
+        await companion.UpdateAsync("Job search", "Applied to Shield AI");
+        await companion.UpdateAsync("job search.", "Recruiter call Tuesday"); // the same thread, however it's written
+        await companion.UpdateAsync("Kitchen remodel", "Contractor quotes due");
+        var all = await companion.ThreadsListAsync();
+        Assert.Equal(2, all.Count);
+        Assert.Equal(["Applied to Shield AI", "Recruiter call Tuesday"], all.First(t => t.Title == "Job search").Updates.Select(u => u.Text));
+        Assert.NotNull(await companion.CloseAsync("kitchen", "Done, looks great"));
+        Assert.Equal(["Job search"], (await companion.ActiveAsync()).Select(t => t.Title));
+        Assert.DoesNotContain("Kitchen", await companion.PromptAsync(null));
+        // Notes: no repeats, and only the latest are kept.
+        Assert.True(await companion.AddNoteAsync(null, "Likes dad jokes"));
+        Assert.False(await companion.AddNoteAsync(null, "likes dad jokes."));
+        for (var i = 0; i < Companion.MaxNotesPerBot + 5; i++) await companion.AddNoteAsync(null, $"note number {i:000}");
+        Assert.Equal(Companion.MaxNotesPerBot, (await companion.NotesForAsync(null)).Count);
+    }
+
+    [Fact]
+    public async Task CheckInsAreKeptAsRoutinesOnTheLeadBot()
+    {
+        var bots = _sp.GetRequiredService<BotStore>();
+        var chief = new Bot { Name = "Chief", Title = "Coordinator", IsCoordinator = true };
+        await bots.SaveAsync(chief);
+        var checkIns = _sp.GetRequiredService<CheckIns>();
+        var c = new CheckInSettings { Morning = true, MorningTime = "07:45", Evening = true };
+        await checkIns.ApplyAsync(c);
+        var routines = (await bots.GetAsync(chief.Id))!.Routines;
+        Assert.Equal([CheckIns.MorningName, CheckIns.EveningName], routines.Select(r => r.Name));
+        Assert.All(routines, r => Assert.True(r.Conversational));
+        Assert.Equal("07:45", routines[0].TimeOfDay);
+        c.Morning = false;
+        await checkIns.ApplyAsync(c);
+        Assert.Equal([CheckIns.EveningName], (await bots.GetAsync(chief.Id))!.Routines.Select(r => r.Name));
+        Assert.Null((await _sp.GetRequiredService<SettingsStore>().GetAsync()).CheckIns.MorningRoutineId);
     }
 
     public void Dispose()

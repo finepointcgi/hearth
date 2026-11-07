@@ -29,6 +29,7 @@ public sealed class ChatService(
     ProjectContext projectContext,
     CodeTools codeTools,
     PeopleStore people,
+    Companion companion,
     UsageStore usage,
     UndoLog undoLog)
 {
@@ -58,6 +59,12 @@ public sealed class ChatService(
     {
         var lastUser = conv.Messages.LastOrDefault(m => m.Role == ChatRole.User);
         if (lastUser is { FromBotId: null }) await JoinMentionedBotsAsync(conv, lastUser.Content, null, onUpdate);
+        if (conv.BotIds.Count == 0 && await DefaultBotForAsync(conv, lastUser) is { } lead)
+        {
+            // New chats go to the default bot (the Chief of Staff unless chosen otherwise), which runs the team.
+            conv.BotIds.Add(lead.Id);
+            await store.SaveAsync(conv);
+        }
         if (conv.BotIds.Count == 0)
         {
             await RunAgentAsync(conv, null, opts, onUpdate, ct);
@@ -66,17 +73,18 @@ public sealed class ChatService(
 
         var members = await bots.GetManyAsync(conv.BotIds);
         if (members.Count == 0) throw new InvalidOperationException("The bots in this chat were deleted.");
-        if (members.Count == 1 && lastUser is { FromBotId: null, RoutineName: null }
-            && await PassStraightToSpecialistAsync(conv, members[0], lastUser, opts, ct) is { } specialist)
+        // A coordinator leading the chat plans first: answer itself, hand to one specialist, or run the team.
+        var coordinator = members.FirstOrDefault(b => b.IsCoordinator);
+        if (coordinator is not null && lastUser is { FromBotId: null, RoutineName: null } && Mentions(lastUser.Content, members, true).All(b => b.Id == coordinator.Id)
+            && await PlanAsync(conv, coordinator, members, lastUser, opts, ct) is { } plan)
         {
-            // A coordinator alone in a chat would only spend a whole (slow) model call writing "@Researcher please…":
-            // a quick routing check sends clear specialist work straight there instead.
-            var joined = await JoinMentionedBotsAsync(conv, "@" + specialist.Name, members[0], onUpdate);
-            if (joined.Count > 0)
+            if (plan.Assign.Count > 0)
             {
-                await RunGroupTurnAsync(conv, [.. members, .. joined], opts, onUpdate, ct, joined, new() { [members[0].Id] = 1 });
+                await RunTeamAsync(conv, coordinator, plan, opts, onUpdate, ct);
                 return;
             }
+            // The coordinator answers itself.
+            members = [coordinator];
         }
         if (members.Count == 1)
         {
@@ -182,22 +190,202 @@ public sealed class ChatService(
         return found.OrderBy(f => f.pos).Select(f => f.bot).Distinct().ToList();
     }
 
-    /// <summary>
-    /// For a coordinator alone in a chat: the one specialist the user's message is clearly for (when it's a single
-    /// specialist's job, unmentioned and not already in the chat), or null to let the coordinator handle it.
-    /// </summary>
-    private async Task<Bot?> PassStraightToSpecialistAsync(Conversation conv, Bot coordinator, ChatMessage lastUser, SendOptions opts, CancellationToken ct)
+    /// <summary>How long the coordinator's planning step may take before it just answers.</summary>
+    public static TimeSpan StraightRouteTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>The bot that answers a new chat with no bot in it: the chosen default, else the coordinator.</summary>
+    private async Task<Bot?> DefaultBotForAsync(Conversation conv, ChatMessage lastUser)
     {
-        if (!coordinator.IsCoordinator || !coordinator.Abilities.MessageBots || !opts.UseTools) return null;
-        if (lastUser.Content.Contains('@') || lastUser.Content.TrimStart().StartsWith('/')) return null;
-        var team = (await bots.ListAsync()).Where(b => b.Id != coordinator.Id).ToList();
-        if (team.Count == 0 || conv.BotIds.Count >= Bot.MaxPerGroup) return null;
-        var picked = await RouteAsync(conv, [coordinator, .. team], lastUser.Content, opts.Model, ct, straightToSpecialist: true);
-        return picked is [var only] && only.Id != coordinator.Id ? only : null;
+        if (lastUser.FromBotId is not null || lastUser.RoutineName is not null || conv.HandoffFrom is not null) return null;
+        if (conv.Messages.Any(m => m.Role == ChatRole.Assistant && m.Content.Length > 0)) return null; // an existing plain chat stays plain
+        if (CodeTools.SessionFor(conv, null) is not null) return null; // code sessions work on their own
+        var settings = await settingsStore.GetAsync();
+        if (settings.DefaultBotId == "") return null;
+        var all = await bots.ListAsync();
+        return all.FirstOrDefault(b => b.Id == settings.DefaultBotId) ?? all.FirstOrDefault(b => b.IsCoordinator);
     }
 
-    /// <summary>How long the check that skips a lone coordinator may take before the coordinator just answers.</summary>
-    public static TimeSpan StraightRouteTimeout { get; set; } = TimeSpan.FromSeconds(10);
+    /// <summary>What the coordinator decided: who works on it (in order), and whether the reviewer checks it.</summary>
+    public sealed record TeamPlan(List<(Bot bot, string task)> Assign, bool Review, Bot? Reviewer);
+
+    /// <summary>
+    /// The coordinator's planning step: one short model call deciding whether to answer itself, hand the request to one
+    /// specialist, or split it across the team (with a review). Null when planning is off or it fails (it answers).
+    /// </summary>
+    private async Task<TeamPlan?> PlanAsync(Conversation conv, Bot coordinator, List<Bot> members, ChatMessage lastUser, SendOptions opts, CancellationToken ct)
+    {
+        var settings = await settingsStore.GetAsync();
+        if (!settings.Teamwork.Plan || !coordinator.Abilities.MessageBots || !opts.UseTools) return null;
+        if (lastUser.Content.TrimStart().StartsWith('/')) return null;
+        var team = (await bots.ListAsync()).Where(b => b.Id != coordinator.Id).ToList();
+        if (team.Count == 0) return null;
+        using var usageScope = UsageScope.Begin("Routing", coordinator.Id, conv.Id);
+        try
+        {
+            var roster = string.Join("\n", team.Select(b => $"- {b.Name}: {b.Title}. {Clip(b.Instructions.Split('.')[0], 120)}"));
+            var recent = string.Join("\n", conv.Messages.TakeLast(6).SkipLast(1).Where(m => m.Content.Length > 0)
+                .Select(m => $"{Speaker(m, [coordinator, .. team])}: {Clip(m.Content, 200)}"));
+            var prompt = new List<LlmMessage>
+            {
+                LlmMessage.System(
+                    $"Plan how {coordinator.Name}, who leads a team of AI bots, should handle the user's new message. Decide how to handle it and reply with " +
+                    "ONLY JSON: {\"mode\":\"self\"|\"one\"|\"team\",\"assign\":[{\"bot\":\"Name\",\"task\":\"…\"}],\"review\":true|false}\n" +
+                    "- self: chat, quick questions, follow-ups about the conversation, things you can answer well in a few sentences. assign = [].\n" +
+                    "- one: the whole request is clearly one specialist's job. Assign exactly one.\n" +
+                    $"- team: it needs different kinds of work (facts then writing, code then review, research then a plan…). Assign 2–{Math.Max(2, settings.Teamwork.MaxSpecialists)} " +
+                    "bots in the order they should work; later ones see earlier ones' results. Each task says exactly what to deliver, in one or two sentences.\n" +
+                    "review: true when getting it right matters (facts, decisions, documents, code, plans), false for casual things."),
+                LlmMessage.User($"Team:\n{roster}\n\nRecent messages:\n{recent}\n\nNew message from the user:\n{Clip(lastUser.Content, 1500)}"),
+            };
+            var sb = new StringBuilder();
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(StraightRouteTimeout);
+            // On the coordinator's own server and model, like its replies.
+            var server = settings.ProviderFor(coordinator);
+            var model = !string.IsNullOrWhiteSpace(coordinator.Model) ? coordinator.Model
+                : server.Id != settings.ActiveProvider.Id ? await ModelPicker.DefaultForAsync(factory, server) ?? opts.Model : opts.Model;
+            var planner = coordinator;
+            // With automatic model choice on, planning is everyday work: the fast model.
+            if (settings.ModelRouting is { Enabled: true, FastModel.Length: > 0 } fast && settings.Providers.Any(p => p.Id == (fast.FastProviderId ?? settings.ActiveProviderId)))
+            {
+                planner = new Bot { ProviderId = fast.FastProviderId ?? settings.ActiveProviderId };
+                model = fast.FastModel;
+            }
+            await foreach (var c in factory.CreateForBot(settings, planner).StreamChatAsync(new LlmRequest(model, prompt, 0, 300, 4096, false), cts.Token))
+                sb.Append(c.Content);
+            return ParsePlan(sb.ToString(), team, settings.Teamwork);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Reads the planning step's JSON (tolerating code fences and chatter around it).</summary>
+    public static TeamPlan? ParsePlan(string text, IReadOnlyList<Bot> team, TeamworkSettings settings)
+    {
+        var start = text.IndexOf('{');
+        var end = text.LastIndexOf('}');
+        if (start < 0 || end <= start) return null;
+        JsonObject? o;
+        try { o = JsonNode.Parse(text[start..(end + 1)]) as JsonObject; } catch { return null; }
+        if (o is null) return null;
+        var mode = o["mode"]?.ToString().ToLowerInvariant();
+        var assign = new List<(Bot, string)>();
+        foreach (var a in o["assign"] as JsonArray ?? [])
+        {
+            var name = a?["bot"]?.ToString().Trim().TrimStart('@') ?? "";
+            var bot = team.FirstOrDefault(b => b.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            var task = a?["task"]?.ToString().Trim() ?? "";
+            if (bot is not null && task.Length > 0 && assign.All(x => x.Item1.Id != bot.Id)) assign.Add((bot, task));
+        }
+        if (mode == "self" || assign.Count == 0) return new TeamPlan([], false, null);
+        if (mode == "one") assign = assign.Take(1).ToList();
+        assign = assign.Take(Math.Max(1, settings.MaxSpecialists)).ToList();
+        var review = settings.Review && o["review"]?.GetValueKind() == System.Text.Json.JsonValueKind.True;
+        // The reviewer: a bot whose job is reviewing (the Critic) that isn't already doing the work.
+        var reviewer = team.FirstOrDefault(b => assign.All(x => x.Item1.Id != b.Id)
+            && (b.Title.Contains("review", StringComparison.OrdinalIgnoreCase) || b.Name.Equals("Critic", StringComparison.OrdinalIgnoreCase)));
+        return new TeamPlan(assign, review && reviewer is not null, reviewer);
+    }
+
+    /// <summary>Marks a reply as part of a team turn: <see cref="Behind"/> = the work behind the answer.</summary>
+    public sealed record TeamPart(string Turn, bool Behind);
+
+    /// <summary>The lead's quick reply before the team starts ("On it — I've got Researcher and Writer on this…").</summary>
+    public static string AckText(TeamPlan plan)
+    {
+        var names = plan.Assign.Select(a => a.bot.Name).ToList();
+        var who = names.Count switch { 1 => names[0], 2 => $"{names[0]} and {names[1]}", _ => string.Join(", ", names[..^1]) + " and " + names[^1] };
+        if (names.Count == 1 && !plan.Review) return $"On it — I've asked {who} to take this. Back shortly.";
+        return $"On it — I've got {who} on this" + (plan.Review ? $", and {plan.Reviewer!.Name} will check the work" : "") +
+               ". I'll come back with the answer.";
+    }
+
+    /// <summary>
+    /// The team at work. The coordinator replies at once ("on it"), the specialists work in order (each building on the
+    /// last), the reviewer checks the result and the work is fixed once if needed, then the coordinator writes the
+    /// answer. Everything between the quick reply and the answer is the work behind it: folded under the answer.
+    /// One specialist with no review just answers.
+    /// </summary>
+    private async Task RunTeamAsync(Conversation conv, Bot coordinator, TeamPlan plan, SendOptions opts, Func<Task> onUpdate, CancellationToken ct)
+    {
+        var turn = Guid.NewGuid().ToString("N")[..12];
+        var behind = new TeamPart(turn, true);
+        var settings = await settingsStore.GetAsync();
+        // Team members deliver within a few steps: a long wander keeps the user waiting on everyone after them.
+        var roundLimit = Math.Min(settings.Tools.MaxRounds, 8);
+        async Task SayAsync(string text, bool hidden, bool ack = false)
+        {
+            conv.Messages.Add(new ChatMessage { Role = ChatRole.Assistant, BotId = coordinator.Id, Content = text, TeamTurn = turn, Behind = hidden, Ack = ack });
+            await store.SaveAsync(conv);
+            await onUpdate();
+        }
+        // A step that failed shows its error instead of disappearing into the folded work.
+        bool Failed(ChatMessage? r) { if (r is { Error: not null }) r.Behind = false; return r is null || r.Error is not null; }
+
+        var solo = plan.Assign.Count == 1 && !plan.Review;
+        await SayAsync(AckText(plan), hidden: false, ack: true);
+        var handout = string.Join("\n", plan.Assign.Select(a => $"@{a.bot.Name}: {a.task}"));
+        await SayAsync(handout, hidden: true);
+        await JoinMentionedBotsAsync(conv, handout + (plan.Review ? $" @{plan.Reviewer!.Name}" : ""), coordinator, onUpdate);
+
+        var worked = new List<Bot>();
+        foreach (var (bot, _) in plan.Assign)
+        {
+            if (ct.IsCancellationRequested) return;
+            var reply = await RunAgentAsync(conv, bot, opts, onUpdate, ct, autoTitle: false,
+                extraInstruction: $"{coordinator.Name} gave you a task above (\"@{bot.Name}: …\"). Do just that, using what teammates " +
+                                  "before you found. Be efficient: a few well-chosen tool calls, then deliver the result itself (not a " +
+                                  "description of what you'll do). Don't hand work to anyone else or @mention anyone." +
+                                  (solo ? " Your reply goes straight to the user." : ""),
+                team: solo ? new TeamPart(turn, false) : behind, roundLimit: roundLimit);
+            if (Failed(reply)) return;
+            worked.Add(bot);
+        }
+        if (solo) return;
+
+        if (plan.Review && plan.Reviewer is { } reviewer && !ct.IsCancellationRequested)
+        {
+            await SayAsync($"@{reviewer.Name}, please check the work above against what the user asked.", hidden: true);
+            var review = await RunAgentAsync(conv, reviewer, opts, onUpdate, ct, autoTitle: false,
+                extraInstruction: "Review your teammates' work above against the user's request: wrong or unsupported facts, gaps, weak " +
+                                  "reasoning, anything that doesn't answer what was asked. List the problems and say who should fix what, " +
+                                  "naming them with @Name. If it's solid, reply only: Looks good.",
+                team: behind, roundLimit: Math.Min(roundLimit, 4));
+            if (Failed(review)) return;
+            if (!LooksGood(review!.Content))
+            {
+                var fixers = Mentions(review.Content, worked, includeEveryone: false);
+                if (fixers.Count == 0) fixers = [worked[^1]];
+                foreach (var fixer in fixers.Take(2))
+                {
+                    if (ct.IsCancellationRequested) return;
+                    await SayAsync($"@{fixer.Name}, please fix what {reviewer.Name} raised.", hidden: true);
+                    var fix = await RunAgentAsync(conv, fixer, opts, onUpdate, ct, autoTitle: false,
+                        extraInstruction: $"{reviewer.Name} reviewed the work above. Fix the problems that are yours: give the corrected " +
+                                          "result in full (not just the changes). Don't @mention anyone.",
+                        team: behind, roundLimit: roundLimit);
+                    if (Failed(fix)) return;
+                }
+            }
+        }
+
+        if (ct.IsCancellationRequested) return;
+        await RunAgentAsync(conv, coordinator, opts, onUpdate, ct, autoTitle: false,
+            extraInstruction: "The team's work is in (above). Now write the final answer for the user: one clear, complete answer that " +
+                              "combines their results and includes the fixes from the review. Don't hand off again, don't @mention " +
+                              "anyone, don't say \"on it\" again and don't describe who did what — just give the answer.",
+            team: new TeamPart(turn, false), roundLimit: Math.Min(roundLimit, 3));
+    }
+
+    /// <summary>A review that found nothing to fix.</summary>
+    public static bool LooksGood(string review)
+    {
+        var t = review.Trim().TrimStart('*', '_', '#', ' ', '✅').Trim();
+        return t.StartsWith("Looks good", StringComparison.OrdinalIgnoreCase) && t.Length < 400
+               || t.Length < 60 && (t.StartsWith("LGTM", StringComparison.OrdinalIgnoreCase) || t.StartsWith("No issues", StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>No @mention: ask the model which member(s) should answer.</summary>
     private async Task<List<Bot>> RouteAsync(Conversation conv, List<Bot> members, string message, string model, CancellationToken ct,
@@ -246,10 +434,12 @@ public sealed class ChatService(
     /// <summary>Generates one assistant reply (as <paramref name="bot"/> when given) and saves the conversation.</summary>
     public async Task<ChatMessage?> RunAgentAsync(Conversation conv, Bot? bot, SendOptions opts, Func<Task> onUpdate,
         CancellationToken ct, bool autoTitle = true, int depth = 0, bool unattended = false, IReadOnlyList<ITool>? extraTools = null, int? historyWindow = null,
-        string? untrustedInput = null, bool learn = true)
+        string? untrustedInput = null, bool learn = true, string? extraInstruction = null, TeamPart? team = null, int? roundLimit = null)
     {
         var settings = await settingsStore.GetAsync();
-        var history = conv.Messages.ToList();
+        // The work behind earlier team answers stays out: the answers carry it. This turn's work is kept.
+        var lastUserIndex = conv.Messages.FindLastIndex(m => m.Role == ChatRole.User);
+        var history = conv.Messages.Where((m, i) => !m.Behind || i > lastUserIndex).ToList();
         var lastUser = history.LastOrDefault(m => m.Role == ChatRole.User)
             ?? throw new InvalidOperationException("No user message to reply to.");
         // Automatic model choice: everyday messages to the fast model, hard work to the strong one.
@@ -282,7 +472,7 @@ public sealed class ChatService(
         if (depth == 0 && IsBackgroundRun(lastUser, untrustedInput)) ModelQueue.MarkBackground();
         using var chatRunning = ModelQueue.InBackground ? null : ModelQueue.ChatRunning(server);
 
-        var reply = new ChatMessage { Role = ChatRole.Assistant, Model = model, IsStreaming = true, BotId = bot?.Id };
+        var reply = new ChatMessage { Role = ChatRole.Assistant, Model = model, IsStreaming = true, BotId = bot?.Id, TeamTurn = team?.Turn, Behind = team?.Behind ?? false };
         var replyTimer = System.Diagnostics.Stopwatch.StartNew();
         long? firstWordsMs = null;
         var checkRan = false;
@@ -349,6 +539,7 @@ public sealed class ChatService(
             }
 
             var system = await BuildSystemPromptAsync(conv, bot, members, allBots, settings, byName, opts, unattended, codeSession);
+            if (extraInstruction is not null) system.AppendLine().AppendLine().AppendLine("RIGHT NOW: " + extraInstruction);
 
             if (opts.DeepSearch && !byName.ContainsKey("web_search") && !string.IsNullOrWhiteSpace(settings.SearxngUrl))
             {
@@ -423,6 +614,7 @@ public sealed class ChatService(
             var maxRounds = Math.Max(1, byName.ContainsKey("todo_write")
                 ? Math.Max(settings.Tools.MaxRounds, settings.Tools.CodeMaxRounds)
                 : settings.Tools.MaxRounds);
+            if (roundLimit is > 0) maxRounds = Math.Min(maxRounds, roundLimit.Value);
 
             // See the last round below. Turned off for the rest of the reply if the server ignores it.
             var listToolsOnLastStep = server.Kind == ProviderKind.OpenAICompatible && !IgnoresNoToolCalls.ContainsKey(server.Id);
@@ -902,6 +1094,12 @@ public sealed class ChatService(
                     $"message as \"From long-term memory\"{(byName.ContainsKey("recall_memory") ? "; search the rest with recall_memory" : "")}.)");
         }
 
+        // The lead (plain Locus, the coordinator, or a bot you talk to one-on-one) knows you: its notes on how to be with
+        // you, and what's going on in your life.
+        if (settings.MemoryEnabled && (bot is null || bot.IsCoordinator || members.Count <= 1) && (bot is null || bot.Memory.Enabled)
+            && await companion.PromptAsync(bot?.Id) is { Length: > 0 } companionship)
+            system.AppendLine().AppendLine().AppendLine(companionship);
+
         // People and companies: just the names (who_is has the notes), so the prompt stays short.
         if (byName.ContainsKey("who_is") && await people.ListAsync() is { Count: > 0 } known)
             system.AppendLine().Append("People and companies you have notes on (look them up with who_is before you write to, call or ")
@@ -1243,7 +1441,8 @@ public sealed class ChatService(
             var revised = await CompleteAsync(client, new LlmRequest(model, messages, settings.Temperature, settings.MaxTokens, settings.ContextLength, false, listed), ct);
             reply.Trace.Add(new TraceStep("model", "revise: " + model, timer.ElapsedMilliseconds));
             revised = TextToolCalls.Find(revised, toolNames).rest;
-            if (StripSelfPrefix(revised, bot).Trim() is { Length: > 20 } better)
+            // A rewrite that's only a line about what it's going to do ("Checking each claim…") isn't an answer.
+            if (StripSelfPrefix(revised, bot).Trim() is { Length: > 20 } better && IsRealRewrite(better, reply.Content))
             {
                 reply.Content = better;
                 reply.Checked = problems.Length > 600 ? problems[..600] + "…" : problems;
@@ -1257,6 +1456,15 @@ public sealed class ChatService(
             return false;
         }
         finally { await onUpdate(); }
+    }
+
+    /// <summary>Whether a rewritten answer can replace the original: not a fraction of its length, not a promise of work.</summary>
+    public static bool IsRealRewrite(string rewrite, string original)
+    {
+        if (original.Length > 200 && rewrite.Length < original.Length * 0.35) return false;
+        var firstLine = rewrite.Split('\n')[0].Trim();
+        return !(rewrite.Length < 160 && System.Text.RegularExpressions.Regex.IsMatch(firstLine,
+            @"^(I'?ll|I will|Let me|Checking|Now I|Going to|I'm going to|First,? I)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
     }
 
     private static async Task<string> CompleteAsync(ILlmClient client, LlmRequest request, CancellationToken ct)
@@ -1534,13 +1742,18 @@ public sealed class ChatService(
                     "Skip small talk, one-off questions and anything already known. One per line, each starting with " +
                     "\"user: \" (a fact about the user)" + (bot is null ? "" : $" or \"note: \" (something {bot.Name} should keep in mind for its work)") +
                     ", or \"about <Full Name>: \" (a fact about a specific person or company in the user's life or work, e.g. " +
-                    "\"about Shield AI: interviewing Mitch for Director SE&A\"). Reply with exactly NONE if there's nothing worth keeping."),
+                    "\"about Shield AI: interviewing Mitch for Director SE&A\")" +
+                    ", or \"thread: <short title> | <what's new>\" (news on something ongoing in the user's life: a job search, a move, a " +
+                    "project, a trip, someone's health — e.g. \"thread: Job search | Final-round interview at Shield AI on Friday\")" +
+                    ", or \"vibe: \" (something about how to be with the user: their humor, mood or stress right now, how they like " +
+                    "to be talked to, a running joke — e.g. \"vibe: dry humor; likes short, blunt answers\"). " +
+                    "Reply with exactly NONE if there's nothing worth keeping."),
                 LlmMessage.User($"Already known:\n{string.Join("\n", known.Select(k => "- " + k))}\n\n" +
                                 $"User said:\n{Clip(lastUser.Content, 2000)}\n\nAssistant replied:\n{Clip(reply.Content, 1500)}"),
             };
             var sb = new StringBuilder();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
-            await foreach (var c in client.StreamChatAsync(new LlmRequest(model, prompt, 0.1, 200, 4096, false), cts.Token))
+            await foreach (var c in client.StreamChatAsync(new LlmRequest(model, prompt, 0.1, 300, 4096, false), cts.Token))
                 sb.Append(c.Content);
 
             var saved = new List<string>();
@@ -1557,8 +1770,18 @@ public sealed class ChatService(
                     {
                         await people.NoteAsync(who, what);
                         saved.Add($"{who}: {what}");
-                        if (saved.Count == 3) break;
+                        if (saved.Count(x => !x.StartsWith("💬") && !x.StartsWith("🧵")) >= 3) break;
                     }
+                    continue;
+                }
+                if (line.StartsWith("vibe:", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (await companion.AddNoteAsync(bot?.Id, line[5..].Trim())) saved.Add("💬 " + line[5..].Trim());
+                    continue;
+                }
+                if (line.StartsWith("thread:", StringComparison.OrdinalIgnoreCase) && line[7..].Split('|', 2) is [var title, var news])
+                {
+                    if (await companion.UpdateAsync(title, news) is { } t) saved.Add($"🧵 {t.Title}: {news.Trim()}");
                     continue;
                 }
                 var isNote = line.StartsWith("note:", StringComparison.OrdinalIgnoreCase);
@@ -1572,7 +1795,7 @@ public sealed class ChatService(
                 await memories.AddAsync(fact, scope);
                 if (bot is not null && isUser && bot.Memory.ShareWhatItLearns) await memories.AddAsync(fact, null);
                 saved.Add(fact);
-                if (saved.Count == 3) break;
+                if (saved.Count(x => !x.StartsWith("💬") && !x.StartsWith("🧵")) >= 3) break;
             }
             if (saved.Count == 0) return;
             reply.Learned.AddRange(saved);

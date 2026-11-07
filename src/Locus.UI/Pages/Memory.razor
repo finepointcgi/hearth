@@ -4,6 +4,7 @@
 @inject Locus.Core.Services.PeopleStore People
 @inject SettingsStore Settings
 @inject MemoryCurator Curator
+@inject Locus.Core.Services.Companion Companion
 @inject IJSRuntime JS
 
 <header class="topbar">
@@ -125,6 +126,56 @@
             </details>
         }
         @if (_people.Count == 0) { <p class="muted small">No one yet. Mention people and companies in chats and bots will keep notes.</p> }
+    </section>
+
+    <section class="card">
+        <h3>What's going on in your life <span class="muted small">(@_threads.Count(t => !t.Done) open)</span></h3>
+        <p class="muted small">The ongoing things your lead bot keeps up with — a job search, a move, a project — and brings up when it fits ("How did the interview go?"). Bots add to these as you talk; you can too.</p>
+        @foreach (var t in _threads)
+        {
+            var thread = t;
+            <details class="memory-archive @(thread.Done ? "muted" : "")">
+                <summary><b>@thread.Title</b>@(thread.Done ? " ✓" : "") <span class="muted small">@thread.Latest · @Locus.Core.Services.Companion.Ago(thread.UpdatedAt)</span></summary>
+                @foreach (var u in Enumerable.Reverse(thread.Updates))
+                {
+                    <div class="memory-row"><span class="grow">@u.Text</span><span class="muted small">@u.At.ToString("MMM d")</span></div>
+                }
+                <div class="row">
+                    <input class="grow" placeholder="What's new?" @bind="_threadNews[thread.Id]" @onkeydown="e => ThreadKey(e, thread)" />
+                    <button class="btn ghost small" @onclick="() => AddThreadNews(thread)">Add</button>
+                    <button class="btn ghost small" @onclick="() => Companion.SetDoneAsync(thread.Id, !thread.Done)">@(thread.Done ? "Reopen" : "Done")</button>
+                    <button class="icon-btn" title="Delete thread" aria-label="Delete thread" @onclick="() => Companion.RemoveThreadAsync(thread.Id)">🗑</button>
+                </div>
+            </details>
+        }
+        <div class="row">
+            <input class="grow" placeholder="New thread, e.g. Job search" @bind="_newThread" />
+            <input class="grow" placeholder="Where it stands" @bind="_newThreadNews" @onkeydown="NewThreadKey" />
+            <button class="btn primary small" @onclick="AddThread" disabled="@(_newThread.Trim().Length < 2 || _newThreadNews.Trim().Length < 3)">Add</button>
+        </div>
+    </section>
+
+    <section class="card">
+        <h3>How your bots are with you</h3>
+        <p class="muted small">What each bot has picked up about how to talk with you: your humor, what you're dealing with, how you like answers. It shapes their tone. Delete anything that's off.</p>
+        @foreach (var (key, notes) in _vibes.Where(v => v.Value.Count > 0))
+        {
+            var botKey = key;
+            var name = botKey == Locus.Core.Services.Companion.LocusKey ? "Locus" : State.BotById(botKey)?.Name ?? "A removed bot";
+            <details class="memory-archive">
+                <summary><b>@name</b> <span class="muted small">@notes.Count notes</span></summary>
+                @foreach (var n in notes)
+                {
+                    var note = n;
+                    <div class="memory-row">
+                        <span class="grow">@note.Text</span>
+                        <span class="muted small">@note.At.ToString("MMM d")</span>
+                        <button class="icon-btn" title="Delete note" @onclick="() => Companion.RemoveNoteAsync(botKey == Locus.Core.Services.Companion.LocusKey ? null : botKey, note.Id)">🗑</button>
+                    </div>
+                }
+            </details>
+        }
+        @if (_vibes.All(v => v.Value.Count == 0)) { <p class="muted small">Nothing yet — it builds up as you talk.</p> }
     </section>
 
     @if (State.Bots.Count > 0)
@@ -292,10 +343,47 @@
         Store.Changed += Reload;
         _people = await People.ListAsync();
         People.Changed += ReloadPeople;
+        await LoadCompanionAsync();
+        Companion.Changed += ReloadCompanion;
         _items = await Store.ListAsync();
     }
 
     private List<Locus.Core.Services.Entity> _people = [];
+    private List<Locus.Core.Services.LifeThread> _threads = [];
+    private Dictionary<string, List<Locus.Core.Services.RelationshipNote>> _vibes = [];
+    private Dictionary<string, string> _threadNews = new();
+    private string _newThread = "";
+    private string _newThreadNews = "";
+
+    private async Task LoadCompanionAsync()
+    {
+        _threads = await Companion.ThreadsListAsync();
+        foreach (var t in _threads) _threadNews.TryAdd(t.Id, "");
+        _vibes = new() { [Locus.Core.Services.Companion.LocusKey] = await Companion.NotesForAsync(null) };
+        foreach (var b in State.Bots) _vibes[b.Id] = await Companion.NotesForAsync(b.Id);
+    }
+
+    private async void ReloadCompanion()
+    {
+        await LoadCompanionAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task AddThreadNews(Locus.Core.Services.LifeThread t)
+    {
+        if (_threadNews.GetValueOrDefault(t.Id, "").Trim().Length < 3) return;
+        await Companion.UpdateAsync(t.Title, _threadNews[t.Id]);
+        _threadNews[t.Id] = "";
+    }
+
+    private async Task ThreadKey(KeyboardEventArgs e, Locus.Core.Services.LifeThread t) { if (e.Key == "Enter") await AddThreadNews(t); }
+
+    private async Task AddThread()
+    {
+        if (await Companion.UpdateAsync(_newThread, _newThreadNews) is not null) _newThread = _newThreadNews = "";
+    }
+
+    private async Task NewThreadKey(KeyboardEventArgs e) { if (e.Key == "Enter") await AddThread(); }
 
     private async void ReloadPeople()
     {
@@ -346,5 +434,5 @@
 
     private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
 
-    public override void Dispose() { Store.Changed -= Reload; People.Changed -= ReloadPeople; base.Dispose(); }
+    public override void Dispose() { Store.Changed -= Reload; People.Changed -= ReloadPeople; Companion.Changed -= ReloadCompanion; base.Dispose(); }
 }
