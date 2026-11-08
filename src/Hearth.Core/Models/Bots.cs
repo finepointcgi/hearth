@@ -247,6 +247,20 @@ public sealed class Bot
     public string Id { get; set; } = Guid.NewGuid().ToString("N")[..10];
     public string Name { get; set; } = "Bot";
     public string Emoji { get; set; } = "🤖";
+    /// <summary>
+    /// A picture for the avatar, as a data: URL (a small PNG/JPEG/WebP, or a GIF kept as it is so it stays animated).
+    /// Shown instead of <see cref="Emoji"/> wherever the app can show pictures; chat apps still get the emoji.
+    /// </summary>
+    public string? AvatarImage { get; set; }
+    /// <summary>How the avatar moves while the bot is thinking or working: one of <see cref="WorkingAnimations"/>.</summary>
+    public string WorkingAnimation { get; set; } = "pulse";
+
+    /// <summary>The working animations a bot can pick: id and label.</summary>
+    public static readonly (string Id, string Label)[] WorkingAnimations =
+    [
+        ("pulse", "Pulse"), ("dots", "Typing dots"), ("bounce", "Bounce"), ("spin", "Spinning ring"),
+        ("wave", "Sound wave"), ("glow", "Glow"), ("wobble", "Wobble"), ("none", "None"),
+    ];
     /// <summary>Accent colour for the avatar, CSS hex.</summary>
     public string Color { get; set; } = "#7c9cff";
     public string Title { get; set; } = "Assistant";
