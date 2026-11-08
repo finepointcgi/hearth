@@ -217,7 +217,7 @@ public sealed class TelegramHubTests : IDisposable
     /// <summary>Fake Telegram Bot API (/tg/bot{token}/…) and fake Ollama (/ollama/api/…).</summary>
     private sealed class FakeServer : IDisposable
     {
-        private readonly HttpListener _l = new();
+        private readonly HttpListener _l;
         private readonly ConcurrentQueue<JsonObject> _updates = new();
         private readonly System.Threading.Channels.Channel<string> _replies = System.Threading.Channels.Channel.CreateUnbounded<string>();
         private readonly System.Threading.Channels.Channel<(string text, string id)> _approvals = System.Threading.Channels.Channel.CreateUnbounded<(string, string)>();
@@ -226,10 +226,7 @@ public sealed class TelegramHubTests : IDisposable
 
         public FakeServer()
         {
-            var port = new Random().Next(40001, 60000);
-            Url = $"http://127.0.0.1:{port}";
-            _l.Prefixes.Add(Url + "/");
-            _l.Start();
+            (_l, Url) = LoopbackHttp.Listen();
             _ = Task.Run(Loop);
         }
 
@@ -353,6 +350,6 @@ public sealed class TelegramHubTests : IDisposable
             c.Response.Close();
         }
 
-        public void Dispose() { try { _l.Stop(); _l.Close(); } catch { } }
+        public void Dispose() => LoopbackHttp.Close(_l);
     }
 }

@@ -240,18 +240,14 @@ public sealed class GoogleAuth(IAppPaths paths, IHttpClientFactory http, Setting
         var (_, drive, tokenUrl, authUrl) = await EndpointsAsync();
         var scopes = ScopesFor((await settingsStore.GetAsync()).Google);
 
-        var port = FreePort();
-        var redirect = $"http://127.0.0.1:{port}/";
+        var (listener, address) = LoopbackHttp.Listen();
+        var redirect = address + "/";
         var verifier = Base64Url(RandomNumberGenerator.GetBytes(32));
         var challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
         var state = Base64Url(RandomNumberGenerator.GetBytes(16));
         var url = $"{authUrl}?client_id={Uri.EscapeDataString(clientId.Trim())}&redirect_uri={Uri.EscapeDataString(redirect)}" +
                   $"&response_type=code&scope={Uri.EscapeDataString(string.Join(' ', scopes))}&include_granted_scopes=true" +
                   $"&code_challenge={challenge}&code_challenge_method=S256&state={state}&access_type=offline&prompt=consent";
-
-        var listener = new HttpListener();
-        listener.Prefixes.Add(redirect);
-        listener.Start();
 
         var completed = Task.Run(async () =>
         {
@@ -295,8 +291,7 @@ public sealed class GoogleAuth(IAppPaths paths, IHttpClientFactory http, Setting
             }
             finally
             {
-                listener.Stop();
-                listener.Close();
+                LoopbackHttp.Close(listener);
             }
         });
 
@@ -322,15 +317,6 @@ public sealed class GoogleAuth(IAppPaths paths, IHttpClientFactory http, Setting
         ctx.Response.ContentType = "text/html; charset=utf-8";
         await ctx.Response.OutputStream.WriteAsync(bytes);
         ctx.Response.Close();
-    }
-
-    private static int FreePort()
-    {
-        var l = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        var port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return port;
     }
 
     private static string Base64Url(byte[] b) => Convert.ToBase64String(b).TrimEnd('=').Replace('+', '-').Replace('/', '_');

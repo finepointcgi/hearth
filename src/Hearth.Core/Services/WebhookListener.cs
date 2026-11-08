@@ -84,6 +84,6 @@ public sealed class WebhookListener(RoutineRunner runner) : IDisposable
 
     public void Dispose()
     {
-        try { _listener?.Stop(); _listener?.Close(); } catch { }
+        LoopbackHttp.Close(_listener);
     }
 }

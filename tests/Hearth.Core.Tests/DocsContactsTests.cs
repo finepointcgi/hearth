@@ -17,21 +17,14 @@ public sealed class DocsContactsTests : IDisposable
     }
 
     private readonly TempPaths _paths = new();
-    private readonly HttpListener _l = new();
+    private readonly HttpListener _l;
     private readonly ServiceProvider _sp;
     private readonly List<(string path, string query, string body, string? contentType)> _requests = [];
     private string Url { get; }
 
     public DocsContactsTests()
     {
-        // A port nothing else is using.
-        var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        Url = $"http://127.0.0.1:{port}";
-        _l.Prefixes.Add(Url + "/");
-        _l.Start();
+        (_l, Url) = LoopbackHttp.Listen();
         _ = Task.Run(Loop);
         var services = new ServiceCollection();
         services.AddSingleton<IAppPaths>(_paths);
@@ -136,7 +129,7 @@ public sealed class DocsContactsTests : IDisposable
 
     public void Dispose()
     {
-        try { _l.Stop(); _l.Close(); } catch { }
+        LoopbackHttp.Close(_l);
         _sp.DisposeAsync().AsTask().GetAwaiter().GetResult();
         try { Directory.Delete(_paths.DataDirectory, true); } catch (IOException) { }
     }

@@ -108,10 +108,8 @@ public class ClaudeFailoverTests
     [Fact]
     public async Task ClaudeApiOverloadFallsBack()
     {
-        var port = FreePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://localhost:{port}/");
-        listener.Start();
+        var (listener, address) = LoopbackHttp.Listen();
+        var port = new Uri(address).Port;
         _ = Task.Run(async () =>
         {
             while (listener.IsListening)
@@ -127,20 +125,12 @@ public class ClaudeFailoverTests
         });
 
         var backup = new Backup();
-        var api = new ClaudeApiClient(new ProviderProfile { Kind = ProviderKind.Anthropic, BaseUrl = $"http://localhost:{port}", ApiKey = "k" });
+        var api = new ClaudeApiClient(new ProviderProfile { Kind = ProviderKind.Anthropic, BaseUrl = $"http://127.0.0.1:{port}", ApiKey = "k" });
         var (text, chunks) = await Run(Chain(api, "Claude API", backup));
         Assert.True(backup.Called);
         Assert.Equal("backup answer from llama3.2", text);
         Assert.Contains(chunks, c => c.Notice?.Contains("Claude API couldn't be reached") == true);
-        listener.Stop();
+        LoopbackHttp.Close(listener);
     }
 
-    private static int FreePort()
-    {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        var p = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return p;
-    }
 }

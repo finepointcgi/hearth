@@ -60,10 +60,8 @@ public class ClaudeApiClientTests
     [Fact]
     public async Task StreamsThinkingTextAndToolCallsAndSendsTheRightRequest()
     {
-        var port = FreePort();
-        using var listener = new HttpListener();
-        listener.Prefixes.Add($"http://localhost:{port}/");
-        listener.Start();
+        var (listener, address) = LoopbackHttp.Listen();
+        var port = new Uri(address).Port;
         var bodies = new List<string>();
         _ = Task.Run(async () =>
         {
@@ -81,7 +79,7 @@ public class ClaudeApiClientTests
 
         var client = new ClaudeApiClient(new ProviderProfile
         {
-            Kind = ProviderKind.Anthropic, BaseUrl = $"http://localhost:{port}", ApiKey = "test-key",
+            Kind = ProviderKind.Anthropic, BaseUrl = $"http://127.0.0.1:{port}", ApiKey = "test-key",
         });
         var tools = new[] { new ToolDefinition("calculate", "math", Tools.Schema.Object(("expression", "string", "expr", true))) };
         var history = new List<LlmMessage>
@@ -138,17 +136,9 @@ public class ClaudeApiClientTests
         Assert.Equal("tool_result", userTurn[0]!["type"]!.ToString());
         Assert.Equal("toolu_1", userTurn[0]!["tool_use_id"]!.ToString());
         Assert.Equal("text", userTurn[1]!["type"]!.ToString());
-        listener.Stop();
+        LoopbackHttp.Close(listener);
     }
 
-    private static int FreePort()
-    {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        var port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return port;
-    }
 }
 
 public class ClaudeCodeTests

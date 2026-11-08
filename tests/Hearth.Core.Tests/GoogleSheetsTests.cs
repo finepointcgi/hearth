@@ -130,7 +130,7 @@ public sealed class GoogleSheetsEndToEndTests : IDisposable
     private sealed class FakeGoogle : IDisposable
     {
         public const string SheetId = "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
-        private readonly HttpListener _l = new();
+        private readonly HttpListener _l;
         private readonly Dictionary<string, (string title, List<List<string>> rows)> _sheets = new()
         {
             [SheetId] = ("Budget 2026", [["Item", "Amount"], ["Rent", "1200"]]),
@@ -140,10 +140,8 @@ public sealed class GoogleSheetsEndToEndTests : IDisposable
 
         public FakeGoogle()
         {
-            var port = new Random().Next(20000, 40000);
-            BaseUrl = $"http://127.0.0.1:{port}";
-            _l.Prefixes.Add(BaseUrl + "/");
-            _l.Start();
+            (_l, var url) = LoopbackHttp.Listen();
+            BaseUrl = url;
             _ = Task.Run(Loop);
         }
 
@@ -261,6 +259,6 @@ public sealed class GoogleSheetsEndToEndTests : IDisposable
             c.Response.Close();
         }
 
-        public void Dispose() { try { _l.Stop(); _l.Close(); } catch { } }
+        public void Dispose() => LoopbackHttp.Close(_l);
     }
 }

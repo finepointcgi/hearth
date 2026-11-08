@@ -17,7 +17,7 @@ public sealed class GmailCalendarTests : IDisposable
     }
 
     private readonly TempPaths _paths = new();
-    private readonly HttpListener _l = new();
+    private readonly HttpListener _l;
     private readonly ServiceProvider _sp;
     private readonly List<JsonNode> _sent = [];
     private readonly List<JsonNode> _events = [];
@@ -25,9 +25,7 @@ public sealed class GmailCalendarTests : IDisposable
 
     public GmailCalendarTests()
     {
-        Url = $"http://127.0.0.1:{new Random().Next(20000, 40000)}";
-        _l.Prefixes.Add(Url + "/");
-        _l.Start();
+        (_l, Url) = LoopbackHttp.Listen();
         _ = Task.Run(Loop);
         var services = new ServiceCollection();
         services.AddSingleton<IAppPaths>(_paths);
@@ -127,7 +125,7 @@ public sealed class GmailCalendarTests : IDisposable
 
     public void Dispose()
     {
-        try { _l.Stop(); _l.Close(); } catch { }
+        LoopbackHttp.Close(_l);
         _sp.DisposeAsync().AsTask().GetAwaiter().GetResult();
         try { Directory.Delete(_paths.DataDirectory, true); } catch (IOException) { }
     }
