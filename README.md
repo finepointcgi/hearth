@@ -5,6 +5,9 @@ tools, MCP, memory, documents, image generation, voice) that runs on **your own 
 LM Studio, llama.cpp, vLLM, Jan, LocalAI — or on **Claude** (through Claude Code or the Anthropic API) and any
 OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq…). Written in C# / Blazor with one shared UI across every platform.
 
+📖 **[Read the wiki](docs/wiki/Home.md)**: a full user guide and admin guide with screenshots, from first install to
+permissions, hosting, backups and troubleshooting.
+
 | Platform | Project | Tech |
 |---|---|---|
 | Windows, macOS, iOS, Android | `src/Hearth.App` | .NET MAUI Blazor Hybrid |
@@ -17,6 +20,19 @@ src/Hearth.UI       Shared Razor components, CSS, JS — every host renders this
 src/Hearth.Computer The bots' browser (Playwright) — desktop and web hosts only
 tests/             Unit tests
 ```
+
+## Quick start
+One command sets everything up: it installs .NET 10 if needed, finds a model server or installs Ollama and picks a
+model that fits your computer's memory, asks whether Hearth should run always on, just now, or in Docker, sets a
+password if your phone should reach it, installs the bots' browser, then opens the Welcome page.
+```bash
+./setup.sh                 # macOS / Linux   (--yes: recommended answers, --dry-run: show only, --uninstall)
+```
+```powershell
+powershell -ExecutionPolicy Bypass -File setup.ps1    # Windows   (-Yes, -DryRun, -Uninstall)
+```
+Run it again any time to update after pulling new code or to change how Hearth runs. The manual steps are under
+[Run a model server](#1-run-a-model-server) and [Run the app](#2-run-the-app).
 
 ## Features
 - Streaming replies with tokens/sec stats, stop, regenerate, edit-and-resend
@@ -191,7 +207,7 @@ run `tailscale serve --bg 5290` once. Hearth gets a private **https://…ts.net*
 closed to your Wi-Fi. For plain home-network access instead, set `HEARTH_PASSWORD` (the page warns if you haven't).
 
 ## First-run setup
-A new install opens **Welcome**: it finds a model server running on this computer (Ollama, LM Studio, oMLX) or
+`./setup.sh` (or `setup.ps1`) gets Hearth installed and running; see [Quick start](#quick-start). Then a new install opens **Welcome**: it finds a model server running on this computer (Ollama, LM Studio, oMLX) or
 lets you enter one (or Claude Code), makes your first bot or the starter team, and shows the phone link.
 
 ## Notifications on your phone
