@@ -95,6 +95,8 @@ public sealed class AppSettings
     public BriefingSettings Briefing { get; set; } = new();
     public CheckInSettings CheckIns { get; set; } = new();
     public TeachingSettings Teaching { get; set; } = new();
+    /// <summary>Other AI agents on this computer (Hermes, Claude Code…) that Hearth and its bots can hand work to.</summary>
+    public AgentsSettings Agents { get; set; } = new();
     /// <summary>The starter skills were added (once; deleted ones aren't brought back on their own).</summary>
     public bool StarterSkillsAdded { get; set; }
     public SelfCheckSettings SelfCheck { get; set; } = new();
@@ -344,4 +346,35 @@ public sealed class GoogleSettings
     public bool AutoApproveEdits { get; set; }
     /// <summary>Testing only: send all Google API calls to this base URL instead of Google.</summary>
     public string? ApiBaseOverride { get; set; }
+}
+
+/// <summary>How much an outside agent may do without asking.</summary>
+public enum AgentMode
+{
+    /// <summary>Reads freely; asks before changing files or running commands.</summary>
+    Ask,
+    /// <summary>Changes files in the folder freely; asks before running commands.</summary>
+    AcceptEdits,
+    /// <summary>Does anything without asking.</summary>
+    FullAuto,
+    /// <summary>Only looks: changes and commands are refused.</summary>
+    ReadOnly,
+}
+
+public sealed class AgentSettings
+{
+    /// <summary>Bots may hand work to it (the Agents page can always run it).</summary>
+    public bool Enabled { get; set; } = true;
+    public AgentMode Mode { get; set; } = AgentMode.Ask;
+    /// <summary>A run is stopped after this long.</summary>
+    public int MaxMinutes { get; set; } = 30;
+    /// <summary>Hearth's skills are linked into the agent's skills folder.</summary>
+    public bool ShareSkills { get; set; }
+}
+
+public sealed class AgentsSettings
+{
+    public Dictionary<string, AgentSettings> ByAgent { get; set; } = [];
+
+    public AgentSettings For(string agentId) => ByAgent.TryGetValue(agentId, out var s) ? s : new AgentSettings();
 }

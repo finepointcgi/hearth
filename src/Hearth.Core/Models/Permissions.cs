@@ -46,6 +46,7 @@ public static class PermissionCatalog
         new("routines", "⏰", "Routines", null, "Set up a bot's scheduled routines"),
         new("phone", "📞", "Phone calls", null, "Call someone for you"),
         new("projects", "🛠️", "Project folders", null, "Change files in folders you made editable"),
+        new("agents", "🤝", "Other AI agents", null, "Hand work to Hermes, Claude Code and other agents"),
     ];
 
     /// <summary>Area and whether the tool changes things; null area = always allowed (calculator, clock, skills, tasks).</summary>

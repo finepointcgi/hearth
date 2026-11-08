@@ -818,3 +818,24 @@ html, body { overflow: hidden; }
 .health-notes { margin: 4px 0 0; padding-left: 18px; color: var(--muted, inherit); }
 .health-notes li { margin: 2px 0; }
 .health-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Agents */
+.error-text { color: var(--danger); }
+.warn-text { color: var(--warn); }
+.agent-card .agent-icon { font-size: 1.6rem; line-height: 1; }
+.agent-card.not-installed { opacity: .7; }
+.agent-settings { flex-wrap: wrap; gap: .6rem 1rem; }
+.agent-output { white-space: pre-wrap; max-height: 18rem; overflow: auto; background: color-mix(in srgb, var(--muted) 8%, transparent); padding: .6rem .8rem; border-radius: 8px; margin-top: .5rem; }
+textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.agent-run-row { display: flex; gap: .6rem; align-items: flex-start; padding: .5rem .25rem; border-top: 1px solid color-mix(in srgb, var(--muted) 18%, transparent); color: inherit; text-decoration: none; }
+.agent-run-row:first-of-type { border-top: 0; }
+.agent-run-row:hover { background: color-mix(in srgb, var(--muted) 8%, transparent); border-radius: 8px; }
+.agent-steps { display: flex; flex-direction: column; gap: .45rem; }
+.agent-step.you { border-left: 3px solid var(--accent, #7aa2ff); padding-left: .6rem; }
+.agent-step.you .who { font-size: .75rem; color: var(--muted); display: block; }
+.agent-step.tool { font-size: .88rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.agent-step .pre, .pre { white-space: pre-wrap; }
+.agent-step.plan { padding: .4rem .6rem; border-radius: 8px; background: color-mix(in srgb, var(--muted) 8%, transparent); }
+.agent-settings label { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; }
+.agent-settings label select { width: auto; }
+.agent-settings label input[type=number] { width: 4.5rem; }

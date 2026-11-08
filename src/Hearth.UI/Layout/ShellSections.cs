@@ -11,7 +11,7 @@ public static class ShellSections
     [
         new("chats", "Chats", "message-circle", "", ["", "c", "bot"]),
         new("code", "Code", "terminal", "code", ["code"]),
-        new("bots", "Bots", "bot", "bots", ["bots"]),
+        new("bots", "Bots", "bot", "bots", ["bots", "agents"]),
         new("inbox", "Inbox", "inbox", "dashboard", ["dashboard", "tasks", "usage"]),
         new("library", "Library", "library", "skills", ["skills", "documents", "memory", "files", "teach", "learned"]),
         new("settings", "Settings", "settings", "settings", ["settings", "connections", "permissions", "tools", "computer", "backup"]),

@@ -165,6 +165,11 @@ public static class AccountStartup
     {
         sp.GetRequiredService<RoutineRunner>().EnsureStarted();
         _ = sp.GetRequiredService<Briefing>().RefreshAsync();
+        if (sp.GetRequiredService<Hearth.Core.Services.Agents.AgentHub>().Available)
+        {
+            sp.GetRequiredService<Hearth.Core.Services.Agents.AgentCare>().EnsureWatching();
+            _ = sp.GetRequiredService<Hearth.Core.Services.Agents.AgentHub>().StatusAsync(); // look for installed agents in the background
+        }
         sp.GetRequiredService<HealthMonitor>().EnsureStarted();
         sp.GetRequiredService<TaskRunner>().EnsureStarted(); // long-running tasks resume after a restart
         sp.GetRequiredService<BotInbox>().EnsureStarted();

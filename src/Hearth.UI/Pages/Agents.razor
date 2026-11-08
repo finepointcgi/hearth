@@ -1,0 +1,286 @@
+@page "/agents"
+@inherits StatefulComponent
+@implements IAsyncDisposable
+@using Hearth.Core.Services.Agents
+@inject AgentHub Hub
+@inject AgentCare Care
+@inject SettingsStore SettingsStore
+@inject LinkedFolders Folders
+@inject NavigationManager Nav
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <h2 class="topbar-title">Agents</h2>
+    <span class="spacer"></span>
+    <button class="btn ghost" @onclick="Refresh" disabled="@_loading">@(_loading ? "Looking…" : "Look again")</button>
+</header>
+
+<div class="settings agents-page">
+    <section class="card">
+        <p>Other AI agents on this computer, like Hermes and Claude Code. Give them a job here, or let your bots hand work to them.
+            They work in a folder you pick, every step shows up live, and anything they want to do that their setting doesn't
+            allow comes to you to approve, here or on your phone.</p>
+        @if (!Hub.Available)
+        {
+            <div class="error-box">Agents run as programs on this computer, so they work in the desktop app or the web host with local access.</div>
+        }
+    </section>
+
+    @if (_agents is null)
+    {
+        <p class="muted">Looking for agents…</p>
+    }
+    else
+    {
+        var installed = _agents.Where(a => a.Installed).ToList();
+        @if (installed.Count > 0)
+        {
+            <section class="card">
+                <h3><span aria-hidden="true">🚀</span> Give an agent a job</h3>
+                <div class="row">
+                    <label>Agent
+                        <select @bind="_agentId">
+                            @foreach (var a in installed) { <option value="@a.Def.Id">@a.Def.Icon @a.Def.Name</option> }
+                        </select>
+                    </label>
+                    <label class="grow">Folder
+                        <input @bind="_folder" list="agent-folders" placeholder="~/projects/my-app" />
+                        <datalist id="agent-folders">
+                            @foreach (var f in _folderChoices) { <option value="@f"></option> }
+                        </datalist>
+                    </label>
+                </div>
+                <textarea rows="3" @bind="_task" placeholder="What should it do? e.g. Find why the login test fails and fix it, then run the tests."></textarea>
+                <div class="row end">
+                    @if (_startError is not null) { <span class="error-text small grow">@_startError</span> }
+                    <button class="btn primary" @onclick="Start" disabled="@(_starting || string.IsNullOrWhiteSpace(_task) || string.IsNullOrWhiteSpace(_folder))">@(_starting ? "Starting…" : "Start")</button>
+                </div>
+            </section>
+        }
+
+        @foreach (var a in _agents)
+        {
+            var agent = a;
+            var s = _settings.Agents.ByAgent.TryGetValue(agent.Def.Id, out var cfg) ? cfg : null;
+            <section class="card agent-card @(agent.Installed ? "" : "not-installed")">
+                <div class="row">
+                    <span class="agent-icon" aria-hidden="true">@agent.Def.Icon</span>
+                    <span class="grow"><b>@agent.Def.Name</b>
+                        <span class="muted small">@(agent.Installed ? agent.Version ?? "installed" : "not installed")</span>
+                        <br /><span class="muted small">@agent.Def.About</span></span>
+                    @if (agent.Installed)
+                    {
+                        @if (agent.Def.StatusArgs is not null) { <button class="btn small ghost" @onclick="() => Status(agent)" disabled="@(_busy == agent.Def.Id)">Status</button> }
+                        @if (agent.Def.UpdateArgs is not null) { <button class="btn small ghost" @onclick="() => Update(agent)" disabled="@(_busy == agent.Def.Id)">@(_busy == agent.Def.Id && _busyWhat == "update" ? "Updating…" : "Update")</button> }
+                    }
+                    else if (agent.Def.InstallUrl is not null)
+                    {
+                        <a class="btn small ghost" href="@agent.Def.InstallUrl" target="_blank" rel="noopener">How to install</a>
+                    }
+                </div>
+                @if (agent.Installed)
+                {
+                    var c = Cfg(agent.Def.Id);
+                    <div class="row agent-settings">
+                        <label class="check"><input type="checkbox" checked="@c.Enabled" @onchange="e => Set(agent.Def.Id, x => x.Enabled = (bool)e.Value!)" /> Bots can hand work to it</label>
+                        <label>Without asking, it may
+                            <select value="@c.Mode" @onchange="e => Set(agent.Def.Id, x => x.Mode = Enum.Parse<AgentMode>(e.Value!.ToString()!))">
+                                <option value="@AgentMode.Ask">only look around</option>
+                                <option value="@AgentMode.AcceptEdits">change files in the folder</option>
+                                <option value="@AgentMode.FullAuto">do anything (no asking)</option>
+                                <option value="@AgentMode.ReadOnly">nothing but look (refuse the rest)</option>
+                            </select>
+                        </label>
+                        <label>Stop after
+                            <input type="number" min="1" max="600" value="@c.MaxMinutes" style="width:5rem" @onchange="e => Set(agent.Def.Id, x => x.MaxMinutes = int.TryParse(e.Value?.ToString(), out var m) ? Math.Clamp(m, 1, 600) : 30)" /> min
+                        </label>
+                    </div>
+                    @if (c.Mode == AgentMode.FullAuto) { <p class="warn-text small">It won't ask before running commands or changing files. Use it only on folders you can restore.</p> }
+                    @if (agent.Def.SetupHint is not null) { <p class="muted small">Setup: @agent.Def.SetupHint</p> }
+
+                    <details class="advanced" @ontoggle="() => LoadMemory(agent.Def)">
+                        <summary>What it remembers@(agent.Def.Skills != SkillLink.None ? " and its skills" : "")</summary>
+                        <div class="sub">
+                            @foreach (var f in Care.MemoryFiles(agent.Def))
+                            {
+                                var file = f;
+                                var key = agent.Def.Id + "/" + file.Name;
+                                <div class="row">
+                                    <code class="grow small">@file.Path</code>
+                                    <span class="muted small">@(file.Exists ? $"{file.Bytes:N0} bytes" : "not created yet")</span>
+                                    <button class="btn small ghost" @onclick="() => Open(agent.Def, file.Name)">@(_open == key ? "Close" : file.Exists ? "Edit" : "Create")</button>
+                                </div>
+                                @if (_open == key)
+                                {
+                                    <textarea rows="10" class="mono small" @bind="_text"></textarea>
+                                    <div class="row end">
+                                        <span class="muted small grow">The old version is kept as @(file.Name).hearth-backup.</span>
+                                        <button class="btn small primary" @onclick="() => SaveFile(agent.Def, file.Name)">Save</button>
+                                    </div>
+                                }
+                            }
+                            <div class="row">
+                                <span class="grow small">Copy what Hearth knows about you into @agent.Def.MemoryFiles[0] (a marked section; doing it again replaces it).</span>
+                                <button class="btn small ghost" @onclick="() => ShareMemories(agent.Def)">Share what Hearth knows</button>
+                            </div>
+                            @if (agent.Def.Skills != SkillLink.None)
+                            {
+                                <label class="check"><input type="checkbox" checked="@Care.SkillsShared(agent.Def)" @onchange="e => ShareSkills(agent.Def, (bool)e.Value!)" />
+                                    Share Hearth's skills with it <span class="muted small">(linked into ~/@agent.Def.Home/@agent.Def.SkillsDir, kept up to date)</span></label>
+                            }
+                        </div>
+                    </details>
+                }
+                @if (_output.TryGetValue(agent.Def.Id, out var output))
+                {
+                    <pre class="agent-output small">@output</pre>
+                }
+            </section>
+        }
+
+        <section class="card">
+            <h3><span aria-hidden="true">🗂️</span> Recent jobs</h3>
+            @if (_runs.Count == 0) { <p class="muted small">Nothing yet. Jobs show up here, whether you started them or a bot did.</p> }
+            @foreach (var r in _runs)
+            {
+                var run = r;
+                <a class="agent-run-row" href="agents/run/@run.Id">
+                    <span aria-hidden="true">@StatusMark(run)</span>
+                    <span class="grow"><b>@run.AgentName</b> @Clip(run.Task, 120)
+                        <br /><span class="muted small">@System.IO.Path.GetFileName(run.Folder.TrimEnd('/')) · @run.Started.LocalDateTime.ToString("MMM d, h:mm tt")@(run.BotId is { } b && State.BotById(b) is { } bot ? $" · from {bot.Name}" : "")</span></span>
+                </a>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private IReadOnlyList<AgentStatus>? _agents;
+    private List<AgentRun> _runs = [];
+    private AppSettings _settings = new();
+    private List<string> _folderChoices = [];
+    private string _agentId = "", _folder = "", _task = "", _text = "";
+    private string? _startError, _busy, _busyWhat, _open;
+    private bool _starting, _loading;
+    private readonly Dictionary<string, string> _output = [];
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Hub.Changed += OnRunChanged;
+        _settings = await SettingsStore.GetAsync();
+        _folderChoices = (await Folders.ListAsync()).Where(f => f.Enabled).Select(f => f.Path).ToList();
+        _agents = await Hub.StatusAsync();
+        _agentId = _agents.FirstOrDefault(a => a.Installed)?.Def.Id ?? "";
+        _runs = await Hub.RecentAsync();
+        if (_folderChoices.Count > 0 && _folder.Length == 0) _folder = _runs.FirstOrDefault()?.Folder ?? _folderChoices[0];
+    }
+
+    private void OnRunChanged(AgentRun run) => InvokeAsync(async () =>
+    {
+        var i = _runs.FindIndex(r => r.Id == run.Id);
+        if (i >= 0) _runs[i] = run; else _runs = await Hub.RecentAsync();
+        StateHasChanged();
+    });
+
+    private async Task Refresh()
+    {
+        _loading = true;
+        try { _agents = await Hub.StatusAsync(refresh: true); }
+        finally { _loading = false; }
+    }
+
+    private AgentSettings Cfg(string id) => _settings.Agents.ByAgent.TryGetValue(id, out var s) ? s : new AgentSettings();
+
+    private async Task Set(string id, Action<AgentSettings> change)
+    {
+        _settings = await SettingsStore.GetAsync();
+        var s = _settings.Agents.ByAgent.TryGetValue(id, out var x) ? x : _settings.Agents.ByAgent[id] = new();
+        change(s);
+        await SettingsStore.SaveAsync(_settings);
+    }
+
+    private async Task Start()
+    {
+        _starting = true; _startError = null;
+        try
+        {
+            var run = await Hub.StartAsync(_agentId, _task, _folder);
+            _task = "";
+            Nav.NavigateTo($"agents/run/{run.Id}");
+        }
+        catch (Exception ex) { _startError = ex.Message; }
+        finally { _starting = false; }
+    }
+
+    private async Task Status(AgentStatus a)
+    {
+        _busy = a.Def.Id; _busyWhat = "status";
+        try { _output[a.Def.Id] = (await AgentCare.StatusAsync(a)).output; }
+        catch (Exception ex) { _output[a.Def.Id] = ex.Message; }
+        finally { _busy = null; }
+    }
+
+    private async Task Update(AgentStatus a)
+    {
+        _busy = a.Def.Id; _busyWhat = "update";
+        _output[a.Def.Id] = $"Updating {a.Def.Name}… this can take a few minutes.";
+        try
+        {
+            var (exit, output) = await AgentCare.UpdateAsync(a);
+            _output[a.Def.Id] = (exit == 0 ? "✅ " : "⚠ ") + output;
+            _agents = await Hub.StatusAsync(refresh: true);
+        }
+        catch (Exception ex) { _output[a.Def.Id] = ex.Message; }
+        finally { _busy = null; }
+    }
+
+    private void LoadMemory(AgentDef def) { /* files are listed live; nothing to load until one is opened */ }
+
+    private async Task Open(AgentDef def, string name)
+    {
+        var key = def.Id + "/" + name;
+        if (_open == key) { _open = null; return; }
+        try { _text = await Care.ReadAsync(def, name); _open = key; }
+        catch (Exception ex) { _output[def.Id] = ex.Message; }
+    }
+
+    private async Task SaveFile(AgentDef def, string name)
+    {
+        try { await Care.SaveAsync(def, name, _text); _output[def.Id] = $"Saved {name}."; _open = null; }
+        catch (Exception ex) { _output[def.Id] = ex.Message; }
+    }
+
+    private async Task ShareMemories(AgentDef def)
+    {
+        try { var n = await Care.ShareMemoriesAsync(def); _output[def.Id] = $"Wrote {n} things Hearth knows about you into {def.MemoryFiles[0]}."; }
+        catch (Exception ex) { _output[def.Id] = ex.Message; }
+    }
+
+    private async Task ShareSkills(AgentDef def, bool on)
+    {
+        try
+        {
+            var n = await Care.ShareSkillsAsync(def, on);
+            _output[def.Id] = on ? $"Shared {n} skill{(n == 1 ? "" : "s")} with {def.Name}." : $"{def.Name} no longer sees Hearth's skills.";
+            _settings = await SettingsStore.GetAsync();
+        }
+        catch (Exception ex) { _output[def.Id] = ex.Message; }
+    }
+
+    public static string StatusMark(AgentRun r) => r.Status switch
+    {
+        AgentRunStatus.Running => "⏳", AgentRunStatus.WaitingForYou => "🔐", AgentRunStatus.Done => "✅",
+        AgentRunStatus.Cancelled => "⏹", _ => "❌",
+    };
+
+    private static string Clip(string s, int n) => s.Length <= n ? s : s[..n].TrimEnd() + "…";
+
+    public ValueTask DisposeAsync()
+    {
+        Hub.Changed -= OnRunChanged;
+        base.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

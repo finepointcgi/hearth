@@ -1,0 +1,160 @@
+@page "/agents/run/{Id}"
+@inherits StatefulComponent
+@implements IAsyncDisposable
+@using Hearth.Core.Services.Agents
+@inject AgentHub Hub
+@inject ApprovalCenter Approvals
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <a class="icon-btn" href="agents" title="All agents">←</a>
+    <h2 class="topbar-title ellipsis">@(_run is null ? "Agent job" : $"{_run.AgentName}: {_run.Task}")</h2>
+    <span class="spacer"></span>
+    @if (_run?.Active == true) { <button class="btn ghost" @onclick="Stop">Stop</button> }
+</header>
+
+@if (_run is { } run)
+{
+    var pending = run.WaitingOn is { } w ? Approvals.Pending.FirstOrDefault(p => p.Id == w) : null;
+    <div class="settings agent-run">
+        <section class="card">
+            <div class="row">
+                <span class="grow"><b>@Agents.StatusMark(run) @StatusText(run)</b>
+                    <span class="muted small"> · @Took(run) · in <code>@run.Folder</code> · @ModeText(run.Mode)</span></span>
+            </div>
+            @if (run.ConversationId is { } conv && !conv.StartsWith("agent-run:"))
+            {
+                <p class="muted small">Handed over@(run.BotId is { } b && State.BotById(b) is { } bot ? $" by {bot.Name}" : "") from <a href="c/@conv">a chat</a>.</p>
+            }
+            @if (run.Error is { } err) { <div class="error-box">@err</div> }
+        </section>
+
+        @if (pending is not null)
+        {
+            <section class="card attention">
+                <div class="row">
+                    <span class="grow">🔐 <b>@pending.ToolName</b>
+                        <details><summary class="small muted">Details</summary><code class="audit">@pending.ArgumentsJson</code></details></span>
+                    <button class="btn ghost small" @onclick="() => Approvals.Decide(pending.Id, false)">Deny</button>
+                    <button class="btn primary small" @onclick="() => Approvals.Decide(pending.Id, true)">Allow</button>
+                </div>
+            </section>
+        }
+
+        <section class="card agent-steps">
+            @foreach (var s in Steps(run))
+            {
+                switch (s.Kind)
+                {
+                    case AgentStep.You:
+                        <div class="agent-step you"><span class="who">You</span><div class="md">@s.Content</div></div>
+                        break;
+                    case AgentStep.Text:
+                        <div class="agent-step said"><Markdown Text="@s.Content" /></div>
+                        break;
+                    case AgentStep.Thought:
+                        <details class="agent-step thought"><summary class="muted small">Thinking</summary><div class="small muted pre">@s.Content</div></details>
+                        break;
+                    case AgentStep.Tool:
+                        <div class="agent-step tool"><span aria-hidden="true">@ToolMark(s)</span> <span>@s.Content</span></div>
+                        break;
+                    case AgentStep.Plan:
+                        <div class="agent-step plan"><span class="muted small">Plan</span><div class="pre small">@s.Content</div></div>
+                        break;
+                    default:
+                        <div class="agent-step note muted small">@s.Content</div>
+                        break;
+                }
+            }
+            @if (run.Active) { <div class="agent-step note muted small">@(run.Status == AgentRunStatus.WaitingForYou ? "Waiting for your OK…" : "Working…")</div> }
+        </section>
+
+        @if (!run.Active)
+        {
+            <section class="card">
+                <textarea rows="2" @bind="_message" placeholder="Follow up: ask for changes or the next step (it remembers this job)"></textarea>
+                <div class="row end">
+                    @if (_error is not null) { <span class="error-text small grow">@_error</span> }
+                    <button class="btn primary" @onclick="Send" disabled="@string.IsNullOrWhiteSpace(_message)">Send</button>
+                </div>
+            </section>
+        }
+    </div>
+}
+else
+{
+    <div class="empty muted">@(_loaded ? "That job isn't here any more." : "Loading…")</div>
+}
+
+@code {
+    [Parameter] public string Id { get; set; } = "";
+    private AgentRun? _run;
+    private bool _loaded;
+    private string _message = "";
+    private string? _error;
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Hub.Changed -= OnChanged;
+        Hub.Changed += OnChanged;
+        Approvals.Requested -= OnApproval;
+        Approvals.Requested += OnApproval;
+        Approvals.Resolved -= OnResolved;
+        Approvals.Resolved += OnResolved;
+        _run = await Hub.GetAsync(Id);
+        _loaded = true;
+    }
+
+    private DateTime _lastRender;
+    private void OnChanged(AgentRun run)
+    {
+        if (run.Id != Id) return;
+        // Streaming sends many small updates; redraw at most a few times a second.
+        if (run.Active && DateTime.UtcNow - _lastRender < TimeSpan.FromMilliseconds(250)) return;
+        _lastRender = DateTime.UtcNow;
+        InvokeAsync(() => { _run = run; StateHasChanged(); });
+    }
+
+    private void OnApproval(PendingApproval _) => InvokeAsync(StateHasChanged);
+    private void OnResolved(PendingApproval _, bool __) => InvokeAsync(StateHasChanged);
+
+    private static List<AgentStep> Steps(AgentRun run) { lock (run.Steps) return run.Steps.ToList(); }
+
+    private async Task Stop() => await Hub.CancelAsync(Id);
+
+    private async Task Send()
+    {
+        _error = null;
+        try { await Hub.SendAsync(Id, _message); _message = ""; _run = await Hub.GetAsync(Id); }
+        catch (Exception ex) { _error = ex.Message; }
+    }
+
+    private static string StatusText(AgentRun r) => r.Status switch
+    {
+        AgentRunStatus.Running => "Working", AgentRunStatus.WaitingForYou => "Waiting for you", AgentRunStatus.Done => "Done",
+        AgentRunStatus.Cancelled => "Stopped", _ => "Stopped with a problem",
+    };
+
+    private static string ModeText(AgentMode m) => m switch
+    {
+        AgentMode.AcceptEdits => "may change files", AgentMode.FullAuto => "may do anything", AgentMode.ReadOnly => "read only", _ => "asks before changes",
+    };
+
+    private static string Took(AgentRun r) => r.Duration.TotalMinutes >= 1 ? $"{r.Duration.TotalMinutes:0} min" : $"{r.Duration.TotalSeconds:0} s";
+
+    private static string ToolMark(AgentStep s) => s.Status switch
+    {
+        "completed" => "✓", "failed" => "✗", "in_progress" => "⏳", _ => "○",
+    } + " " + (s.ToolKind switch { "read" => "📖", "edit" => "✏️", "execute" => "▶️", "search" => "🔎", "fetch" => "🌐", "delete" => "🗑", "think" => "💭", _ => "🔧" });
+
+    public ValueTask DisposeAsync()
+    {
+        Hub.Changed -= OnChanged;
+        Approvals.Requested -= OnApproval;
+        Approvals.Resolved -= OnResolved;
+        base.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

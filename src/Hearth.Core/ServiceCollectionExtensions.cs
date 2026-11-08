@@ -79,6 +79,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<LearningLoop>();
         services.AddSingleton<LearningRecap>();
         services.AddSingleton<AssistantImport>();
+        services.AddSingleton<Services.Agents.AgentRunStore>();
+        services.AddSingleton<Services.Agents.AgentHub>();
+        services.AddSingleton<Services.Agents.AgentCare>();
+        services.AddSingleton<IToolProvider, AgentToolProvider>();
         services.AddSingleton<ChatService>();
         services.AddSingleton<ChatRuns>();
         services.AddSingleton<FollowUpStore>();

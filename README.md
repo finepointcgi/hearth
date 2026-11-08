@@ -141,6 +141,19 @@ uptime monitors.
 **Password** — set `Hearth:Password` (env `Hearth__Password`) to require a sign-in for the web UI. `/health` and
 the token-protected `/hooks/…` webhooks stay open.
 
+## Other AI agents (Bots → Other agents)
+
+Hearth drives the coding and personal agents already on your computer: **Claude Code**, **Hermes**, **OpenClaw**,
+**Gemini CLI** and **Codex** (through `codex-acp`). Hermes, OpenClaw, Gemini and Codex are run over the Agent
+Client Protocol (`hermes acp`, `gemini --acp`…); Claude Code through its headless `claude -p` stream.
+- **Give one a job** in a folder from the Agents page and watch every step live; follow up in the same session.
+- **Bots hand work over** with `hand_off_to_agent` (in the chat's code folder or a linked folder) and continue it
+  with `follow_up_agent`, so the coordinator can split work between your bots and these agents.
+- **Permissions**: per agent, choose what it may do without asking (look only, change files, anything, or read only).
+  Anything else becomes a normal Hearth approval, in the app, the dashboard or Telegram. Routines can't approve.
+- **Look after them**: status and update buttons, edit their memory files (a backup is kept), copy what Hearth knows
+  about you into them, and share Hearth's skills (linked into their skills folder and kept current).
+
 ## Tasks (long-running work)
 **🎯 Tasks → New task**, or `/task <goal>` from Telegram/Discord/Slack. The bot plans the work
 (`task_plan`), works through it in the background in cycles (`task_step`), and finishes with a report

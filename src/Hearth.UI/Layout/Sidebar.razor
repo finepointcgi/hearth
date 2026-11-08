@@ -108,6 +108,7 @@
             <a class="new-chat" href="bots/new" @onclick="Close"><Icon Name="plus" /> New bot</a>
             <nav class="side-nav" aria-label="Bots">
                 <a class="@(Here("bots") ? "active" : "")" href="bots" @onclick="Close"><Icon Name="users" /> All bots and groups</a>
+                <a class="@(Here("agents") ? "active" : "")" href="agents" @onclick="Close"><Icon Name="terminal" /> Other agents</a>
                 <div class="conv-group">Your bots</div>
                 @foreach (var b in State.Bots)
                 {
