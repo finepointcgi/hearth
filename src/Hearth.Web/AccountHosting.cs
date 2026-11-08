@@ -192,7 +192,8 @@ public static class AccountStartup
             }
             catch { /* they can be added from the Skills page */ }
         });
-        sp.GetRequiredService<SelfCheck>().EnsureStarted(); // nightly self-check (off unless turned on in Settings)
+        sp.GetRequiredService<SelfCheck>().EnsureStarted();
+        sp.GetRequiredService<Hearth.Core.Services.Phone.CloudflareTunnel>().EnsureStarted(); // the public link, if it was left on // nightly self-check (off unless turned on in Settings)
         sp.GetRequiredService<ChatHistoryIndex>().EnsureStarted();
         sp.GetRequiredService<PushNotifier>().EnsureStarted();
         sp.GetRequiredService<LearningRecap>().EnsureStarted(); // the weekly "what Hearth learned"

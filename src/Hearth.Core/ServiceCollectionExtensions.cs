@@ -90,6 +90,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IToolProvider, ProactiveToolProvider>();
         services.AddSingleton<Services.Phone.PhoneStore>();
         services.AddSingleton<Services.Phone.PhoneService>();
+        services.AddSingleton<Services.Phone.CloudflareTunnel>();
         services.AddSingleton<IToolProvider, PhoneToolProvider>();
         services.AddSingleton<Services.Microsoft.MicrosoftAuth>();
         services.AddSingleton<Services.Microsoft.GraphClient>();

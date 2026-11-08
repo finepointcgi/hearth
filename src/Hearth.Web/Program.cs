@@ -29,6 +29,7 @@ builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 4 * 1024 * 1024);
 string? Setting(IConfiguration c, string key) => c["Hearth:" + key] ?? c[LegacyNames.OldName + ":" + key];
 var allowProcesses = bool.TryParse(Setting(builder.Configuration, "AllowLocalProcesses"), out var allow) && allow;
 var passwordSet = !string.IsNullOrEmpty(Setting(builder.Configuration, "Password"));
+var accountStore = new AccountStore(new DefaultAppPaths().DataDirectory);
 // Everything Hearth is, for one account (each account gets its own set; see AccountHosts).
 // computerAccess: for someone other than the owner, whether the owner lets them use this computer (asked each time).
 void ConfigureAccount(IServiceCollection s, Func<bool>? computerAccess)
@@ -36,13 +37,13 @@ void ConfigureAccount(IServiceCollection s, Func<bool>? computerAccess)
     s.AddHearth(new PlatformInfo("Web server", IsMobile: false, CanRunProcesses: allowProcesses, WebhookBaseUrl: "") { ComputerAccess = computerAccess });
     s.AddHearthComputer(); // the bots' browser; only usable when AllowLocalProcesses is on
     s.Replace(Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<IAppRestarter, WebRestarter>());
-    s.AddSingleton<IAccessInfo>(sp => new ServerAccessInfo(sp.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>(), passwordSet));
+    s.AddSingleton<IAccessInfo>(sp => new ServerAccessInfo(sp.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>(), passwordSet, () => accountStore.Enabled));
 }
 ConfigureAccount(builder.Services, null);
 // The app's Hearth services forward to the signed-in account's own set (the owner's when accounts are off).
 Hearth.Web.AccountHosts.ForwardToAccounts(builder.Services);
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddSingleton(new AccountStore(new DefaultAppPaths().DataDirectory));
+builder.Services.AddSingleton(accountStore);
 builder.Services.AddSingleton(sp => new Hearth.Web.AccountHosts(sp, sp.GetRequiredService<AccountStore>(), ConfigureAccount));
 builder.Services.AddScoped<Hearth.Web.CurrentAccount>();
 builder.Services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<Hearth.Web.CurrentAccount>());
@@ -86,22 +87,31 @@ app.Use(async (ctx, next) =>
     else ctx.Response.StatusCode = 401;
 });
 app.MapGet("/login", (HttpRequest req) => accounts.Enabled || password is { Length: > 0 }
-    ? Results.Content(LoginPage(req.Query.ContainsKey("wrong"), accounts.Enabled), "text/html")
+    ? Results.Content(LoginPage(req.Query.ContainsKey("wrong"), accounts.Enabled, req.Query.ContainsKey("wait")), "text/html")
     : Results.Redirect("/"));
+var loginGuard = new Hearth.Core.Services.Phone.LoginGuard();
 app.MapPost("/login", async (HttpContext ctx) =>
 {
     var form = await ctx.Request.ReadFormAsync();
     await Task.Delay(400); // slow down guessing
+    // Too many wrong passwords from one address: refused there for a while (matters once there's a public link).
+    var from = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    if (!loginGuard.Allowed(from)) return Results.Redirect("/login?wait=1");
     var cookie = new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = ctx.Request.IsHttps, MaxAge = TimeSpan.FromDays(30) };
     if (accounts.Enabled)
     {
-        if (accounts.Verify(form["name"].ToString(), form["password"].ToString()) is not { } who) return Results.Redirect("/login?wrong=1");
+        if (accounts.Verify(form["name"].ToString(), form["password"].ToString()) is not { } who) { loginGuard.Failed(from); return Results.Redirect("/login?wrong=1"); }
+        loginGuard.Succeeded(from);
         ctx.Response.Cookies.Append("hearth_user", accounts.CookieFor(who), cookie);
         return Results.Redirect("/");
     }
     if (password is not { Length: > 0 }) return Results.Redirect("/");
     if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(form["password"].ToString()), Encoding.UTF8.GetBytes(password)))
+    {
+        loginGuard.Failed(from);
         return Results.Redirect("/login?wrong=1");
+    }
+    loginGuard.Succeeded(from);
     ctx.Response.Cookies.Append("hearth_auth", cookieValue, cookie);
     return Results.Redirect("/");
 }).DisableAntiforgery();
@@ -282,7 +292,7 @@ static string ContentText(System.Text.Json.Nodes.JsonNode? content) => content s
     _ => content.ToString(),
 };
 
-static string LoginPage(bool wrong, bool withName) => $$"""
+static string LoginPage(bool wrong, bool withName, bool wait = false) => $$"""
     <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Hearth — sign in</title>
     <style>
@@ -294,6 +304,7 @@ static string LoginPage(bool wrong, bool withName) => $$"""
     </style></head><body>
     <form method="post" action="/login"><h1>◎ Hearth</h1>
       {{(wrong ? $"<div class=\"err\">Wrong {(withName ? "name or password" : "password")}.</div>" : "")}}
+      {{(wait ? "<div class=\"err\">Too many wrong tries. Wait a few minutes and try again.</div>" : "")}}
       {{(withName ? "<input name=\"name\" placeholder=\"Your name\" autofocus autocomplete=\"username\" autocapitalize=\"none\">" : "")}}
       <input type="password" name="password" placeholder="Password" {{(withName ? "" : "autofocus")}} autocomplete="current-password">
       <button type="submit">Sign in</button></form></body></html>
@@ -307,8 +318,9 @@ sealed class WebRestarter(IHostApplicationLifetime lifetime) : IAppRestarter
     public void Restart() => _ = Task.Delay(500).ContinueWith(_ => lifetime.StopApplication());
 }
 
-sealed class ServerAccessInfo(Microsoft.AspNetCore.Hosting.Server.IServer server, bool passwordSet) : IAccessInfo
+sealed class ServerAccessInfo(Microsoft.AspNetCore.Hosting.Server.IServer server, bool passwordSet, Func<bool> accountsOn) : IAccessInfo
 {
+    public bool SignInRequired => passwordSet || accountsOn();
     public IReadOnlyList<string> ListenUrls =>
         server.Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>()?.Addresses.ToList() ?? [];
     public bool PasswordSet => passwordSet;

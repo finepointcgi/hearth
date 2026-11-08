@@ -2,8 +2,11 @@
 @using System.Net.NetworkInformation
 @using System.Net.Sockets
 @using QRCoder
+@using Hearth.Core.Services.Phone
+@implements IDisposable
 @inject IServiceProvider Services
 @inject PlatformInfo Platform
+@inject SettingsStore SettingsStore
 
 <section class="card">
     <div class="row">
@@ -20,23 +23,23 @@
     }
     else
     {
-        var networkOn = _access.ListenUrls.Any(u => !u.Contains("127.0.0.1") && !u.Contains("localhost") && !u.Contains("[::1]"));
-        @if (!networkOn && _https is null)
+        var networkOn = _networkOn;
+        @if (!networkOn && _https is null && Tunnel.Url is null)
         {
             <div class="notice">
-                Right now Hearth only listens on this computer, so your phone can't reach it. Easiest and most private: the Tailscale
-                secure link below (works without opening Hearth to your Wi-Fi). Or turn on network access with a password
+                Right now Hearth only listens on this computer, so your phone can't reach it. Easiest: the free Cloudflare
+                public link or the Tailscale secure link below (both work without opening Hearth to your Wi-Fi). Or turn on network access with a password
                 (anyone on your network would otherwise be able to use your bots):
                 <code class="snippet">HEARTH_PASSWORD='pick-a-strong-one' scripts/install-service-macos.sh</code>
                 <span class="muted small">(Docker: set HEARTH_PASSWORD in docker-compose and it's already on the network.)</span>
             </div>
         }
-        else if (!_access.PasswordSet)
+        else if (!_access.SignInRequired)
         {
             <div class="error-box">Hearth is reachable from your network <b>without a password</b>. Anyone on your Wi-Fi can use your bots. Reinstall with HEARTH_PASSWORD set.</div>
         }
 
-        @if (networkOn)
+        @if (_urls.Count > 0)
         {
             <div class="qr-grid">
                 @{ var best = _urls[0]; var appLink = $"hearth://connect?url={Uri.EscapeDataString(best.url)}"; }
@@ -69,7 +72,68 @@
             @if (_tailscale is null) { <span class="muted small">Tailscale isn't running on this computer yet.</span> }
             else if (_https is null) { <span class="muted small">Tailscale is running as @_tailscale, but isn't serving Hearth yet — run the command above.</span> }
             else { <span class="ok-text small">✓ Serving Hearth at @_https</span> }
-            @if (!_access!.PasswordSet) { <div class="muted small">Tip: set a password too (HEARTH_PASSWORD), in case someone else ever joins your tailnet.</div> }
+            @if (!_access!.SignInRequired) { <div class="muted small">Tip: set a password too (HEARTH_PASSWORD), in case someone else ever joins your tailnet.</div> }
+        </details>
+
+        <details class="steps" open="@(Tunnel.Running || Tunnel.Problem is not null)">
+            <summary>🌐 Public link with Cloudflare (completely free, no account, nothing to install on the phone)</summary>
+            <p class="small">Hearth starts a Cloudflare quick tunnel and gets an <b>https://…trycloudflare.com</b> link that opens Hearth from any browser,
+                anywhere. Nothing changes on your router. The link is new every time the tunnel starts (when Hearth restarts, say),
+                so Hearth can send it to you.</p>
+            <p class="muted small">Anyone who has the link reaches your sign-in page, so it only starts while Hearth asks for a password or account
+                sign-in. Wrong passwords are slowed down and, after 10 tries, refused for 15 minutes.</p>
+            @if (Tunnel.Url is { } link)
+            {
+                <div class="row"><span class="ok-text small grow">✓ Hearth is at <a href="@link" target="_blank" rel="noopener">@link</a></span>
+                    <button class="btn small ghost" @onclick="StopTunnel" disabled="@_busy">Stop</button></div>
+            }
+            else if (Tunnel.Starting)
+            {
+                <div class="row"><span class="muted small grow">Starting… the link shows up in a few seconds.</span>
+                    <button class="btn small ghost" @onclick="StopTunnel" disabled="@_busy">Stop</button></div>
+            }
+            else if (Tunnel.CannotStart() is { } why)
+            {
+                <span class="muted small">@why</span>
+                @if (Tunnel.Program is null && Platform.CanUseComputer) { <span class="muted small"> Get it at <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank" rel="noopener">Cloudflare's download page</a>, then reload this page.</span> }
+            }
+            else
+            {
+                <div class="row"><span class="muted small grow">@(Tunnel.Problem ?? "Not running.")</span>
+                    <button class="btn small primary" @onclick="StartTunnel" disabled="@_busy">Start the public link</button></div>
+            }
+            @if (_remote is not null)
+            {
+                <label class="check small"><input type="checkbox" checked="@_remote.SendNewLink" @onchange="e => SetSendLink((bool)e.Value!)" />
+                    Send me the new link when it changes@(_notificationsOn ? "" : " (turn on Phone notifications below first)")</label>
+            }
+        </details>
+
+        <details class="steps" open="@(_netbird is not null && !networkOn)">
+            <summary>🐦 Private link with NetBird (open source, free plan or run it yourself)</summary>
+            <ol>
+                <li>Install <a href="https://netbird.io/download" target="_blank" rel="noopener">NetBird</a> on this computer and on your phone, signed in to the same account
+                    (or your own NetBird server).</li>
+                <li>Hearth has to listen on the network (see above), with a password.</li>
+                <li>Open the NetBird link on your phone (it appears at the top of this card). Only your own devices can reach it.</li>
+            </ol>
+            @if (_netbird is null) { <span class="muted small">NetBird isn't connected on this computer yet.</span> }
+            else if (!networkOn) { <span class="muted small">NetBird is connected as @_netbird, but Hearth only listens on this computer: turn on network access above.</span> }
+            else { <span class="ok-text small">✓ Reachable on NetBird at http://@_netbird:@_port</span> }
+        </details>
+
+        <details class="steps">
+            <summary>🛡️ Your own VPN with WireGuard (free and open source, no company in between)</summary>
+            <ol>
+                <li>Easiest: turn on the <b>WireGuard VPN server</b> in your router if it has one (many do: UniFi, GL.iNet, ASUS, OPNsense,
+                    pfSense, FRITZ!Box, OpenWrt). It makes a QR code for the phone.</li>
+                <li>No router support? Run WireGuard on an always-on computer at home (<a href="https://www.pivpn.io" target="_blank" rel="noopener">PiVPN</a>
+                    makes it a few commands on a Raspberry Pi) and forward its UDP port (usually 51820) on your router.</li>
+                <li>Install the <a href="https://www.wireguard.com/install/" target="_blank" rel="noopener">WireGuard app</a> on your phone and scan the code.</li>
+                <li>With the VPN on, your phone is "at home": open the <b>Home network</b> link above.</li>
+            </ol>
+            @if (!networkOn) { <span class="muted small">Hearth only listens on this computer: turn on network access above, with a password.</span> }
+            else if (_lan.Count > 0) { <span class="ok-text small">✓ Over WireGuard, open http://@_lan[0]:@_port</span> }
         </details>
     }
 </section>
@@ -79,7 +143,13 @@
     private List<(string label, string url)> _urls = [];
     private string? _tailscale;
     private string? _https;
+    private string? _netbird;
+    private List<string> _lan = [];
+    private bool _networkOn, _busy, _notificationsOn;
+    private RemoteAccessSettings? _remote;
     private int _port;
+    private CloudflareTunnel Tunnel => _tunnel ??= Services.GetRequiredService<CloudflareTunnel>();
+    private CloudflareTunnel? _tunnel;
 
     protected override async Task OnInitializedAsync()
     {
@@ -89,12 +159,60 @@
             .FirstOrDefault(p => p > 0);
         if (port == 0) return;
         _port = port;
-        foreach (var ip in LanAddresses()) _urls.Add(("Home network", $"http://{ip}:{port}"));
+        _networkOn = _access.ListenUrls.Any(u => !u.Contains("127.0.0.1") && !u.Contains("localhost") && !u.Contains("[::1]"));
+        _lan = LanAddresses().ToList();
         _tailscale = await TailscaleNameAsync();
-        var networkOn = _access.ListenUrls.Any(u => !u.Contains("127.0.0.1") && !u.Contains("localhost") && !u.Contains("[::1]"));
-        if (_tailscale is not null && networkOn) _urls.Insert(0, ("Tailscale (works anywhere)", $"http://{_tailscale}:{port}"));
         if (_tailscale is not null && await ServesPortAsync(port)) _https = $"https://{_tailscale}";
-        if (_https is not null) _urls.Insert(0, ("Secure link (Tailscale HTTPS)", _https));
+        _netbird = await NetBird.NameAsync(Platform);
+        var settings = await SettingsStore.GetAsync();
+        _remote = settings.RemoteAccess;
+        _notificationsOn = settings.Notifications.Enabled;
+        Tunnel.Changed += OnTunnelChanged;
+        BuildLinks();
+    }
+
+    /// <summary>Every way in, best first: the ones that work anywhere, then home Wi-Fi.</summary>
+    private void BuildLinks()
+    {
+        var urls = new List<(string label, string url)>();
+        if (_https is not null) urls.Add(("Secure link (Tailscale HTTPS)", _https));
+        if (Tunnel.Url is { } link) urls.Add(("Public link (Cloudflare)", link));
+        if (_networkOn)
+        {
+            if (_tailscale is not null) urls.Add(("Tailscale (works anywhere)", $"http://{_tailscale}:{_port}"));
+            if (_netbird is not null) urls.Add(("NetBird (works anywhere)", $"http://{_netbird}:{_port}"));
+            foreach (var ip in _lan) urls.Add(("Home network", $"http://{ip}:{_port}"));
+        }
+        _urls = urls;
+    }
+
+    private void OnTunnelChanged() => InvokeAsync(() => { BuildLinks(); StateHasChanged(); });
+
+    private async Task StartTunnel()
+    {
+        _busy = true;
+        try { await Tunnel.StartAsync(); }
+        finally { _busy = false; BuildLinks(); }
+    }
+
+    private async Task StopTunnel()
+    {
+        _busy = true;
+        try { await Tunnel.StopAsync(); }
+        finally { _busy = false; BuildLinks(); }
+    }
+
+    private async Task SetSendLink(bool on)
+    {
+        var s = await SettingsStore.GetAsync();
+        s.RemoteAccess.SendNewLink = on;
+        await SettingsStore.SaveAsync(s);
+        _remote = s.RemoteAccess;
+    }
+
+    public void Dispose()
+    {
+        if (_tunnel is not null) _tunnel.Changed -= OnTunnelChanged;
     }
 
     private static IEnumerable<string> LanAddresses() =>
