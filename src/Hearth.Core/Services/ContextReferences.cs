@@ -17,7 +17,8 @@ public sealed partial class ContextReferences(IHttpClientFactory http, LinkedFol
     public const int MaxChars = 16000;
 
     [GeneratedRegex(@"(?<=^|\s)@(https?://[^\s<>""]+)")] private static partial Regex UrlRef();
-    [GeneratedRegex(@"(?<=^|\s)@((?:~|/)[^\s]+)")] private static partial Regex PathRef();
+    // "@/…", "@~/…" and, on Windows, "@C:\…" or "@C:/…".
+    [GeneratedRegex(@"(?<=^|\s)@((?:~|/|[A-Za-z]:[\\/])[^\s]+)")] private static partial Regex PathRef();
 
     public static bool HasReferences(string text) => UrlRef().IsMatch(text) || PathRef().IsMatch(text);
 

@@ -46,7 +46,33 @@ Shots used by the wiki that need such arguments: `welcome-bots`, `welcome-phone`
 
 - `Home.md` — the start page; `_Sidebar.md` — navigation (GitHub wikis show it on every page).
 - User guide pages, then `Admin-*.md` pages.
-- Links are relative (`Bots.md`), so they work both in the repository and when the folder is pushed to a GitHub wiki.
+- Links are relative (`Bots.md`), so they work in the repository, on the docs site, and in a GitHub wiki.
 
-To publish as a GitHub wiki: clone `https://github.com/<owner>/<repo>.wiki.git`, copy the contents of `docs/wiki`
-into it, commit and push.
+## The docs site
+
+`docs/wiki` is also published with GitHub Pages at <https://finepointcgi.github.io/hearth/>.
+`.github/workflows/pages.yml` builds it with Jekyll on pull requests that touch the docs (to catch broken pages) and
+publishes it on every push to `main`. You can also run it by hand from the **Actions** tab.
+
+| File | What it does |
+|---|---|
+| `_config.yml` | Site title, and the plugins that turn `Bots.md` links into `Bots.html` and use each page's first heading as its title. `Home.md` is the front page. |
+| `_layouts/default.html` | The page frame: top bar, the sidebar (read from `_Sidebar.md`), and an *Edit this page on GitHub* link. |
+| `assets/wiki.css` | Styles, light and dark. |
+
+A new page needs nothing extra: add the `.md` file and a line in `_Sidebar.md`.
+
+To preview the site before pushing, build it with the same image GitHub uses (Docker), then serve `_site`:
+
+```bash
+docker run --rm -v "$PWD":/w -w /w -e INPUT_SOURCE=docs/wiki -e INPUT_DESTINATION=_site \
+  -e GITHUB_WORKSPACE=/w -e GITHUB_REPOSITORY=finepointcgi/hearth -e INPUT_TOKEN="$(gh auth token)" \
+  ghcr.io/actions/jekyll-build-pages:v1.0.13
+python3 -m http.server 8000 --directory _site
+```
+
+Links in a local build start with the site's path on GitHub (`/hearth/`), so open pages from there or click through
+from `_site/index.html`. Delete `_site` afterwards; it isn't committed.
+
+To publish as a GitHub wiki instead: clone `https://github.com/<owner>/<repo>.wiki.git`, copy the contents of
+`docs/wiki` (without `_config.yml`, `_layouts` and `assets`) into it, commit and push.

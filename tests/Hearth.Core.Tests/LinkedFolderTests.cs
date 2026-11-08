@@ -43,7 +43,7 @@ public sealed class LinkedFolderTests : IDisposable
         var path = Path.Combine(_folder, rel);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, text);
-        return path;
+        return Path.GetFullPath(path); // the folder's own separators, as the index names it (\ on Windows)
     }
 
     private static ToolContext Ctx(IServiceProvider sp) => new()
