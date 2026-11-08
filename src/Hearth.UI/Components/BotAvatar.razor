@@ -1,12 +1,18 @@
 @{
     var anim = Working && Bot is not null ? Bot.WorkingAnimation : null;
-    var cls = $"avatar {Size}{(anim is null or "none" ? "" : $" working anim-{anim}")}{(HasImage ? " pic" : "")}";
+    var picture = Bot is null ? null : BotPictures.For(Bot);
+    var upload = picture is null && Bot?.AvatarImage is { Length: > 0 } src && src.StartsWith("data:image/", StringComparison.Ordinal) ? src : null;
+    var cls = $"avatar {Size}{(anim is null or "none" ? "" : $" working anim-{anim}")}{(picture is not null ? " pic drawn" : upload is not null ? " pic" : "")}";
 }
-<span class="@cls" style="--c:@(Bot?.Color ?? "#888")" title="@(Bot is null ? "" : $"{Bot.Name} · {Bot.Title}")">@if (HasImage)
-    {<img src="@Bot!.AvatarImage" alt="" draggable="false" />}
+<span class="@cls" style="--c:@(Bot?.Color ?? "#888")" title="@(Bot is null ? "" : $"{Bot.Name} · {Bot.Title}")">@if (picture is not null)
+    {@((MarkupString)picture.Svg)}
+    else if (upload is not null)
+    {<img src="@upload" alt="" draggable="false" />}
     else
     {@(Bot?.Emoji ?? "🤖")}@if (anim == "dots")
-    {<span class="avatar-dots" aria-hidden="true"><i></i><i></i><i></i></span>}</span>
+    {<span class="avatar-dots" aria-hidden="true"><i></i><i></i><i></i></span>}
+    else if (anim is "hearts" or "sparkle")
+    {<span class="avatar-fx" aria-hidden="true"><i></i><i></i><i></i></span>}</span>
 
 @code {
     [Parameter] public Bot? Bot { get; set; }
@@ -14,6 +20,4 @@
     [Parameter] public string Size { get; set; } = "md";
     /// <summary>True while the bot is thinking or working: plays the bot's chosen working animation.</summary>
     [Parameter] public bool Working { get; set; }
-
-    private bool HasImage => Bot?.AvatarImage is { Length: > 0 } src && src.StartsWith("data:image/", StringComparison.Ordinal);
 }
