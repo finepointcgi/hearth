@@ -198,7 +198,8 @@ public sealed class ChatRunsTests : IDisposable
         var runs = first.GetRequiredService<ChatRuns>();
         var conv = await NewChatAsync(first, "find me jobs");
         _ = runs.ReplyAsync(conv, Opts with { Think = true });
-        await WaitUntil(() => File.ReadAllText(Path.Combine(_paths.DataDirectory, "conversations", conv.Id + ".json")).Contains("\"Running\""));
+        var store = first.GetRequiredService<ConversationStore>();
+        await WaitUntil(() => { try { return store.GetAsync(conv.Id).GetAwaiter().GetResult()?.Running is not null; } catch (IOException) { return false; } });
         runs.PrepareForShutdown(); // the app stops mid-reply
         runs.Stop(conv.Id);
         await Task.Delay(300);
