@@ -96,7 +96,7 @@
     {
         @if (State.BotById(Message.BotId) is { } author)
         {
-            <div class="msg-author"><BotAvatar Bot="author" Size="sm" /> <b>@author.Name</b> <span class="muted small">@author.Title</span></div>
+            <div class="msg-author"><BotAvatar Bot="author" Size="sm" Working="Message.IsStreaming" /> <b>@author.Name</b> <span class="muted small">@author.Title</span></div>
         }
         @if (!string.IsNullOrEmpty(Message.Thinking) && State.Settings.ShowThinking)
         {

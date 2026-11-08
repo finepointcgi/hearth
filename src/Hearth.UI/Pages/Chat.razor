@@ -202,7 +202,7 @@
                             <Icon Name="users" Size="14" />
                             @if (!done && working is not null && State.BotById(working.BotId ?? "") is { } busyBot)
                             {
-                                <span>@busyBot.Name is working…</span>
+                                <BotAvatar Bot="busyBot" Size="sm" Working="true" /><span>@busyBot.Name is working…</span>
                             }
                             else if (!done)
                             {
@@ -233,7 +233,10 @@
             {
                 // Before the first reply appears (the lead deciding who takes it): show that something is happening.
                 var lead = Members.FirstOrDefault(b => b.IsCoordinator) ?? Members.FirstOrDefault();
-                <div class="pending-reply"><span class="pending-dot"></span> @(lead?.Name ?? "Hearth") is thinking…</div>
+                <div class="pending-reply">
+                    @if (lead is not null) { <BotAvatar Bot="lead" Working="true" /> } else { <span class="pending-dot"></span> }
+                    <span>@(lead?.Name ?? "Hearth") is thinking…</span>
+                </div>
             }
         </div>
     }

@@ -49,6 +49,25 @@
             <label>Colour <input type="color" @bind="_bot.Color" style="width:4rem;padding:.2rem" /></label>
             <label class="grow">Name <input @bind="_bot.Name" placeholder="e.g. Researcher" /></label>
         </div>
+        <div class="avatar-picker">
+            <div class="avatar-preview" title="How it looks, and how it moves while thinking">
+                <BotAvatar Bot="_bot" Size="lg" />
+                <BotAvatar Bot="_bot" Size="lg" Working="true" />
+            </div>
+            <label class="btn ghost file-btn">@(_bot.AvatarImage is null ? "Upload picture" : "Change picture")
+                <InputFile OnChange="OnAvatarPicked" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" /></label>
+            @if (_bot.AvatarImage is not null)
+            {
+                <button class="btn ghost" @onclick="() => _bot.AvatarImage = null">Use emoji instead</button>
+            }
+            <label>While thinking
+                <select @bind="_bot.WorkingAnimation">
+                    @foreach (var (id, label) in Bot.WorkingAnimations) { <option value="@id">@label</option> }
+                </select>
+            </label>
+        </div>
+        @if (_avatarError is not null) { <div class="error-box">@_avatarError</div> }
+        @if (_bot.AvatarImage is not null) { <p class="muted small">The emoji is still used in chat apps (Telegram, Discord…) and menus that can only show text.</p> }
         <label>Title / role <input @bind="_bot.Title" placeholder="e.g. Research & fact-checking" /></label>
         <label>Instructions
             <textarea rows="7" @bind="_bot.Instructions" placeholder="What this bot does, how it works, its tone, what it should never do…"></textarea>
@@ -599,6 +618,40 @@
     {
         _bot!.AllowedTools.Remove(name);
         if (on) _bot.AllowedTools.Add(name);
+    }
+
+    private string? _avatarError;
+
+    /// <summary>
+    /// A picture for the avatar. Stills are shrunk in the browser to 256px; a GIF is kept as it is (shrinking it would
+    /// stop the animation), so it has to be small already.
+    /// </summary>
+    private async Task OnAvatarPicked(InputFileChangeEventArgs e)
+    {
+        _avatarError = null;
+        var file = e.File;
+        try
+        {
+            if (file.ContentType == "image/gif")
+            {
+                const long maxGif = 1_500_000;
+                if (file.Size > maxGif) { _avatarError = "That GIF is over 1.5 MB. Pick a smaller one (avatars show at 52px at most)."; return; }
+                _bot!.AvatarImage = "data:image/gif;base64," + Convert.ToBase64String(await ReadAll(file, maxGif));
+                return;
+            }
+            if (!file.ContentType.StartsWith("image/")) { _avatarError = "That isn't a picture."; return; }
+            var small = await file.RequestImageFileAsync("image/png", 256, 256);
+            _bot!.AvatarImage = "data:image/png;base64," + Convert.ToBase64String(await ReadAll(small, 2_000_000));
+        }
+        catch (Exception ex) { _avatarError = "Couldn't read that picture: " + ex.Message; }
+    }
+
+    private static async Task<byte[]> ReadAll(IBrowserFile file, long max)
+    {
+        using var ms = new MemoryStream();
+        await using var s = file.OpenReadStream(max);
+        await s.CopyToAsync(ms);
+        return ms.ToArray();
     }
 
     private async Task Save()
