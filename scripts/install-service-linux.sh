@@ -37,8 +37,8 @@ WantedBy=default.target"
 
 if [[ "${1:-}" == "--dry-run" ]]; then echo "${CONTENT//$HEARTH_PASSWORD/***}"; exit 0; fi
 
-"$DOTNET" publish "$REPO/src/Hearth.Web/Hearth.Web.csproj" -c Release -o "$APP_DIR" --nologo -v quiet
-"$DOTNET" publish "$REPO/src/Hearth.Acp/Hearth.Acp.csproj" -c Release -o "$HOME/.hearth/acp" --nologo -v quiet  # editor bridge (Connections → More → API)
+"$DOTNET" publish "$REPO/src/Hearth.Web/Hearth.Web.csproj" -c Release -o "$APP_DIR" --nologo -v quiet -clp:ErrorsOnly
+"$DOTNET" publish "$REPO/src/Hearth.Acp/Hearth.Acp.csproj" -c Release -o "$HOME/.hearth/acp" --nologo -v quiet -clp:ErrorsOnly  # editor bridge (Connections → More → API)
 mkdir -p "$(dirname "$UNIT")"
 printf '%s\n' "$CONTENT" > "$UNIT"; chmod 600 "$UNIT"
 systemctl --user daemon-reload
