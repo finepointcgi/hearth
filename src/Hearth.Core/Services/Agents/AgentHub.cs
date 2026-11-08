@@ -50,6 +50,9 @@ public sealed class AgentHub : IAsyncDisposable
     /// <summary>Agents run as local programs: desktop, or the web host with local access.</summary>
     public bool Available => _platform.CanRunProcesses;
 
+    /// <summary>For tests: the home folder agents keep their files in on this computer.</summary>
+    public string Home { get; set; } = AgentCatalog.HomeFolder;
+
     /// <summary>For tests: the program to run instead of looking the agent up.</summary>
     public Func<AgentDef, string?>? Locator { get; set; }
 
@@ -120,6 +123,76 @@ public sealed class AgentHub : IAsyncDisposable
     public Func<Tools.RemoteHost, string, TimeSpan, Task<(int, string)>> NodeRunner { get; set; } =
         (h, command, timeout) => Tools.Ssh.RunAsync(h, command, timeout, CancellationToken.None);
 
+    private readonly ConcurrentDictionary<string, (DateTime at, IReadOnlyList<AgentProfile> profiles)> _profiles = new();
+
+    /// <summary>An agent's profiles there (always starting with the default one). Remote lists are remembered for 10 minutes.</summary>
+    public async Task<IReadOnlyList<AgentProfile>> ProfilesAsync(AgentPlace place, bool refresh = false)
+    {
+        var def = place.Def;
+        if (!def.HasProfiles) return [new AgentProfile(AgentProfile.Default, null)];
+        var found = new List<AgentProfile> { new(AgentProfile.Default, null) };
+        if (place.Host is not { } host)
+        {
+            var dir = Path.Combine(Home, def.Home, def.ProfilesDir!);
+            if (Directory.Exists(dir))
+                foreach (var d in Directory.EnumerateDirectories(dir).Order())
+                {
+                    var name = Path.GetFileName(d);
+                    if (!AgentPlace.ValidProfile(name) || name == AgentProfile.Default) continue;
+                    var meta = Path.Combine(d, "profile.yaml");
+                    found.Add(new AgentProfile(name, File.Exists(meta) ? DescriptionIn(await File.ReadAllTextAsync(meta)) : null));
+                }
+            return found;
+        }
+        var key = host.Id + "/" + def.Id;
+        if (!refresh && _profiles.TryGetValue(key, out var known) && DateTime.UtcNow - known.at < TimeSpan.FromMinutes(10)) return known.profiles;
+        var root = Tools.Ssh.QuotePath($"~/{def.Home}/{def.ProfilesDir}");
+        var (_, output) = await NodeRunner(host, $"for d in {root}/*/; do [ -d \"$d\" ] || continue; n=$(basename \"$d\"); " +
+                                                 "echo \"@@$n|$(grep -m1 '^description:' \"$d/profile.yaml\" 2>/dev/null | cut -d: -f2-)\"; done; echo @@end", TimeSpan.FromSeconds(30));
+        if (!output.Contains("@@end")) throw new InvalidOperationException($"Couldn't reach {host.Name}: {Clip(output.Trim(), 300)}");
+        foreach (var line in output.Split('\n').Where(l => l.StartsWith("@@") && l.Contains('|')))
+        {
+            var parts = line[2..].Split('|', 2);
+            if (AgentPlace.ValidProfile(parts[0]) && parts[0] != AgentProfile.Default)
+                found.Add(new AgentProfile(parts[0], DescriptionIn("description:" + parts[1])));
+        }
+        _profiles[key] = (DateTime.UtcNow, found);
+        return found;
+    }
+
+    /// <summary>What's known about a computer's profiles for an agent without asking it.</summary>
+    public IReadOnlyList<AgentProfile>? KnownProfiles(string hostId, string agentId) =>
+        _profiles.TryGetValue(hostId + "/" + agentId, out var k) ? k.profiles : null;
+
+    /// <summary>The description line of a profile.yaml (a plain or quoted YAML string).</summary>
+    public static string? DescriptionIn(string yaml)
+    {
+        var line = yaml.Split('\n').Select(l => l.TrimEnd('\r')).FirstOrDefault(l => l.StartsWith("description:"));
+        var value = line?["description:".Length..].Trim().Trim('"', '\'').Trim();
+        return string.IsNullOrEmpty(value) ? null : value.Length > 200 ? value[..200] + "…" : value;
+    }
+
+    /// <summary>Runs a command on a remote computer with <paramref name="input"/> as its stdin (files go over this way).</summary>
+    public async Task<(int exit, string output)> NodeSendAsync(Tools.RemoteHost host, string command, byte[] input, TimeSpan timeout)
+    {
+        using var p = Process.Start(NodeStarter(host, command)) ?? throw new InvalidOperationException("Couldn't start ssh.");
+        using var cts = new CancellationTokenSource(timeout);
+        var stdout = p.StandardOutput.ReadToEndAsync(cts.Token);
+        var stderr = p.StandardError.ReadToEndAsync(cts.Token);
+        try
+        {
+            await p.StandardInput.BaseStream.WriteAsync(input, cts.Token);
+            p.StandardInput.Close();
+            await p.WaitForExitAsync(cts.Token);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException)
+        {
+            try { p.Kill(true); } catch { }
+            return (-1, ex is OperationCanceledException ? $"Timed out after {timeout.TotalSeconds:0}s." : ex.Message);
+        }
+        return (p.ExitCode, AgentCatalog.StripAnsi((await stdout) + (await stderr)).Trim());
+    }
+
     /// <summary>For tests: the process that runs a command line on a remote computer (default: ssh).</summary>
     public Func<Tools.RemoteHost, string, ProcessStartInfo> NodeStarter { get; set; } = Tools.Ssh.Start;
 
@@ -134,6 +207,8 @@ public sealed class AgentHub : IAsyncDisposable
     /// <summary>The process for an agent: here in the run's folder, or on its computer over SSH.</summary>
     private async Task<ProcessStartInfo> LaunchAsync(AgentRun run, string cli, IEnumerable<string> args)
     {
+        if (run.Profile is { } profile && AgentCatalog.Find(run.AgentId) is { ProfileFlag: { } flag })
+            args = new[] { flag, profile }.Concat(args).ToList();
         if (run.NodeId is null)
         {
             var psi = new ProcessStartInfo(cli)
@@ -171,7 +246,7 @@ public sealed class AgentHub : IAsyncDisposable
 
     /// <summary>Starts a job. Returns at once; the work goes on in the background (see <see cref="WaitAsync"/>).</summary>
     public async Task<AgentRun> StartAsync(string agentId, string task, string folder, string? conversationId = null, string? botId = null,
-        bool unattended = false, string? computer = null)
+        bool unattended = false, string? computer = null, string? profile = null)
     {
         if (!Available) throw new InvalidOperationException("Agents run as programs on this computer, so they work in the desktop app or the web host with local access.");
         var def = AgentCatalog.Find(agentId) ?? throw new InvalidOperationException($"No agent called \"{agentId}\". Hearth knows: {string.Join(", ", AgentCatalog.All.Select(a => a.Name))}.");
@@ -198,11 +273,19 @@ public sealed class AgentHub : IAsyncDisposable
             if (line == "@@missing") throw new InvalidOperationException($"There's no folder {folder} on {host.Name}.");
             folder = line[2..]; // the full path there, which agents need
         }
+        profile = string.IsNullOrWhiteSpace(profile) || profile.Trim() == AgentProfile.Default ? null : profile.Trim();
+        if (profile is not null)
+        {
+            if (!def.HasProfiles) throw new InvalidOperationException($"{def.Name} doesn't have profiles.");
+            var profiles = await ProfilesAsync(new AgentPlace(def, host));
+            if (profiles.All(p => p.Name != profile))
+                throw new InvalidOperationException($"{def.Name} has no profile \"{profile}\"{(host is null ? "" : $" on {host.Name}")}. Profiles: {string.Join(", ", profiles.Select(p => p.Name))}.");
+        }
         var settings = app.Agents.For(def.Id);
         var run = new AgentRun
         {
-            AgentId = def.Id, AgentName = def.Name, Task = task, Folder = folder, Mode = settings.Mode,
-            ConversationId = conversationId, BotId = botId, Unattended = unattended, NodeId = host?.Id, NodeName = host?.Name,
+            AgentId = def.Id, AgentName = def.Name + (profile is null ? "" : $" ({profile})"), Task = task, Folder = folder, Mode = settings.Mode,
+            ConversationId = conversationId, BotId = botId, Unattended = unattended, NodeId = host?.Id, NodeName = host?.Name, Profile = profile,
         };
         run.Steps.Add(new AgentStep { Kind = AgentStep.You, Content = task });
         _live[run.Id] = run;
@@ -261,6 +344,7 @@ public sealed class AgentHub : IAsyncDisposable
             else await RunAcpAsync(run, def, cli, text, cts.Token);
             run.Result = run.LatestAnswer() is { Length: > 0 } answer ? answer : run.Result;
             run.Status = AgentRunStatus.Done;
+            run.CloseOpenSteps("completed");
         }
         catch (Exception ex) when (cts.IsCancellationRequested && ex is OperationCanceledException or AcpException or TaskCanceledException)
         {
@@ -276,6 +360,7 @@ public sealed class AgentHub : IAsyncDisposable
         }
         finally
         {
+            run.CloseOpenSteps("stopped");
             run.Ended = DateTimeOffset.Now;
             _cancel.TryRemove(run.Id, out _);
             Changed?.Invoke(run);
@@ -543,6 +628,7 @@ public sealed class AgentHub : IAsyncDisposable
         if (call is not null) run.Tool(Str(call, "toolCallId"), title, kind, "pending");
         var options = (p?["options"] as JsonArray)?.OfType<JsonObject>().ToList() ?? [];
         var ok = await DecideAsync(run, title, kind, details, ct);
+        if (!ok && call is not null) run.Tool(Str(call, "toolCallId"), "", null, "failed"); // the agent may not say so itself
         string? Pick(params string[] kinds) => kinds.Select(k => options.FirstOrDefault(o => Str(o, "kind") == k)).OfType<JsonObject>().Select(o => Str(o, "optionId")).FirstOrDefault();
         var option = ok ? Pick("allow_once", "allow_always") : Pick("reject_once", "reject_always");
         return option is null

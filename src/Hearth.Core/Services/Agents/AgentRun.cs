@@ -46,6 +46,8 @@ public sealed class AgentRun
     /// <summary>The remote computer it runs on (Remote computers id and name); null: this computer.</summary>
     public string? NodeId { get; set; }
     public string? NodeName { get; set; }
+    /// <summary>The agent's named profile (Hermes profiles); null: its default one.</summary>
+    public string? Profile { get; set; }
     /// <summary>The approval it's waiting for, while <see cref="AgentRunStatus.WaitingForYou"/>.</summary>
     public string? WaitingOn { get; set; }
 
@@ -86,6 +88,17 @@ public sealed class AgentRun
             }
             return step;
         }
+    }
+
+    /// <summary>
+    /// When a turn ends, steps the agent never reported back on are closed: finished if the turn ended normally
+    /// (some agents don't send a final update for every step), otherwise stopped.
+    /// </summary>
+    public void CloseOpenSteps(string status)
+    {
+        lock (Steps)
+            foreach (var s in Steps.Where(s => s.Kind == AgentStep.Tool && s.Status is null or "pending" or "in_progress"))
+                s.Status = status;
     }
 
     public void Note(string text) { lock (Steps) Steps.Add(new AgentStep { Kind = AgentStep.Note, Content = text }); }

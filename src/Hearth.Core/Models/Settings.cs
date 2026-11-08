@@ -368,8 +368,10 @@ public sealed class AgentSettings
     public AgentMode Mode { get; set; } = AgentMode.Ask;
     /// <summary>A run is stopped after this long.</summary>
     public int MaxMinutes { get; set; } = 30;
-    /// <summary>Hearth's skills are linked into the agent's skills folder.</summary>
+    /// <summary>Hearth's skills are linked into the agent's skills folder on this computer (default profile).</summary>
     public bool ShareSkills { get; set; }
+    /// <summary>Where Hearth's skills are shared: "local" or a computer's id, with "/profile" for a named profile.</summary>
+    public List<string> SharedSkillsAt { get; set; } = [];
 }
 
 public sealed class AgentsSettings

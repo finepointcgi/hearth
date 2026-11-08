@@ -154,6 +154,9 @@ Client Protocol (`hermes acp`, `gemini --acp`…); Claude Code through its headl
 - **Other computers**: add a machine you can SSH into (key login) under Agents → Other computers, and Hearth finds the
   agents installed there and runs them over SSH (ACP and Claude Code's stream pass straight through), with the same
   live steps, approvals and follow-ups. Bots pick a computer with the `computer` argument of `hand_off_to_agent`.
+  Memory files and skill sharing work there too (skills are copied over, marked as Hearth's, and kept current).
+- **Hermes profiles**: pick which profile runs a job (each has its own memory, skills and model); bots see each
+  profile's description and choose with `profile`.
 - **Look after them**: status and update buttons, edit their memory files (a backup is kept), copy what Hearth knows
   about you into them, and share Hearth's skills (linked into their skills folder and kept current).
 

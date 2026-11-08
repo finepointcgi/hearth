@@ -49,9 +49,11 @@ public sealed class AgentHubTests : IAsyncDisposable
             elif meth == "session/prompt":
                 text = m["params"]["prompt"][0]["text"]
                 def upd(u): send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": u}})
-                upd({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Hello, "}})
+                who = (" as " + sys.argv[sys.argv.index("--profile") + 1]) if "--profile" in sys.argv else ""
+                upd({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Hello" + who + ", "}})
                 upd({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "got: " + text}})
                 upd({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Read notes.txt", "kind": "read", "status": "completed"})
+                upd({"sessionUpdate": "tool_call", "toolCallId": "t3", "title": "Look around", "kind": "search", "status": "in_progress"})
                 upd({"sessionUpdate": "plan", "entries": [{"content": "Look", "status": "completed"}, {"content": "Edit", "status": "pending"}]})
                 asks += 1
                 send({"jsonrpc": "2.0", "id": 1000 + asks, "method": "session/request_permission", "params": {"sessionId": sid,
@@ -106,6 +108,7 @@ public sealed class AgentHubTests : IAsyncDisposable
         Assert.Contains(run.Steps, s => s is { Kind: AgentStep.Tool, Content: "Edit app.py", Status: "completed" });
         Assert.Contains(run.Steps, s => s.Kind == AgentStep.Plan && s.Content == "☑ Look\n☐ Edit");
         Assert.Contains(run.Steps, s => s.Content == "You allowed: Edit app.py");
+        Assert.Contains(run.Steps, s => s is { Content: "Look around", Status: "completed" }); // never reported back, closed when the turn ended
 
         // A follow-up goes to the same open session.
         await hub.SendAsync(run.Id, "again");
@@ -132,6 +135,7 @@ public sealed class AgentHubTests : IAsyncDisposable
         run = await hub.WaitAsync((await hub.StartAsync("hermes", "go", _work, unattended: true)).Id, TimeSpan.FromSeconds(30));
         Assert.EndsWith("Edit was no.", run.Result);
         Assert.Contains(run.Steps, s => s.Content == "Refused, no one to ask: Edit app.py");
+        Assert.Contains(run.Steps, s => s is { Content: "Edit app.py", Status: "failed" });
         Assert.Equal(0, asked);
     }
 
@@ -215,6 +219,9 @@ public sealed class AgentHubTests : IAsyncDisposable
     /// Another computer, played by a local shell: Hearth's remote command line (PATH, cd into the folder, exec the
     /// agent) runs exactly as it would after ssh, and the agent's JSON passes through it.
     /// </summary>
+    /// <summary>The pretend other computer's home folder.</summary>
+    private string RemoteHome => Directory.CreateDirectory(Path.Combine(_paths.DataDirectory, "remote-home")).FullName;
+
     private async Task<(AgentHub hub, Hearth.Core.Tools.RemoteHost host)?> RemoteAsync(AgentMode mode)
     {
         var hub = await HubAsync(mode);
@@ -227,9 +234,10 @@ public sealed class AgentHubTests : IAsyncDisposable
         await store.SaveAsync(s);
         hub.NodeRunner = async (_, command, _) =>
         {
-            if (command.Contains("@@done")) return (0, $"@@hermes|{fake}|Hermes Agent v9\n@@claude|/usr/bin/claude|2.1.0 (Claude Code)\n@@done\n");
+            if (command.Contains("--version </dev/null")) return (0, $"@@hermes|{fake}|Hermes Agent v9\n@@claude|/usr/bin/claude|2.1.0 (Claude Code)\n@@done\n");
             var psi = new System.Diagnostics.ProcessStartInfo("/bin/sh") { RedirectStandardOutput = true, RedirectStandardError = true };
             psi.ArgumentList.Add("-c"); psi.ArgumentList.Add(command);
+            psi.Environment["HOME"] = RemoteHome;
             using var p = System.Diagnostics.Process.Start(psi)!;
             var output = await p.StandardOutput.ReadToEndAsync() + await p.StandardError.ReadToEndAsync();
             await p.WaitForExitAsync();
@@ -240,6 +248,7 @@ public sealed class AgentHubTests : IAsyncDisposable
             var psi = new System.Diagnostics.ProcessStartInfo("/bin/sh")
                 { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
             psi.ArgumentList.Add("-c"); psi.ArgumentList.Add(command);
+            psi.Environment["HOME"] = RemoteHome;
             return psi;
         };
         return (hub, host);
@@ -299,6 +308,90 @@ public sealed class AgentHubTests : IAsyncDisposable
         var done = await handOff.ExecuteAsync(new JsonObject { ["agent"] = "hermes", ["task"] = "go", ["computer"] = "lab", ["folder"] = _work }, ctx, default);
         Assert.StartsWith("Hermes finished", done.Text);
         Assert.Contains(" on lab (run ", done.Text);
+    }
+
+    [Fact]
+    public async Task AJobCanRunInANamedProfile()
+    {
+        var hub = await HubAsync(AgentMode.FullAuto);
+        if (hub.Locator!(AgentCatalog.Find("hermes")!) is null) return;
+        hub.Home = Directory.CreateDirectory(Path.Combine(_paths.DataDirectory, "home")).FullName;
+        var work = Directory.CreateDirectory(Path.Combine(hub.Home, ".hermes", "profiles", "work")).FullName;
+        File.WriteAllText(Path.Combine(work, "profile.yaml"), "display_name: Work\ndescription: \"Writes and reviews code\"\n");
+        Directory.CreateDirectory(Path.Combine(hub.Home, ".hermes", "profiles", "bad name"));
+
+        var profiles = await hub.ProfilesAsync(new AgentPlace(AgentCatalog.Find("hermes")!));
+        Assert.Equal([new AgentProfile("default", null), new AgentProfile("work", "Writes and reviews code")], profiles);
+
+        var run = await hub.WaitAsync((await hub.StartAsync("hermes", "ship it", _work, profile: "work")).Id, TimeSpan.FromSeconds(30));
+        Assert.Equal("Hello as work, got: ship it\n\nEdit was yes.", run.Result);
+        Assert.Equal("Hermes (work)", run.AgentName);
+        run = await hub.WaitAsync((await hub.StartAsync("hermes", "x", _work, profile: "default")).Id, TimeSpan.FromSeconds(30));
+        Assert.StartsWith("Hello, got", run.Result);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => hub.StartAsync("hermes", "x", _work, profile: "nope"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => hub.StartAsync("gemini", "x", _work, profile: "work"));
+    }
+
+    [Fact]
+    public async Task ProfilesMemoryAndSkillsWorkOnAnotherComputer()
+    {
+        if (await RemoteAsync(AgentMode.Ask) is not var (hub, host)) return;
+        var hermes = AgentCatalog.Find("hermes")!;
+        var claude = AgentCatalog.Find("claude-code")!;
+        var care = _sp.GetRequiredService<AgentCare>();
+        var research = Directory.CreateDirectory(Path.Combine(RemoteHome, ".hermes", "profiles", "research")).FullName;
+        File.WriteAllText(Path.Combine(research, "profile.yaml"), "description: Digs into papers\n");
+        Directory.CreateDirectory(Path.Combine(RemoteHome, ".claude"));
+
+        Assert.Equal(["default", "research"], (await hub.ProfilesAsync(new AgentPlace(hermes, host))).Select(p => p.Name));
+        Assert.Equal("Digs into papers", hub.KnownProfiles(host.Id, "hermes")![1].Description);
+
+        // Memory files there, in a profile: list, write (with a backup), read back exactly.
+        var place = new AgentPlace(hermes, host, "research");
+        Assert.All(await care.MemoryFilesAsync(place), f => Assert.False(f.Exists));
+        await care.SaveAsync(place, "memories/USER.md", "first");
+        await care.SaveAsync(place, "memories/USER.md", "Likes tea.\nNo trailing newline");
+        Assert.Equal("Likes tea.\nNo trailing newline", await care.ReadAsync(place, "memories/USER.md"));
+        Assert.Equal("first", File.ReadAllText(Path.Combine(research, "memories", "USER.md.hearth-backup")));
+        var files = await care.MemoryFilesAsync(place);
+        Assert.True(files[0].Exists);
+        Assert.Equal("lab:~/.hermes/profiles/research/memories/USER.md", files[0].Path);
+        await _sp.GetRequiredService<MemoryStore>().AddAsync("Has a dog named Biscuit");
+        Assert.Equal(1, await care.ShareMemoriesAsync(place));
+        Assert.Contains("- Has a dog named Biscuit", File.ReadAllText(Path.Combine(research, "memories", "USER.md")));
+        Assert.Contains("Likes tea.", File.ReadAllText(Path.Combine(research, "memories", "USER.md")));
+
+        // Skills are copied there (links can't cross computers), marked as Hearth's, and only those are removed.
+        var skills = Path.Combine(_paths.DataDirectory, "skills");
+        Directory.CreateDirectory(Path.Combine(skills, "weekly-report"));
+        File.WriteAllText(Path.Combine(skills, "weekly-report", "SKILL.md"), "---\nname: weekly-report\n---\nSteps");
+        var mine = Directory.CreateDirectory(Path.Combine(RemoteHome, ".claude", "skills", "hearth-mine")).FullName; // the user's own, not Hearth's
+
+        Assert.Equal(1, await care.ShareSkillsAsync(place, true));
+        Assert.True(File.Exists(Path.Combine(research, "skills", "hearth", "weekly-report", "SKILL.md")));
+        Assert.True(await care.SkillsSharedAsync(place));
+        Assert.Equal(1, await care.ShareSkillsAsync(new AgentPlace(claude, host), true));
+        Assert.True(File.Exists(Path.Combine(RemoteHome, ".claude", "skills", "hearth-weekly-report", "SKILL.md")));
+        Assert.Contains($"{host.Id}/research", (await _sp.GetRequiredService<SettingsStore>().GetAsync()).Agents.For("hermes").SharedSkillsAt);
+
+        // A new skill reaches them on the next sync.
+        Directory.CreateDirectory(Path.Combine(skills, "meal-plan"));
+        File.WriteAllText(Path.Combine(skills, "meal-plan", "SKILL.md"), "---\nname: meal-plan\n---\nSteps");
+        await care.ResyncAsync();
+        Assert.True(File.Exists(Path.Combine(RemoteHome, ".claude", "skills", "hearth-meal-plan", "SKILL.md")));
+        Assert.True(File.Exists(Path.Combine(research, "skills", "hearth", "meal-plan", "SKILL.md")));
+
+        await care.ShareSkillsAsync(new AgentPlace(claude, host), false);
+        await care.ShareSkillsAsync(place, false);
+        Assert.False(Directory.Exists(Path.Combine(RemoteHome, ".claude", "skills", "hearth-weekly-report")),
+            string.Join(", ", Directory.EnumerateFileSystemEntries(Path.Combine(RemoteHome, ".claude", "skills"), "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(RemoteHome, f))));
+        Assert.False(Directory.Exists(Path.Combine(research, "skills", "hearth")));
+        Assert.True(Directory.Exists(mine));
+        Assert.False(await care.SkillsSharedAsync(place));
+
+        // An agent that was never set up there isn't created by sharing.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => care.ShareSkillsAsync(new AgentPlace(AgentCatalog.Find("openclaw")!, host), true));
+        Assert.False(Directory.Exists(Path.Combine(RemoteHome, ".openclaw")));
     }
 
     [Fact]

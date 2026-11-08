@@ -1,0 +1,132 @@
+@using Hearth.Core.Services.Agents
+@inject AgentCare Care
+@inject AgentHub Hub
+
+@* What an agent remembers and whether it has Hearth's skills, on this computer or another one, per profile. *@
+<details class="advanced" @ontoggle="Opened">
+    <summary>What it remembers@(Def.Skills != SkillLink.None ? " and its skills" : "")</summary>
+    <div class="sub">
+        @if (!_loaded)
+        {
+            <p class="muted small">@(_error ?? "Loading…")</p>
+        }
+        else
+        {
+            @if (_profiles.Count > 1)
+            {
+                <label>Profile
+                    <select value="@_profile" @onchange="PickProfile">
+                        @foreach (var p in _profiles) { <option value="@p.Name">@p.Name@(p.Description is { } d ? $" — {d}" : "")</option> }
+                    </select>
+                </label>
+            }
+            @foreach (var f in _files)
+            {
+                var file = f;
+                <div class="row">
+                    <code class="grow small">@file.Path</code>
+                    <span class="muted small">@(file.Exists ? $"{file.Bytes:N0} bytes" : "not created yet")</span>
+                    <button class="btn small ghost" @onclick="() => Open(file.Name)" disabled="@_busy">@(_open == file.Name ? "Close" : file.Exists ? "Edit" : "Create")</button>
+                </div>
+                @if (_open == file.Name)
+                {
+                    <textarea rows="10" class="mono small" @bind="_text"></textarea>
+                    <div class="row end">
+                        <span class="muted small grow">The old version is kept as @(file.Name).hearth-backup.</span>
+                        <button class="btn small primary" @onclick="() => Save(file.Name)" disabled="@_busy">Save</button>
+                    </div>
+                }
+            }
+            <div class="row">
+                <span class="grow small">Copy what Hearth knows about you into @Def.MemoryFiles[0] (a marked section; doing it again replaces it).</span>
+                <button class="btn small ghost" @onclick="ShareMemories" disabled="@_busy">Share what Hearth knows</button>
+            </div>
+            @if (Def.Skills != SkillLink.None)
+            {
+                <label class="check"><input type="checkbox" checked="@_shared" disabled="@_busy" @onchange="e => ShareSkills((bool)e.Value!)" />
+                    Share Hearth's skills with it
+                    <span class="muted small">(@(Host is null ? "linked into" : "copied to") ~/@Place.RelativeHome/@Def.SkillsDir@(Host is null ? "" : $" on {Host.Name}"), kept up to date)</span></label>
+            }
+            @if (_message is not null) { <p class="small @(_failed ? "error-text" : "muted")">@_message</p> }
+        }
+    </div>
+</details>
+
+@code {
+    [Parameter, EditorRequired] public AgentDef Def { get; set; } = default!;
+    /// <summary>Another computer; null: this one.</summary>
+    [Parameter] public Hearth.Core.Tools.RemoteHost? Host { get; set; }
+
+    private IReadOnlyList<AgentProfile> _profiles = [];
+    private IReadOnlyList<AgentMemoryFile> _files = [];
+    private string _profile = AgentProfile.Default, _text = "";
+    private string? _open, _message, _error;
+    private bool _loaded, _busy, _shared, _failed;
+
+    private AgentPlace Place => new(Def, Host, _profile);
+
+    private async Task Opened()
+    {
+        if (_loaded || _busy) return;
+        _busy = true;
+        try
+        {
+            _profiles = await Hub.ProfilesAsync(new AgentPlace(Def, Host));
+            await LoadAsync();
+            _loaded = true;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task LoadAsync()
+    {
+        _files = await Care.MemoryFilesAsync(Place);
+        _shared = await Care.SkillsSharedAsync(Place);
+        _open = null;
+    }
+
+    private async Task PickProfile(ChangeEventArgs e)
+    {
+        _profile = e.Value?.ToString() ?? AgentProfile.Default;
+        await Run(async () => { await LoadAsync(); return null; });
+    }
+
+    private Task Open(string name) => Run(async () =>
+    {
+        if (_open == name) { _open = null; return null; }
+        _text = await Care.ReadAsync(Place, name);
+        _open = name;
+        return null;
+    });
+
+    private Task Save(string name) => Run(async () =>
+    {
+        await Care.SaveAsync(Place, name, _text);
+        _files = await Care.MemoryFilesAsync(Place);
+        _open = null;
+        return $"Saved {name}.";
+    });
+
+    private Task ShareMemories() => Run(async () =>
+    {
+        var n = await Care.ShareMemoriesAsync(Place);
+        _files = await Care.MemoryFilesAsync(Place);
+        return $"Wrote {n} things Hearth knows about you into {Def.MemoryFiles[0]}.";
+    });
+
+    private Task ShareSkills(bool on) => Run(async () =>
+    {
+        var n = await Care.ShareSkillsAsync(Place, on);
+        _shared = on;
+        return on ? $"Shared {n} skill{(n == 1 ? "" : "s")} with {Place.Label}." : $"{Place.Label} no longer has Hearth's skills.";
+    });
+
+    private async Task Run(Func<Task<string?>> work)
+    {
+        _busy = true; _failed = false;
+        try { _message = await work(); }
+        catch (Exception ex) { _message = ex.Message; _failed = true; }
+        finally { _busy = false; }
+    }
+}

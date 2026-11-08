@@ -12,6 +12,9 @@ namespace Hearth.Core.Tools;
 /// </summary>
 public sealed class AgentToolProvider(AgentHub hub, LinkedFolders folders) : IToolProvider
 {
+    private static string Profiles(IReadOnlyList<AgentProfile> list) =>
+        string.Join(", ", list.Select(p => p.Description is { } d ? $"{p.Name} ({d})" : p.Name));
+
     public async Task<IReadOnlyList<ITool>> GetToolsAsync(AppSettings settings, CancellationToken ct)
     {
         if (!hub.Available) return [];
@@ -24,7 +27,19 @@ public sealed class AgentToolProvider(AgentHub hub, LinkedFolders folders) : ITo
             if (hub.KnownNodeStatus(h.Id) is { } known) { if (known.Any(On)) nodes.Add((h, known.Where(On).ToList())); }
             else _ = hub.NodeStatusAsync(h).ContinueWith(_ => { }, TaskScheduler.Default);
         }
-        return ready.Count == 0 && nodes.Count == 0 ? [] : [new HandOffToAgentTool(hub, folders, ready, nodes), new FollowUpAgentTool(hub)];
+        if (ready.Count == 0 && nodes.Count == 0) return [];
+        // Named profiles (Hermes): here they're read from disk; on other computers, what's known so far.
+        var profiles = new List<string>();
+        foreach (var a in ready.Where(a => a.Def.HasProfiles))
+        {
+            var here = await hub.ProfilesAsync(new AgentPlace(a.Def));
+            if (here.Count > 1) profiles.Add($"{a.Def.Id} profiles on this computer: {Profiles(here)}");
+        }
+        foreach (var (h, agents) in nodes)
+            foreach (var a in agents.Where(a => a.Def.HasProfiles))
+                if (hub.KnownProfiles(h.Id, a.Def.Id) is { Count: > 1 } there) profiles.Add($"{a.Def.Id} profiles on \"{h.Name}\": {Profiles(there)}");
+                else if (hub.KnownProfiles(h.Id, a.Def.Id) is null) _ = hub.ProfilesAsync(new AgentPlace(a.Def, h)).ContinueWith(_ => { }, TaskScheduler.Default);
+        return [new HandOffToAgentTool(hub, folders, ready, nodes, profiles), new FollowUpAgentTool(hub)];
     }
 }
 
@@ -59,7 +74,7 @@ internal static class AgentReport
 }
 
 public sealed class HandOffToAgentTool(AgentHub hub, LinkedFolders folders, IReadOnlyList<AgentStatus> ready,
-    IReadOnlyList<(RemoteHost host, IReadOnlyList<AgentStatus> agents)>? nodes = null) : ITool, IPermissionInfo
+    IReadOnlyList<(RemoteHost host, IReadOnlyList<AgentStatus> agents)>? nodes = null, IReadOnlyList<string>? profiles = null) : ITool, IPermissionInfo
 {
     public string Name => "hand_off_to_agent";
     public string DisplayName => "Hand off to an agent";
@@ -75,7 +90,8 @@ public sealed class HandOffToAgentTool(AgentHub hub, LinkedFolders folders, IRea
         "Use it when the user asks for one of them by name, or for a long coding or research job in a folder that one of " +
         "them does well. On this computer it works in this chat's code folder by default, or a linked folder; on another " +
         "computer, give the folder's full path there. It can take minutes. The agent can't see this chat, so write the " +
-        "task out in full: the goal, what to change or find, and what to report back.";
+        "task out in full: the goal, what to change or find, and what to report back." +
+        (profiles is { Count: > 0 } ? " Some agents have profiles, each with its own memory, skills and model; pick the one that fits: " + string.Join("; ", profiles) + "." : "");
     public JsonObject Parameters => new()
     {
         ["type"] = "object",
@@ -85,6 +101,7 @@ public sealed class HandOffToAgentTool(AgentHub hub, LinkedFolders folders, IRea
             ["task"] = new JsonObject { ["type"] = "string", ["description"] = "The job, written out in full" },
             ["folder"] = new JsonObject { ["type"] = "string", ["description"] = "Full path of the folder to work in (default: this chat's code folder)" },
             ["computer"] = new JsonObject { ["type"] = "string", ["description"] = "Which computer to run it on (a name from the list; default: this computer)" },
+            ["profile"] = new JsonObject { ["type"] = "string", ["description"] = "The agent's profile, for agents that have them (default: its default profile)" },
         },
         ["required"] = new JsonArray("agent", "task"),
     };
@@ -105,7 +122,7 @@ public sealed class HandOffToAgentTool(AgentHub hub, LinkedFolders folders, IRea
             if (node.agents.All(a => !a.Def.Id.Equals(agent, StringComparison.OrdinalIgnoreCase) && !a.Def.Name.Equals(agent, StringComparison.OrdinalIgnoreCase)))
                 return ToolResult.Error($"\"{agent}\" isn't on {node.host.Name}. There: {string.Join(", ", node.agents.Select(a => a.Def.Id))}.");
             if (args.Str("folder") is not { Length: > 0 } there) return ToolResult.Error($"Give the folder's full path on {node.host.Name}.");
-            try { run = await hub.StartAsync(agent, args.Str("task") ?? "", there, ctx.Conversation.Id, ctx.Bot?.Id, ctx.Unattended, node.host.Id); }
+            try { run = await hub.StartAsync(agent, args.Str("task") ?? "", there, ctx.Conversation.Id, ctx.Bot?.Id, ctx.Unattended, node.host.Id, args.Str("profile")); }
             catch (InvalidOperationException ex) { return ToolResult.Error(ex.Message); }
         }
         else
@@ -120,7 +137,7 @@ public sealed class HandOffToAgentTool(AgentHub hub, LinkedFolders folders, IRea
             if (!await AllowedAsync(full, ctx))
                 return ToolResult.Error($"Bots can only hand off work in this chat's code folder or a linked folder (Documents → Linked folders), and {full} is neither. " +
                                         "The user can run it there from the Agents page.");
-            try { run = await hub.StartAsync(agent, args.Str("task") ?? "", full, ctx.Conversation.Id, ctx.Bot?.Id, ctx.Unattended); }
+            try { run = await hub.StartAsync(agent, args.Str("task") ?? "", full, ctx.Conversation.Id, ctx.Bot?.Id, ctx.Unattended, profile: args.Str("profile")); }
             catch (InvalidOperationException ex) { return ToolResult.Error(ex.Message); }
         }
         try { run = await hub.WaitAsync(run.Id, TimeSpan.FromHours(2), ct); }

@@ -48,10 +48,18 @@
                         </label>
                     }
                     <label>Agent
-                        <select @bind="_agentId">
+                        <select value="@_agentId" @onchange="PickAgent">
                             @foreach (var a in installed) { <option value="@a.Def.Id">@a.Def.Icon @a.Def.Name</option> }
                         </select>
                     </label>
+                    @if (_jobProfiles.Count > 1)
+                    {
+                        <label>Profile
+                            <select @bind="_jobProfile">
+                                @foreach (var p in _jobProfiles) { <option value="@p.Name">@p.Name</option> }
+                            </select>
+                        </label>
+                    }
                     <label class="grow">Folder
                         <input @bind="_folder" list="agent-folders" placeholder="@(_computer == "" ? "~/projects/my-app" : "full path there, e.g. ~/projects/my-app")" />
                         <datalist id="agent-folders">
@@ -111,38 +119,7 @@
                     @if (c.Mode == AgentMode.FullAuto) { <p class="warn-text small">It won't ask before running commands or changing files. Use it only on folders you can restore.</p> }
                     @if (agent.Def.SetupHint is not null) { <p class="muted small">Setup: @agent.Def.SetupHint</p> }
 
-                    <details class="advanced" @ontoggle="() => LoadMemory(agent.Def)">
-                        <summary>What it remembers@(agent.Def.Skills != SkillLink.None ? " and its skills" : "")</summary>
-                        <div class="sub">
-                            @foreach (var f in Care.MemoryFiles(agent.Def))
-                            {
-                                var file = f;
-                                var key = agent.Def.Id + "/" + file.Name;
-                                <div class="row">
-                                    <code class="grow small">@file.Path</code>
-                                    <span class="muted small">@(file.Exists ? $"{file.Bytes:N0} bytes" : "not created yet")</span>
-                                    <button class="btn small ghost" @onclick="() => Open(agent.Def, file.Name)">@(_open == key ? "Close" : file.Exists ? "Edit" : "Create")</button>
-                                </div>
-                                @if (_open == key)
-                                {
-                                    <textarea rows="10" class="mono small" @bind="_text"></textarea>
-                                    <div class="row end">
-                                        <span class="muted small grow">The old version is kept as @(file.Name).hearth-backup.</span>
-                                        <button class="btn small primary" @onclick="() => SaveFile(agent.Def, file.Name)">Save</button>
-                                    </div>
-                                }
-                            }
-                            <div class="row">
-                                <span class="grow small">Copy what Hearth knows about you into @agent.Def.MemoryFiles[0] (a marked section; doing it again replaces it).</span>
-                                <button class="btn small ghost" @onclick="() => ShareMemories(agent.Def)">Share what Hearth knows</button>
-                            </div>
-                            @if (agent.Def.Skills != SkillLink.None)
-                            {
-                                <label class="check"><input type="checkbox" checked="@Care.SkillsShared(agent.Def)" @onchange="e => ShareSkills(agent.Def, (bool)e.Value!)" />
-                                    Share Hearth's skills with it <span class="muted small">(linked into ~/@agent.Def.Home/@agent.Def.SkillsDir, kept up to date)</span></label>
-                            }
-                        </div>
-                    </details>
+                    <AgentMemoryPanel Def="agent.Def" />
                 }
                 @if (_output.TryGetValue(agent.Def.Id, out var output))
                 {
@@ -171,10 +148,13 @@
                         @foreach (var a in has)
                         {
                             var agent = a;
-                            <div class="row node-agent">
-                                <span class="grow small">@agent.Def.Icon <b>@agent.Def.Name</b> <span class="muted">@(agent.Version ?? "")</span></span>
-                                @if (agent.Def.StatusArgs is not null) { <button class="btn small ghost" @onclick="() => NodeCommand(host, agent, agent.Def.StatusArgs, false)" disabled="@(_busy == host.Id)">Status</button> }
-                                @if (agent.Def.UpdateArgs is not null) { <button class="btn small ghost" @onclick="() => NodeCommand(host, agent, agent.Def.UpdateArgs, true)" disabled="@(_busy == host.Id)">Update</button> }
+                            <div class="node-agent">
+                                <div class="row">
+                                    <span class="grow small">@agent.Def.Icon <b>@agent.Def.Name</b> <span class="muted">@(agent.Version ?? "")</span></span>
+                                    @if (agent.Def.StatusArgs is not null) { <button class="btn small ghost" @onclick="() => NodeCommand(host, agent, agent.Def.StatusArgs, false)" disabled="@(_busy == host.Id)">Status</button> }
+                                    @if (agent.Def.UpdateArgs is not null) { <button class="btn small ghost" @onclick="() => NodeCommand(host, agent, agent.Def.UpdateArgs, true)" disabled="@(_busy == host.Id)">Update</button> }
+                                </div>
+                                <AgentMemoryPanel Def="agent.Def" Host="host" />
                             </div>
                         }
                     }
@@ -182,7 +162,7 @@
                     @if (_output.TryGetValue(host.Id, out var nodeOut)) { <pre class="agent-output small">@nodeOut</pre> }
                 </div>
             }
-            <p class="muted small">The settings above (what each agent may do without asking, time limit) apply on every computer. Memory and skill sharing are for this computer.</p>
+            <p class="muted small">The settings above (what each agent may do without asking, time limit) apply on every computer.</p>
         </section>
         <details class="card advanced">
             <summary><b>Add a computer</b></summary>
@@ -210,12 +190,30 @@
     private List<AgentRun> _runs = [];
     private AppSettings _settings = new();
     private List<string> _folderChoices = [];
-    private string _agentId = "", _folder = "", _task = "", _text = "", _computer = "";
+    private string _agentId = "", _folder = "", _task = "", _computer = "";
     private List<Hearth.Core.Tools.RemoteHost> _hosts = [];
     private readonly Dictionary<string, IReadOnlyList<AgentStatus>> _nodes = [];
     private readonly Dictionary<string, string> _nodeErrors = [];
     private readonly HashSet<string> _checking = [];
-    private string? _startError, _busy, _busyWhat, _open;
+    private IReadOnlyList<AgentProfile> _jobProfiles = [];
+    private string _jobProfile = AgentProfile.Default;
+
+    private async Task PickAgent(ChangeEventArgs e)
+    {
+        _agentId = e.Value?.ToString() ?? "";
+        await LoadJobProfiles();
+    }
+
+    /// <summary>The chosen agent's profiles on the chosen computer (for the job form).</summary>
+    private async Task LoadJobProfiles()
+    {
+        _jobProfile = AgentProfile.Default;
+        _jobProfiles = [];
+        if (AgentCatalog.Find(_agentId) is not { HasProfiles: true } def) return;
+        try { _jobProfiles = await Hub.ProfilesAsync(new AgentPlace(def, _hosts.FirstOrDefault(h => h.Id == _computer))); }
+        catch { /* the default profile still works */ }
+    }
+    private string? _startError, _busy, _busyWhat;
     private bool _starting, _loading;
     private readonly Dictionary<string, string> _output = [];
 
@@ -228,6 +226,7 @@
         _folderChoices = (await Folders.ListAsync()).Where(f => f.Enabled).Select(f => f.Path).ToList();
         _agents = await Hub.StatusAsync();
         _agentId = _agents.FirstOrDefault(a => a.Installed)?.Def.Id ?? "";
+        await LoadJobProfiles();
         _runs = await Hub.RecentAsync();
         _hosts = _settings.RemoteHosts.ToList();
         foreach (var h in _hosts)
@@ -245,12 +244,13 @@
         ? _folderChoices.Concat(_runs.Where(r => r.NodeId is null).Select(r => r.Folder)).Distinct()
         : _runs.Where(r => r.NodeId == _computer).Select(r => r.Folder).Distinct();
 
-    private void PickComputer(ChangeEventArgs e)
+    private async Task PickComputer(ChangeEventArgs e)
     {
         _computer = e.Value?.ToString() ?? "";
         var there = AgentsOn(_computer);
         if (there.All(a => a.Def.Id != _agentId)) _agentId = there.FirstOrDefault()?.Def.Id ?? "";
         _folder = FolderChoices().FirstOrDefault() ?? "";
+        await LoadJobProfiles();
     }
 
     private async Task CheckNode(Hearth.Core.Tools.RemoteHost host, bool refresh)
@@ -319,7 +319,7 @@
         _starting = true; _startError = null;
         try
         {
-            var run = await Hub.StartAsync(_agentId, _task, _folder, computer: _computer == "" ? null : _computer);
+            var run = await Hub.StartAsync(_agentId, _task, _folder, computer: _computer == "" ? null : _computer, profile: _jobProfile);
             _task = "";
             Nav.NavigateTo($"agents/run/{run.Id}");
         }
@@ -349,38 +349,6 @@
         finally { _busy = null; }
     }
 
-    private void LoadMemory(AgentDef def) { /* files are listed live; nothing to load until one is opened */ }
-
-    private async Task Open(AgentDef def, string name)
-    {
-        var key = def.Id + "/" + name;
-        if (_open == key) { _open = null; return; }
-        try { _text = await Care.ReadAsync(def, name); _open = key; }
-        catch (Exception ex) { _output[def.Id] = ex.Message; }
-    }
-
-    private async Task SaveFile(AgentDef def, string name)
-    {
-        try { await Care.SaveAsync(def, name, _text); _output[def.Id] = $"Saved {name}."; _open = null; }
-        catch (Exception ex) { _output[def.Id] = ex.Message; }
-    }
-
-    private async Task ShareMemories(AgentDef def)
-    {
-        try { var n = await Care.ShareMemoriesAsync(def); _output[def.Id] = $"Wrote {n} things Hearth knows about you into {def.MemoryFiles[0]}."; }
-        catch (Exception ex) { _output[def.Id] = ex.Message; }
-    }
-
-    private async Task ShareSkills(AgentDef def, bool on)
-    {
-        try
-        {
-            var n = await Care.ShareSkillsAsync(def, on);
-            _output[def.Id] = on ? $"Shared {n} skill{(n == 1 ? "" : "s")} with {def.Name}." : $"{def.Name} no longer sees Hearth's skills.";
-            _settings = await SettingsStore.GetAsync();
-        }
-        catch (Exception ex) { _output[def.Id] = ex.Message; }
-    }
 
     public static string StatusMark(AgentRun r) => r.Status switch
     {

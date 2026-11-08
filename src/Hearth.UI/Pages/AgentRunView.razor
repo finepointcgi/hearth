@@ -146,7 +146,7 @@ else
 
     private static string ToolMark(AgentStep s) => s.Status switch
     {
-        "completed" => "✓", "failed" => "✗", "in_progress" => "⏳", _ => "○",
+        "completed" => "✓", "failed" => "✗", "in_progress" => "⏳", "stopped" => "–", _ => "○",
     } + " " + (s.ToolKind switch { "read" => "📖", "edit" => "✏️", "execute" => "▶️", "search" => "🔎", "fetch" => "🌐", "delete" => "🗑", "think" => "💭", _ => "🔧" });
 
     public ValueTask DisposeAsync()

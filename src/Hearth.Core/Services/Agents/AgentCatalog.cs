@@ -39,7 +39,42 @@ public sealed record AgentDef(
     string[]? UpdateArgs = null,
     string[]? StatusArgs = null,
     string? SetupHint = null,
-    string? InstallUrl = null);
+    string? InstallUrl = null,
+    /// <summary>Agents with named profiles (each its own memory, skills and model): the flag that picks one.</summary>
+    string? ProfileFlag = null,
+    /// <summary>Where the profiles live, under <see cref="Home"/> (the default profile is <see cref="Home"/> itself).</summary>
+    string? ProfilesDir = null)
+{
+    public bool HasProfiles => ProfileFlag is not null && ProfilesDir is not null;
+}
+
+/// <summary>A named profile of an agent (Hermes profiles), with what it's for.</summary>
+public sealed record AgentProfile(string Name, string? Description)
+{
+    public const string Default = "default";
+    public bool IsDefault => Name == Default;
+}
+
+/// <summary>
+/// Where an agent keeps its files: on this computer or another one (<see cref="Host"/>), in its default profile or a
+/// named one.
+/// </summary>
+public sealed record AgentPlace(AgentDef Def, Tools.RemoteHost? Host = null, string? Profile = null)
+{
+    public bool Remote => Host is not null;
+    public bool NamedProfile => Profile is { Length: > 0 } p && p != AgentProfile.Default && Def.HasProfiles;
+
+    /// <summary>The agent's folder, relative to the home folder there (.hermes, or .hermes/profiles/work).</summary>
+    public string RelativeHome => NamedProfile ? $"{Def.Home}/{Def.ProfilesDir}/{Profile}" : Def.Home;
+
+    /// <summary>The key "Share skills" is remembered under: local or a computer's id, plus the profile.</summary>
+    public string Key => (Host?.Id ?? "local") + (NamedProfile ? "/" + Profile : "");
+
+    public string Label => Def.Name + (NamedProfile ? $" ({Profile})" : "") + (Host is { } h ? $" on {h.Name}" : "");
+
+    /// <summary>A profile name as typed: letters, digits, dot, dash, underscore.</summary>
+    public static bool ValidProfile(string name) => name.Length is > 0 and <= 64 && name.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.') && name != "." && name != "..";
+}
 
 /// <summary>An agent as found on this computer.</summary>
 public sealed record AgentStatus(AgentDef Def, string? Path, string? Version)
@@ -58,7 +93,7 @@ public static class AgentCatalog
         new("hermes", "Hermes", "🪽", "Nous Research's agent with its own memory, skills, gateway and schedules.",
             "hermes", AgentDriver.Acp, ["acp"], ".hermes", ["memories/USER.md", "memories/MEMORY.md", "SOUL.md"], "skills", SkillLink.Folder,
             UpdateArgs: ["update"], StatusArgs: ["status"], SetupHint: "Run `hermes setup` once to pick its model.",
-            InstallUrl: "https://github.com/NousResearch/hermes-agent"),
+            InstallUrl: "https://github.com/NousResearch/hermes-agent", ProfileFlag: "--profile", ProfilesDir: "profiles"),
         new("openclaw", "OpenClaw", "🦞", "Personal agent that runs through its own gateway.",
             "openclaw", AgentDriver.Acp, ["acp"], ".openclaw", ["workspace/USER.md", "workspace/MEMORY.md", "workspace/SOUL.md"],
             "workspace/skills", SkillLink.PerSkill, UpdateArgs: ["update"], StatusArgs: ["status"],
