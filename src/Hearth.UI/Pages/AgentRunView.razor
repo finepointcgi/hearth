@@ -20,7 +20,7 @@
         <section class="card">
             <div class="row">
                 <span class="grow"><b>@Agents.StatusMark(run) @StatusText(run)</b>
-                    <span class="muted small"> · @Took(run) · in <code>@run.Folder</code> · @ModeText(run.Mode)</span></span>
+                    <span class="muted small"> · @Took(run) · @(run.NodeName is { } node ? $"on {node}, " : "")in <code>@run.Folder</code> · @ModeText(run.Mode)</span></span>
             </div>
             @if (run.ConversationId is { } conv && !conv.StartsWith("agent-run:"))
             {

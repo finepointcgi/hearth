@@ -32,24 +32,37 @@
     }
     else
     {
-        var installed = _agents.Where(a => a.Installed).ToList();
-        @if (installed.Count > 0)
+        var installed = AgentsOn(_computer);
+        @if (_agents.Any(a => a.Installed) || _nodes.Values.Any(n => n.Any(a => a.Installed)))
         {
             <section class="card">
                 <h3><span aria-hidden="true">🚀</span> Give an agent a job</h3>
                 <div class="row">
+                    @if (_hosts.Count > 0)
+                    {
+                        <label>On
+                            <select value="@_computer" @onchange="PickComputer">
+                                <option value="">this computer</option>
+                                @foreach (var h in _hosts) { <option value="@h.Id">@h.Name</option> }
+                            </select>
+                        </label>
+                    }
                     <label>Agent
                         <select @bind="_agentId">
                             @foreach (var a in installed) { <option value="@a.Def.Id">@a.Def.Icon @a.Def.Name</option> }
                         </select>
                     </label>
                     <label class="grow">Folder
-                        <input @bind="_folder" list="agent-folders" placeholder="~/projects/my-app" />
+                        <input @bind="_folder" list="agent-folders" placeholder="@(_computer == "" ? "~/projects/my-app" : "full path there, e.g. ~/projects/my-app")" />
                         <datalist id="agent-folders">
-                            @foreach (var f in _folderChoices) { <option value="@f"></option> }
+                            @foreach (var f in FolderChoices()) { <option value="@f"></option> }
                         </datalist>
                     </label>
                 </div>
+                @if (installed.Count == 0)
+                {
+                    <p class="muted small">@(_computer == "" ? "No agents are installed on this computer." : _nodeErrors.TryGetValue(_computer, out var why) ? why : _nodes.ContainsKey(_computer) ? "No agents found on that computer." : "Checking that computer…")</p>
+                }
                 <textarea rows="3" @bind="_task" placeholder="What should it do? e.g. Find why the login test fails and fix it, then run the tests."></textarea>
                 <div class="row end">
                     @if (_startError is not null) { <span class="error-text small grow">@_startError</span> }
@@ -139,6 +152,44 @@
         }
 
         <section class="card">
+            <h3><span aria-hidden="true">🖥️</span> Other computers</h3>
+            <p class="muted small">Run agents on your other machines too (a server, a work laptop, a Mac mini). Hearth connects with your SSH
+                keys, runs the agent there, and shows its steps and approvals here as if it were local.</p>
+            @foreach (var h in _hosts)
+            {
+                var host = h;
+                <div class="node-row">
+                    <div class="row">
+                        <span class="grow"><b>@host.Name</b> <span class="muted small">@host.Target@(string.IsNullOrWhiteSpace(host.Notes) ? "" : $" · {host.Notes}")</span></span>
+                        <button class="btn small ghost" @onclick="() => CheckNode(host, true)" disabled="@_checking.Contains(host.Id)">@(_checking.Contains(host.Id) ? "Checking…" : "Check")</button>
+                    </div>
+                    @if (_nodeErrors.TryGetValue(host.Id, out var err)) { <p class="error-text small">@err</p> }
+                    else if (_nodes.TryGetValue(host.Id, out var there))
+                    {
+                        var has = there.Where(a => a.Installed).ToList();
+                        @if (has.Count == 0) { <p class="muted small">No agents found there.</p> }
+                        @foreach (var a in has)
+                        {
+                            var agent = a;
+                            <div class="row node-agent">
+                                <span class="grow small">@agent.Def.Icon <b>@agent.Def.Name</b> <span class="muted">@(agent.Version ?? "")</span></span>
+                                @if (agent.Def.StatusArgs is not null) { <button class="btn small ghost" @onclick="() => NodeCommand(host, agent, agent.Def.StatusArgs, false)" disabled="@(_busy == host.Id)">Status</button> }
+                                @if (agent.Def.UpdateArgs is not null) { <button class="btn small ghost" @onclick="() => NodeCommand(host, agent, agent.Def.UpdateArgs, true)" disabled="@(_busy == host.Id)">Update</button> }
+                            </div>
+                        }
+                    }
+                    else { <p class="muted small">Checking…</p> }
+                    @if (_output.TryGetValue(host.Id, out var nodeOut)) { <pre class="agent-output small">@nodeOut</pre> }
+                </div>
+            }
+            <p class="muted small">The settings above (what each agent may do without asking, time limit) apply on every computer. Memory and skill sharing are for this computer.</p>
+        </section>
+        <details class="card advanced">
+            <summary><b>Add a computer</b></summary>
+            <RemoteHostsCard Changed="HostsChanged" />
+        </details>
+
+        <section class="card">
             <h3><span aria-hidden="true">🗂️</span> Recent jobs</h3>
             @if (_runs.Count == 0) { <p class="muted small">Nothing yet. Jobs show up here, whether you started them or a bot did.</p> }
             @foreach (var r in _runs)
@@ -147,7 +198,7 @@
                 <a class="agent-run-row" href="agents/run/@run.Id">
                     <span aria-hidden="true">@StatusMark(run)</span>
                     <span class="grow"><b>@run.AgentName</b> @Clip(run.Task, 120)
-                        <br /><span class="muted small">@System.IO.Path.GetFileName(run.Folder.TrimEnd('/')) · @run.Started.LocalDateTime.ToString("MMM d, h:mm tt")@(run.BotId is { } b && State.BotById(b) is { } bot ? $" · from {bot.Name}" : "")</span></span>
+                        <br /><span class="muted small">@(run.NodeName is { } n ? $"{n}: " : "")@System.IO.Path.GetFileName(run.Folder.TrimEnd('/')) · @run.Started.LocalDateTime.ToString("MMM d, h:mm tt")@(run.BotId is { } b && State.BotById(b) is { } bot ? $" · from {bot.Name}" : "")</span></span>
                 </a>
             }
         </section>
@@ -159,7 +210,11 @@
     private List<AgentRun> _runs = [];
     private AppSettings _settings = new();
     private List<string> _folderChoices = [];
-    private string _agentId = "", _folder = "", _task = "", _text = "";
+    private string _agentId = "", _folder = "", _task = "", _text = "", _computer = "";
+    private List<Hearth.Core.Tools.RemoteHost> _hosts = [];
+    private readonly Dictionary<string, IReadOnlyList<AgentStatus>> _nodes = [];
+    private readonly Dictionary<string, string> _nodeErrors = [];
+    private readonly HashSet<string> _checking = [];
     private string? _startError, _busy, _busyWhat, _open;
     private bool _starting, _loading;
     private readonly Dictionary<string, string> _output = [];
@@ -174,7 +229,65 @@
         _agents = await Hub.StatusAsync();
         _agentId = _agents.FirstOrDefault(a => a.Installed)?.Def.Id ?? "";
         _runs = await Hub.RecentAsync();
+        _hosts = _settings.RemoteHosts.ToList();
+        foreach (var h in _hosts)
+        {
+            if (Hub.KnownNodeStatus(h.Id) is { } known) _nodes[h.Id] = known;
+            else _ = CheckNode(h, false);
+        }
         if (_folderChoices.Count > 0 && _folder.Length == 0) _folder = _runs.FirstOrDefault()?.Folder ?? _folderChoices[0];
+    }
+
+    private List<AgentStatus> AgentsOn(string computer) =>
+        (computer == "" ? _agents ?? [] : _nodes.TryGetValue(computer, out var n) ? n : []).Where(a => a.Installed).ToList();
+
+    private IEnumerable<string> FolderChoices() => _computer == ""
+        ? _folderChoices.Concat(_runs.Where(r => r.NodeId is null).Select(r => r.Folder)).Distinct()
+        : _runs.Where(r => r.NodeId == _computer).Select(r => r.Folder).Distinct();
+
+    private void PickComputer(ChangeEventArgs e)
+    {
+        _computer = e.Value?.ToString() ?? "";
+        var there = AgentsOn(_computer);
+        if (there.All(a => a.Def.Id != _agentId)) _agentId = there.FirstOrDefault()?.Def.Id ?? "";
+        _folder = FolderChoices().FirstOrDefault() ?? "";
+    }
+
+    private async Task CheckNode(Hearth.Core.Tools.RemoteHost host, bool refresh)
+    {
+        _checking.Add(host.Id);
+        _nodeErrors.Remove(host.Id);
+        await InvokeAsync(StateHasChanged);
+        try { _nodes[host.Id] = await Hub.NodeStatusAsync(host, refresh); }
+        catch (Exception ex) { _nodeErrors[host.Id] = ex.Message; }
+        finally
+        {
+            _checking.Remove(host.Id);
+            if (_computer == host.Id && AgentsOn(_computer).All(a => a.Def.Id != _agentId)) _agentId = AgentsOn(_computer).FirstOrDefault()?.Def.Id ?? "";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task NodeCommand(Hearth.Core.Tools.RemoteHost host, AgentStatus agent, string[] args, bool update)
+    {
+        _busy = host.Id;
+        _output[host.Id] = update ? $"Updating {agent.Def.Name} on {host.Name}… this can take a few minutes." : "…";
+        try
+        {
+            var (exit, output) = await Hub.NodeCommandAsync(host, agent, args, update ? TimeSpan.FromMinutes(10) : TimeSpan.FromMinutes(1));
+            _output[host.Id] = (exit == 0 ? "" : "⚠ ") + output;
+            if (update) await CheckNode(host, true);
+        }
+        catch (Exception ex) { _output[host.Id] = ex.Message; }
+        finally { _busy = null; }
+    }
+
+    private async Task HostsChanged()
+    {
+        _settings = await SettingsStore.GetAsync();
+        _hosts = _settings.RemoteHosts.ToList();
+        foreach (var h in _hosts.Where(h => !_nodes.ContainsKey(h.Id) && !_checking.Contains(h.Id))) _ = CheckNode(h, true);
+        if (_computer != "" && _hosts.All(h => h.Id != _computer)) _computer = "";
     }
 
     private void OnRunChanged(AgentRun run) => InvokeAsync(async () =>
@@ -206,7 +319,7 @@
         _starting = true; _startError = null;
         try
         {
-            var run = await Hub.StartAsync(_agentId, _task, _folder);
+            var run = await Hub.StartAsync(_agentId, _task, _folder, computer: _computer == "" ? null : _computer);
             _task = "";
             Nav.NavigateTo($"agents/run/{run.Id}");
         }

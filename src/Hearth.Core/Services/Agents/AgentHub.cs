@@ -77,6 +77,86 @@ public sealed class AgentHub : IAsyncDisposable
 
     private string? Find(AgentDef def) => Locator is { } l ? l(def) : AgentCatalog.Locate(def.Command);
 
+    // ------------------------------------------------------------------ other computers (SSH)
+
+    private readonly ConcurrentDictionary<string, (DateTime at, IReadOnlyList<AgentStatus> agents)> _nodes = new();
+
+    /// <summary>On the remote shell: the usual install folders, since a non-interactive SSH session has a bare PATH.</summary>
+    public const string RemotePath =
+        "export PATH=\"$HOME/.local/bin:$HOME/.claude/local:/opt/homebrew/bin:/usr/local/bin:$HOME/.npm-global/bin:$HOME/.cargo/bin:$PATH\"; ";
+
+    /// <summary>A computer from Remote computers, by name or id (null or "this computer": this one).</summary>
+    public async Task<Tools.RemoteHost?> HostAsync(string? computer)
+    {
+        if (string.IsNullOrWhiteSpace(computer) || computer.Equals("this computer", StringComparison.OrdinalIgnoreCase)
+            || computer.Equals("local", StringComparison.OrdinalIgnoreCase)) return null;
+        var hosts = (await _settings.GetAsync()).RemoteHosts;
+        return hosts.FirstOrDefault(h => h.Id == computer) ?? hosts.FirstOrDefault(h => h.Name.Equals(computer, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"No computer called \"{computer}\". Add it under Agents → Computers (it uses SSH).");
+    }
+
+    /// <summary>Which agents a remote computer has (asked over SSH; remembered for 10 minutes).</summary>
+    public async Task<IReadOnlyList<AgentStatus>> NodeStatusAsync(Tools.RemoteHost host, bool refresh = false)
+    {
+        if (!refresh && _nodes.TryGetValue(host.Id, out var known) && DateTime.UtcNow - known.at < TimeSpan.FromMinutes(10)) return known.agents;
+        var script = RemotePath + "for c in " + string.Join(" ", AgentCatalog.All.Select(a => a.Command)) +
+                     "; do p=$(command -v \"$c\" 2>/dev/null) && echo \"@@$c|$p|$(\"$c\" --version </dev/null 2>/dev/null | head -n 1)\"; done; echo @@done";
+        var (code, output) = await NodeRunner(host, script, TimeSpan.FromSeconds(60));
+        if (!output.Contains("@@done"))
+            throw new InvalidOperationException($"Couldn't reach {host.Name}: {Clip(output.Trim().Length > 0 ? output.Trim() : $"ssh exit code {code}", 300)}");
+        var found = output.Split('\n').Where(l => l.StartsWith("@@") && l.Contains('|'))
+            .Select(l => l[2..].Split('|', 3)).ToDictionary(p => p[0], p => (path: p[1].Trim(), version: p.Length > 2 ? p[2].Trim() : ""));
+        IReadOnlyList<AgentStatus> agents = AgentCatalog.All.Select(def => found.TryGetValue(def.Command, out var f)
+            ? new AgentStatus(def, f.path, f.version.Length == 0 ? null : f.version.Length > 80 ? f.version[..80] : f.version)
+            : new AgentStatus(def, null, null)).ToList();
+        _nodes[host.Id] = (DateTime.UtcNow, agents);
+        return agents;
+    }
+
+    /// <summary>What's known about a computer's agents without asking it (null: not checked yet).</summary>
+    public IReadOnlyList<AgentStatus>? KnownNodeStatus(string hostId) => _nodes.TryGetValue(hostId, out var k) ? k.agents : null;
+
+    /// <summary>For tests: runs a command on a remote computer (default: over SSH).</summary>
+    public Func<Tools.RemoteHost, string, TimeSpan, Task<(int, string)>> NodeRunner { get; set; } =
+        (h, command, timeout) => Tools.Ssh.RunAsync(h, command, timeout, CancellationToken.None);
+
+    /// <summary>For tests: the process that runs a command line on a remote computer (default: ssh).</summary>
+    public Func<Tools.RemoteHost, string, ProcessStartInfo> NodeStarter { get; set; } = Tools.Ssh.Start;
+
+    /// <summary>Runs an agent's own command (status, update) on a remote computer.</summary>
+    public async Task<(int exit, string output)> NodeCommandAsync(Tools.RemoteHost host, AgentStatus agent, string[] args, TimeSpan timeout)
+    {
+        if (agent.Path is null) return (1, $"{agent.Def.Name} isn't installed on {host.Name}.");
+        var (code, output) = await NodeRunner(host, RemotePath + string.Join(" ", new[] { agent.Path }.Concat(args).Select(Tools.Ssh.Quote)) + " </dev/null", timeout);
+        return (code, AgentCatalog.StripAnsi(output).Trim());
+    }
+
+    /// <summary>The process for an agent: here in the run's folder, or on its computer over SSH.</summary>
+    private async Task<ProcessStartInfo> LaunchAsync(AgentRun run, string cli, IEnumerable<string> args)
+    {
+        if (run.NodeId is null)
+        {
+            var psi = new ProcessStartInfo(cli)
+            {
+                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
+                WorkingDirectory = run.Folder,
+            };
+            foreach (var a in args) psi.ArgumentList.Add(a);
+            psi.Environment["PATH"] = AgentCatalog.ProcessPath();
+            psi.Environment["NO_COLOR"] = "1";
+            psi.Environment.Remove("CLAUDECODE"); // not a nested session of whoever started Hearth
+            return psi;
+        }
+        var host = await HostAsync(run.NodeId) ?? throw new InvalidOperationException("That computer was removed.");
+        return NodeStarter(host, RemoteCommand(run, cli, args));
+    }
+
+    /// <summary>The shell line run on the remote computer: into the folder, then the agent itself (stdin/stdout pass through SSH).</summary>
+    public static string RemoteCommand(AgentRun run, string cli, IEnumerable<string> args) =>
+        RemotePath + "export NO_COLOR=1; unset CLAUDECODE; cd " + Tools.Ssh.QuotePath(run.Folder) +
+        " || { echo " + Tools.Ssh.Quote($"There's no folder {run.Folder} on {run.NodeName}.") + " >&2; exit 3; }; exec " +
+        string.Join(" ", new[] { cli }.Concat(args).Select(Tools.Ssh.Quote));
+
     // ------------------------------------------------------------------ runs
 
     public async Task<AgentRun?> GetAsync(string id) => _live.TryGetValue(id, out var r) ? r : await _store.GetAsync(id);
@@ -91,20 +171,38 @@ public sealed class AgentHub : IAsyncDisposable
 
     /// <summary>Starts a job. Returns at once; the work goes on in the background (see <see cref="WaitAsync"/>).</summary>
     public async Task<AgentRun> StartAsync(string agentId, string task, string folder, string? conversationId = null, string? botId = null,
-        bool unattended = false)
+        bool unattended = false, string? computer = null)
     {
         if (!Available) throw new InvalidOperationException("Agents run as programs on this computer, so they work in the desktop app or the web host with local access.");
         var def = AgentCatalog.Find(agentId) ?? throw new InvalidOperationException($"No agent called \"{agentId}\". Hearth knows: {string.Join(", ", AgentCatalog.All.Select(a => a.Name))}.");
-        if (Find(def) is null) throw new InvalidOperationException($"{def.Name} isn't installed on this computer. {def.SetupHint}");
         task = task.Trim();
         if (task.Length == 0) throw new InvalidOperationException("Say what the agent should do.");
-        folder = Path.GetFullPath(Environment.ExpandEnvironmentVariables(folder.Trim().Replace("~", AgentCatalog.HomeFolder)));
-        if (!Directory.Exists(folder)) throw new InvalidOperationException($"There's no folder at {folder}.");
-        var settings = (await _settings.GetAsync()).Agents.For(def.Id);
+        var app = await _settings.GetAsync();
+        var host = await HostAsync(computer);
+        if (host is null)
+        {
+            if (Find(def) is null) throw new InvalidOperationException($"{def.Name} isn't installed on this computer. {def.SetupHint}");
+            folder = Path.GetFullPath(Environment.ExpandEnvironmentVariables(folder.Trim().Replace("~", AgentCatalog.HomeFolder)));
+            if (!Directory.Exists(folder)) throw new InvalidOperationException($"There's no folder at {folder}.");
+        }
+        else
+        {
+            var there = (await NodeStatusAsync(host)).FirstOrDefault(a => a.Def.Id == def.Id);
+            if (there?.Installed != true) throw new InvalidOperationException($"{def.Name} isn't installed on {host.Name} (or Hearth couldn't find it there). {def.SetupHint}");
+            folder = folder.Trim();
+            if (folder.Length == 0) folder = "~";
+            if (!folder.StartsWith('/') && !folder.StartsWith('~')) throw new InvalidOperationException($"Give the folder's full path on {host.Name} (/… or ~/…).");
+            var (_, where) = await NodeRunner(host, "cd " + Tools.Ssh.QuotePath(folder) + " 2>/dev/null && echo \"@@$(pwd)\" || echo @@missing", TimeSpan.FromSeconds(30));
+            var line = where.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("@@"));
+            if (line is null) throw new InvalidOperationException($"Couldn't reach {host.Name}: {Clip(where.Trim(), 300)}");
+            if (line == "@@missing") throw new InvalidOperationException($"There's no folder {folder} on {host.Name}.");
+            folder = line[2..]; // the full path there, which agents need
+        }
+        var settings = app.Agents.For(def.Id);
         var run = new AgentRun
         {
             AgentId = def.Id, AgentName = def.Name, Task = task, Folder = folder, Mode = settings.Mode,
-            ConversationId = conversationId, BotId = botId, Unattended = unattended,
+            ConversationId = conversationId, BotId = botId, Unattended = unattended, NodeId = host?.Id, NodeName = host?.Name,
         };
         run.Steps.Add(new AgentStep { Kind = AgentStep.You, Content = task });
         _live[run.Id] = run;
@@ -156,7 +254,9 @@ public sealed class AgentHub : IAsyncDisposable
         Touch(run, force: true);
         try
         {
-            var cli = Find(def) ?? throw new InvalidOperationException($"{def.Name} isn't installed any more.");
+            var cli = run.NodeId is null ? Find(def) ?? throw new InvalidOperationException($"{def.Name} isn't installed any more.")
+                : (await NodeStatusAsync(await HostAsync(run.NodeId) ?? throw new InvalidOperationException($"The computer {run.NodeName} was removed.")))
+                  .FirstOrDefault(a => a.Def.Id == def.Id)?.Path ?? throw new InvalidOperationException($"{def.Name} isn't installed on {run.NodeName} any more.");
             if (def.Driver == AgentDriver.ClaudeCode) await RunClaudeAsync(run, cli, text, cts.Token);
             else await RunAcpAsync(run, def, cli, text, cts.Token);
             run.Result = run.LatestAnswer() is { Length: > 0 } answer ? answer : run.Result;
@@ -247,7 +347,7 @@ public sealed class AgentHub : IAsyncDisposable
         {
             Name = $"{run.AgentName}: {Clip(title, 120)}",
             ArgumentsJson = Clip(details, 1500),
-            ApprovalReason = $"{run.AgentName} is working in {run.Folder}.",
+            ApprovalReason = $"{run.AgentName} is working in {run.Folder}{(run.NodeName is { } node ? $" on {node}" : "")}.",
         };
         var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         run.Status = AgentRunStatus.WaitingForYou;
@@ -317,14 +417,7 @@ public sealed class AgentHub : IAsyncDisposable
     private async Task<LiveSession> OpenAsync(AgentRun run, AgentDef def, string cli, CancellationToken ct)
     {
         await CloseSessionAsync(run.Id);
-        var psi = new ProcessStartInfo(cli)
-        {
-            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
-            WorkingDirectory = run.Folder,
-        };
-        foreach (var a in def.RunArgs) psi.ArgumentList.Add(a);
-        psi.Environment["PATH"] = AgentCatalog.ProcessPath();
-        psi.Environment["NO_COLOR"] = "1";
+        var psi = await LaunchAsync(run, cli, def.RunArgs);
         var process = Process.Start(psi) ?? throw new InvalidOperationException($"Couldn't start {def.Name}.");
         var errors = new StringBuilder();
         process.ErrorDataReceived += (_, e) =>
@@ -495,14 +588,7 @@ public sealed class AgentHub : IAsyncDisposable
 
     private async Task<ClaudeOutcome> RunClaudeOnceAsync(AgentRun run, string cli, string text, List<string> allowed, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo(cli)
-        {
-            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
-            WorkingDirectory = run.Folder,
-        };
-        foreach (var a in ClaudeArgs(run, text, allowed)) psi.ArgumentList.Add(a);
-        psi.Environment["PATH"] = AgentCatalog.ProcessPath();
-        psi.Environment.Remove("CLAUDECODE"); // not a nested session of whoever started Hearth
+        var psi = await LaunchAsync(run, cli, ClaudeArgs(run, text, allowed));
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("Couldn't start Claude Code.");
         process.StandardInput.Close();
         var errors = new StringBuilder();

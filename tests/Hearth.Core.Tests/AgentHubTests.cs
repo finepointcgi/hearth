@@ -211,6 +211,106 @@ public sealed class AgentHubTests : IAsyncDisposable
         Assert.True((await followUp.ExecuteAsync(new JsonObject { ["run_id"] = runId, ["message"] = "hi" }, Ctx(_work), default)).IsError);
     }
 
+    /// <summary>
+    /// Another computer, played by a local shell: Hearth's remote command line (PATH, cd into the folder, exec the
+    /// agent) runs exactly as it would after ssh, and the agent's JSON passes through it.
+    /// </summary>
+    private async Task<(AgentHub hub, Hearth.Core.Tools.RemoteHost host)?> RemoteAsync(AgentMode mode)
+    {
+        var hub = await HubAsync(mode);
+        var fake = FakeAgentPath();
+        if (fake is null) return null;
+        var store = _sp.GetRequiredService<SettingsStore>();
+        var s = await store.GetAsync();
+        var host = new Hearth.Core.Tools.RemoteHost { Name = "lab", Target = "me@lab", Notes = "Linux box" };
+        s.RemoteHosts.Add(host);
+        await store.SaveAsync(s);
+        hub.NodeRunner = async (_, command, _) =>
+        {
+            if (command.Contains("@@done")) return (0, $"@@hermes|{fake}|Hermes Agent v9\n@@claude|/usr/bin/claude|2.1.0 (Claude Code)\n@@done\n");
+            var psi = new System.Diagnostics.ProcessStartInfo("/bin/sh") { RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.ArgumentList.Add("-c"); psi.ArgumentList.Add(command);
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            var output = await p.StandardOutput.ReadToEndAsync() + await p.StandardError.ReadToEndAsync();
+            await p.WaitForExitAsync();
+            return (p.ExitCode, output);
+        };
+        hub.NodeStarter = (_, command) =>
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("/bin/sh")
+                { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            psi.ArgumentList.Add("-c"); psi.ArgumentList.Add(command);
+            return psi;
+        };
+        return (hub, host);
+    }
+
+    [Fact]
+    public async Task ItFindsTheAgentsOnAnotherComputer()
+    {
+        if (await RemoteAsync(AgentMode.Ask) is not var (hub, host)) return;
+        var there = await hub.NodeStatusAsync(host);
+        Assert.Equal(["claude-code", "hermes"], there.Where(a => a.Installed).Select(a => a.Def.Id).Order());
+        Assert.Equal("Hermes Agent v9", there.Single(a => a.Def.Id == "hermes").Version);
+        Assert.Same(there, hub.KnownNodeStatus(host.Id));
+
+        hub.NodeRunner = (_, _, _) => Task.FromResult((255, "ssh: connect to host lab port 22: Connection refused"));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => hub.NodeStatusAsync(host, refresh: true));
+        Assert.Equal("Couldn't reach lab: ssh: connect to host lab port 22: Connection refused", ex.Message);
+    }
+
+    [Fact]
+    public async Task AJobRunsOnAnotherComputerWithTheSameStepsAndApprovals()
+    {
+        if (await RemoteAsync(AgentMode.Ask) is not var (hub, host)) return;
+        var odd = Directory.CreateDirectory(Path.Combine(_work, "it's $HOME")).FullName; // quoting must hold
+        var approvals = _sp.GetRequiredService<ApprovalCenter>();
+        PendingApproval? asked = null;
+        approvals.Requested += p => { asked = p; approvals.Decide(p.Id, true); };
+
+        var run = await hub.StartAsync("hermes", "fix it", odd, computer: "lab");
+        Assert.Equal("lab", run.NodeName);
+        Assert.Equal(odd, run.Folder);
+        run = await hub.WaitAsync(run.Id, TimeSpan.FromSeconds(30));
+
+        Assert.True(run.Status == AgentRunStatus.Done, run.Error);
+        Assert.Equal("Hello, got: fix it\n\nEdit was yes.", run.Result);
+        Assert.Equal($"Hermes is working in {odd} on lab.", asked!.Reason);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => hub.StartAsync("hermes", "x", Path.Combine(_work, "nope"), computer: "lab"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => hub.StartAsync("gemini", "x", _work, computer: "lab")); // not installed there
+        await Assert.ThrowsAsync<InvalidOperationException>(() => hub.StartAsync("hermes", "x", "relative/path", computer: "lab"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => hub.StartAsync("hermes", "x", _work, computer: "nowhere"));
+    }
+
+    [Fact]
+    public async Task BotsCanSendAJobToAnotherComputer()
+    {
+        if (await RemoteAsync(AgentMode.FullAuto) is not var (hub, host)) return;
+        await hub.NodeStatusAsync(host);
+        var settings = await _sp.GetRequiredService<SettingsStore>().GetAsync();
+        var tools = await new Hearth.Core.Tools.AgentToolProvider(hub, _sp.GetRequiredService<LinkedFolders>()).GetToolsAsync(settings, default);
+        var handOff = tools.Single(t => t.Name == "hand_off_to_agent");
+        Assert.Contains("On the computer \"lab\" (Linux box): claude-code, hermes.", handOff.Description);
+        var ctx = new Hearth.Core.Tools.ToolContext { Conversation = new Conversation(), Reply = new ChatMessage(), Settings = settings, Client = null!, Model = "m" };
+
+        var noFolder = await handOff.ExecuteAsync(new JsonObject { ["agent"] = "hermes", ["task"] = "x", ["computer"] = "lab" }, ctx, default);
+        Assert.Contains("full path on lab", noFolder.Text);
+        var done = await handOff.ExecuteAsync(new JsonObject { ["agent"] = "hermes", ["task"] = "go", ["computer"] = "lab", ["folder"] = _work }, ctx, default);
+        Assert.StartsWith("Hermes finished", done.Text);
+        Assert.Contains(" on lab (run ", done.Text);
+    }
+
+    [Fact]
+    public void TheRemoteCommandQuotesEverything()
+    {
+        var run = new AgentRun { Folder = "~/my project's", NodeName = "lab" };
+        var line = AgentHub.RemoteCommand(run, "/home/me/.local/bin/hermes", ["acp"]);
+        Assert.StartsWith(AgentHub.RemotePath, line);
+        Assert.Contains("cd \"$HOME\"/'my project'\\''s' || {", line);
+        Assert.EndsWith("exec '/home/me/.local/bin/hermes' 'acp'", line);
+    }
+
     [Fact]
     public void TheHearthSectionInAnAgentsMemoryIsReplacedNotRepeated()
     {

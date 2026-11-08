@@ -39,6 +39,9 @@
 </section>
 
 @code {
+    /// <summary>Called after a computer is added or removed.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
     private List<Hearth.Core.Tools.RemoteHost> _hosts = [];
     private Hearth.Core.Tools.RemoteHost _new = new();
     private readonly Dictionary<string, string> _status = [];
@@ -53,6 +56,7 @@
         change(s.RemoteHosts);
         await Store.SaveAsync(s);
         _hosts = s.RemoteHosts.ToList();
+        await Changed.InvokeAsync();
     }
 
     private async Task Add()

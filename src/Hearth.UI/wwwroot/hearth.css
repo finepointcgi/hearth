@@ -839,3 +839,8 @@ textarea.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .agent-settings label { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; }
 .agent-settings label select { width: auto; }
 .agent-settings label input[type=number] { width: 4.5rem; }
+.node-row { padding: .5rem 0; border-top: 1px solid color-mix(in srgb, var(--muted) 18%, transparent); }
+.node-row:first-of-type { border-top: 0; }
+.node-agent { padding-left: .5rem; }
+details.card.advanced > summary { cursor: pointer; }
+details.card.advanced > .card { border: 0; padding: .5rem 0 0; background: none; box-shadow: none; }

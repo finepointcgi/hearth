@@ -43,6 +43,9 @@ public sealed class AgentRun
     public string? BotId { get; set; }
     /// <summary>No one is watching (a routine): anything that needs an OK is refused.</summary>
     public bool Unattended { get; set; }
+    /// <summary>The remote computer it runs on (Remote computers id and name); null: this computer.</summary>
+    public string? NodeId { get; set; }
+    public string? NodeName { get; set; }
     /// <summary>The approval it's waiting for, while <see cref="AgentRunStatus.WaitingForYou"/>.</summary>
     public string? WaitingOn { get; set; }
 

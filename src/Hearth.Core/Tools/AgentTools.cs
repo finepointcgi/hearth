@@ -15,8 +15,16 @@ public sealed class AgentToolProvider(AgentHub hub, LinkedFolders folders) : ITo
     public async Task<IReadOnlyList<ITool>> GetToolsAsync(AppSettings settings, CancellationToken ct)
     {
         if (!hub.Available) return [];
-        var ready = (await hub.StatusAsync()).Where(a => a.Installed && settings.Agents.For(a.Def.Id).Enabled).ToList();
-        return ready.Count == 0 ? [] : [new HandOffToAgentTool(hub, folders, ready), new FollowUpAgentTool(hub)];
+        bool On(AgentStatus a) => a.Installed && settings.Agents.For(a.Def.Id).Enabled;
+        var ready = (await hub.StatusAsync()).Where(On).ToList();
+        // Other computers: what's already known (asking over SSH here would hold up every reply); unknown ones are checked in the background.
+        var nodes = new List<(RemoteHost host, IReadOnlyList<AgentStatus> agents)>();
+        foreach (var h in settings.RemoteHosts)
+        {
+            if (hub.KnownNodeStatus(h.Id) is { } known) { if (known.Any(On)) nodes.Add((h, known.Where(On).ToList())); }
+            else _ = hub.NodeStatusAsync(h).ContinueWith(_ => { }, TaskScheduler.Default);
+        }
+        return ready.Count == 0 && nodes.Count == 0 ? [] : [new HandOffToAgentTool(hub, folders, ready, nodes), new FollowUpAgentTool(hub)];
     }
 }
 
@@ -34,7 +42,7 @@ internal static class AgentReport
         if (run.Status != AgentRunStatus.Done)
             return ToolResult.Error($"{run.AgentName} {(run.Status == AgentRunStatus.Cancelled ? "was stopped" : "stopped")} after {took}: " +
                                     $"{run.Error ?? "no reason given"}. Full log: {Link(run)}");
-        var sb = new StringBuilder($"{run.AgentName} finished in {took} (run {run.Id}).\n\n");
+        var sb = new StringBuilder($"{run.AgentName} finished in {took}{(run.NodeName is { } node ? $" on {node}" : "")} (run {run.Id}).\n\n");
         var answer = run.Result ?? run.LatestAnswer();
         sb.Append(answer.Length > 8000 ? answer[..8000] + "\n…(cut; the full answer is in the log)" : answer.Length == 0 ? "(It didn't write a summary.)" : answer);
         List<string> changed;
@@ -50,26 +58,33 @@ internal static class AgentReport
     }
 }
 
-public sealed class HandOffToAgentTool(AgentHub hub, LinkedFolders folders, IReadOnlyList<AgentStatus> ready) : ITool, IPermissionInfo
+public sealed class HandOffToAgentTool(AgentHub hub, LinkedFolders folders, IReadOnlyList<AgentStatus> ready,
+    IReadOnlyList<(RemoteHost host, IReadOnlyList<AgentStatus> agents)>? nodes = null) : ITool, IPermissionInfo
 {
     public string Name => "hand_off_to_agent";
     public string DisplayName => "Hand off to an agent";
     public string Icon => "🤝";
+    private IReadOnlyList<(RemoteHost host, IReadOnlyList<AgentStatus> agents)> Nodes => nodes ?? [];
+    private IEnumerable<AgentDef> All => ready.Select(a => a.Def).Concat(Nodes.SelectMany(n => n.agents.Select(a => a.Def))).DistinctBy(d => d.Id);
+
     public string Description =>
-        "Give a job to another AI agent on this computer and get its answer back. Available: " +
-        string.Join("; ", ready.Select(a => $"{a.Def.Id} ({a.Def.Name}: {a.Def.About})")) + ". " +
+        "Give a job to another AI agent and get its answer back. Agents: " +
+        string.Join("; ", All.Select(d => $"{d.Id} ({d.Name}: {d.About})")) + ". " +
+        (ready.Count > 0 ? $"On this computer: {string.Join(", ", ready.Select(a => a.Def.Id))}. " : "") +
+        string.Concat(Nodes.Select(n => $"On the computer \"{n.host.Name}\"{(string.IsNullOrWhiteSpace(n.host.Notes) ? "" : $" ({n.host.Notes})")}: {string.Join(", ", n.agents.Select(a => a.Def.Id))}. ")) +
         "Use it when the user asks for one of them by name, or for a long coding or research job in a folder that one of " +
-        "them does well. It works in a folder: this chat's code folder by default, or a linked folder. It can take " +
-        "minutes. The agent can't see this chat, so write the task out in full: the goal, what to change or find, and " +
-        "what to report back.";
+        "them does well. On this computer it works in this chat's code folder by default, or a linked folder; on another " +
+        "computer, give the folder's full path there. It can take minutes. The agent can't see this chat, so write the " +
+        "task out in full: the goal, what to change or find, and what to report back.";
     public JsonObject Parameters => new()
     {
         ["type"] = "object",
         ["properties"] = new JsonObject
         {
-            ["agent"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray(ready.Select(a => (JsonNode)a.Def.Id).ToArray()), ["description"] = "Which agent" },
+            ["agent"] = new JsonObject { ["type"] = "string", ["enum"] = new JsonArray(All.Select(d => (JsonNode)d.Id).ToArray()), ["description"] = "Which agent" },
             ["task"] = new JsonObject { ["type"] = "string", ["description"] = "The job, written out in full" },
             ["folder"] = new JsonObject { ["type"] = "string", ["description"] = "Full path of the folder to work in (default: this chat's code folder)" },
+            ["computer"] = new JsonObject { ["type"] = "string", ["description"] = "Which computer to run it on (a name from the list; default: this computer)" },
         },
         ["required"] = new JsonArray("agent", "task"),
     };
@@ -81,18 +96,33 @@ public sealed class HandOffToAgentTool(AgentHub hub, LinkedFolders folders, IRea
     public async Task<ToolResult> ExecuteAsync(JsonObject args, ToolContext ctx, CancellationToken ct)
     {
         var agent = args.Str("agent") ?? "";
-        if (ready.All(a => !a.Def.Id.Equals(agent, StringComparison.OrdinalIgnoreCase) && !a.Def.Name.Equals(agent, StringComparison.OrdinalIgnoreCase)))
-            return ToolResult.Error($"\"{agent}\" isn't available. Use one of: {string.Join(", ", ready.Select(a => a.Def.Id))}.");
-        var folder = args.Str("folder") is { Length: > 0 } f ? f : ctx.Code?.Directory;
-        if (string.IsNullOrWhiteSpace(folder))
-            return ToolResult.Error("Say which folder to work in (this chat has no code folder). It has to be a linked folder, or the user can start it from the Agents page.");
-        var full = Path.GetFullPath(folder.Replace("~", AgentCatalog.HomeFolder));
-        if (!await AllowedAsync(full, ctx))
-            return ToolResult.Error($"Bots can only hand off work in this chat's code folder or a linked folder (Documents → Linked folders), and {full} is neither. " +
-                                    "The user can run it there from the Agents page.");
+        var computer = args.Str("computer") is { Length: > 0 } c && !c.Equals("this computer", StringComparison.OrdinalIgnoreCase) ? c : null;
         AgentRun run;
-        try { run = await hub.StartAsync(agent, args.Str("task") ?? "", full, ctx.Conversation.Id, ctx.Bot?.Id, ctx.Unattended); }
-        catch (InvalidOperationException ex) { return ToolResult.Error(ex.Message); }
+        if (computer is not null)
+        {
+            var node = Nodes.FirstOrDefault(n => n.host.Name.Equals(computer, StringComparison.OrdinalIgnoreCase));
+            if (node.host is null) return ToolResult.Error($"No computer \"{computer}\" with agents. Use one of: this computer{string.Concat(Nodes.Select(n => ", " + n.host.Name))}.");
+            if (node.agents.All(a => !a.Def.Id.Equals(agent, StringComparison.OrdinalIgnoreCase) && !a.Def.Name.Equals(agent, StringComparison.OrdinalIgnoreCase)))
+                return ToolResult.Error($"\"{agent}\" isn't on {node.host.Name}. There: {string.Join(", ", node.agents.Select(a => a.Def.Id))}.");
+            if (args.Str("folder") is not { Length: > 0 } there) return ToolResult.Error($"Give the folder's full path on {node.host.Name}.");
+            try { run = await hub.StartAsync(agent, args.Str("task") ?? "", there, ctx.Conversation.Id, ctx.Bot?.Id, ctx.Unattended, node.host.Id); }
+            catch (InvalidOperationException ex) { return ToolResult.Error(ex.Message); }
+        }
+        else
+        {
+            if (ready.All(a => !a.Def.Id.Equals(agent, StringComparison.OrdinalIgnoreCase) && !a.Def.Name.Equals(agent, StringComparison.OrdinalIgnoreCase)))
+                return ToolResult.Error($"\"{agent}\" isn't on this computer. Here: {(ready.Count == 0 ? "none" : string.Join(", ", ready.Select(a => a.Def.Id)))}" +
+                                        (Nodes.Count > 0 ? "; or name a computer." : "."));
+            var folder = args.Str("folder") is { Length: > 0 } f ? f : ctx.Code?.Directory;
+            if (string.IsNullOrWhiteSpace(folder))
+                return ToolResult.Error("Say which folder to work in (this chat has no code folder). It has to be a linked folder, or the user can start it from the Agents page.");
+            var full = Path.GetFullPath(folder.Replace("~", AgentCatalog.HomeFolder));
+            if (!await AllowedAsync(full, ctx))
+                return ToolResult.Error($"Bots can only hand off work in this chat's code folder or a linked folder (Documents → Linked folders), and {full} is neither. " +
+                                        "The user can run it there from the Agents page.");
+            try { run = await hub.StartAsync(agent, args.Str("task") ?? "", full, ctx.Conversation.Id, ctx.Bot?.Id, ctx.Unattended); }
+            catch (InvalidOperationException ex) { return ToolResult.Error(ex.Message); }
+        }
         try { run = await hub.WaitAsync(run.Id, TimeSpan.FromHours(2), ct); }
         catch (OperationCanceledException) { await hub.CancelAsync(run.Id); throw; }
         return AgentReport.For(run);

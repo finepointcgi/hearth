@@ -27,17 +27,39 @@ public static partial class Ssh
         : !TargetPattern().IsMatch(h.Target.Trim()) || h.Target.StartsWith('-') ? "Use user@host (or a Host alias from ~/.ssh/config)."
         : h.Port is < 1 or > 65535 ? "Port must be 1–65535." : null;
 
-    /// <summary>Runs one command on the host. BatchMode: key auth only, never a password prompt.</summary>
-    public static async Task<(int code, string output)> RunAsync(RemoteHost h, string command, TimeSpan timeout, CancellationToken ct)
+    /// <summary>
+    /// The ssh process for one command on the host: key auth only (BatchMode, never a password prompt), no terminal,
+    /// so the command's stdin and stdout pass straight through (agents speak JSON over them).
+    /// </summary>
+    public static ProcessStartInfo Start(RemoteHost h, string command)
     {
         if (Validate(h) is { } problem) throw new InvalidOperationException(problem);
-        var psi = new ProcessStartInfo("ssh") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
-        foreach (var a in new[] { "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new", "-o", "LogLevel=ERROR", "-p", h.Port.ToString() })
+        var psi = new ProcessStartInfo("ssh")
+        {
+            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, UseShellExecute = false, CreateNoWindow = true,
+        };
+        foreach (var a in new[] { "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30", "-o", "StrictHostKeyChecking=accept-new",
+                     "-o", "LogLevel=ERROR", "-p", h.Port.ToString() })
             psi.ArgumentList.Add(a);
         if (!string.IsNullOrWhiteSpace(h.KeyPath)) { psi.ArgumentList.Add("-i"); psi.ArgumentList.Add(Environment.ExpandEnvironmentVariables(h.KeyPath.Replace("~", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)))); }
         psi.ArgumentList.Add(h.Target.Trim());
         psi.ArgumentList.Add("--");
         psi.ArgumentList.Add(command);
+        return psi;
+    }
+
+    /// <summary>A word for the remote shell, quoted so nothing in it is interpreted.</summary>
+    public static string Quote(string s) => "'" + s.Replace("'", "'\\''") + "'";
+
+    /// <summary>A folder path for the remote shell; ~ stays the remote user's home.</summary>
+    public static string QuotePath(string path) =>
+        path == "~" ? "\"$HOME\"" : path.StartsWith("~/") ? "\"$HOME\"/" + Quote(path[2..]) : Quote(path);
+
+    /// <summary>Runs one command on the host. BatchMode: key auth only, never a password prompt.</summary>
+    public static async Task<(int code, string output)> RunAsync(RemoteHost h, string command, TimeSpan timeout, CancellationToken ct)
+    {
+        var psi = Start(h, command);
+        psi.RedirectStandardInput = false;
         using var p = Process.Start(psi) ?? throw new InvalidOperationException("Couldn't start ssh. Is OpenSSH installed?");
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
