@@ -97,6 +97,8 @@ public sealed class AppSettings
     public TeachingSettings Teaching { get; set; } = new();
     /// <summary>Other AI agents on this computer (Hermes, Claude Code…) that Hearth and its bots can hand work to.</summary>
     public AgentsSettings Agents { get; set; } = new();
+    /// <summary>Reaching Hearth from a phone away from home (Cloudflare quick tunnel).</summary>
+    public Services.Phone.RemoteAccessSettings RemoteAccess { get; set; } = new();
     /// <summary>The starter skills were added (once; deleted ones aren't brought back on their own).</summary>
     public bool StarterSkillsAdded { get; set; }
     public SelfCheckSettings SelfCheck { get; set; } = new();
