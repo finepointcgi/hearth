@@ -369,7 +369,7 @@
                         <select @bind="routine.Trigger">
                             <option value="@TriggerKind.Schedule">⏰ On a schedule</option>
                             <option value="@TriggerKind.Webhook" disabled="@(!Platform.SupportsWebhooks)">🪝 A webhook is called@(Platform.SupportsWebhooks ? "" : " (not on this device)")</option>
-                            <option value="@TriggerKind.Folder" disabled="@(!Platform.CanRunProcesses)">📁 A file appears or changes in a folder@(Platform.CanRunProcesses ? "" : " (desktop only)")</option>
+                            <option value="@TriggerKind.Folder" disabled="@(!Platform.CanUseComputer)">📁 A file appears or changes in a folder@(Platform.CanUseComputer ? "" : Platform.CanRunProcesses ? " (not allowed for this account)" : " (desktop only)")</option>
                             <option value="@TriggerKind.Feed">📰 A new item appears in an RSS/Atom feed</option>
                             <option value="@TriggerKind.PageChange">🌐 A web page changes</option>
                             <option value="@TriggerKind.Sheet" disabled="@(!_googleConnected)">📊 A Google Sheet changes@(_googleConnected ? "" : " (connect Google first)")</option>

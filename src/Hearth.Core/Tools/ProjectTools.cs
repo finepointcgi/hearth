@@ -23,7 +23,7 @@ public sealed class ProjectToolProvider(LinkedFolders folders, ProjectHistory hi
             new ListProjectChangesTool(history),
             new UndoProjectChangeTool(folders, history),
         ];
-        if (platform.CanRunProcesses) tools.Add(new RunInProjectTool(folders, sandbox));
+        if (platform.CanUseComputer) tools.Add(new RunInProjectTool(folders, sandbox));
         return tools;
     }
 }

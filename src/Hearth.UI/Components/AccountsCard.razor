@@ -37,6 +37,12 @@
                 <div class="memory-row">
                     <span class="grow"><Icon Name="@(account.IsOwner ? "shield" : "user")" Size="16" /> <b>@account.Name</b>
                         <span class="muted small">@(account.IsOwner ? "owner · you" : $"since {account.CreatedAt:MMM d, yyyy}")</span></span>
+                    @if (!account.IsOwner)
+                    {
+                        <label class="check small" title="Run code and commands, other agents (with your logins), computer control, other computers over SSH and folders on this computer, as you.">
+                            <input type="checkbox" checked="@account.ComputerAccess" @onchange="e => SetComputerAccess(account, (bool)e.Value!)" /> Can use this computer
+                        </label>
+                    }
                     @if (_resetFor == account.Id)
                     {
                         <input type="password" @bind="_resetPassword" placeholder="New password" autocomplete="new-password" />
@@ -72,6 +78,7 @@
                 <button class="btn primary" @onclick="Add" disabled="@(_name.Trim().Length == 0 || _password.Length == 0)">Add account</button>
             </div>
             <p class="muted small">They start with the default team of bots and the starter skills, and connect their own Google, Microsoft and chat apps. Use a different Telegram bot for each person.</p>
+            <p class="muted small"><b>Can use this computer</b> is off for everyone you add. Only turn it on for people you'd trust with your own login: it lets them run code and commands, hand work to other agents (Claude Code, Hermes… with your accounts), control the screen and browser, reach your other computers over SSH and link folders here, all as you.</p>
             <div class="row">
                 <span class="grow"></span>
                 @if (_confirmOff)
@@ -89,6 +96,7 @@
         else if (me is not null)
         {
             <p class="muted small">Signed in as <b>@me.Name</b>. Your bots, chats, memories and connections are your own; model servers are shared and managed by @(_store.Owner?.Name ?? "the owner").</p>
+            <p class="muted small">@(me.ComputerAccess ? "You can use this computer: code, commands, other agents, computer control, other computers and local folders." : $"Running code and programs, other agents, computer control, other computers and local folders are off for your account; {_store.Owner?.Name ?? "the owner"} can turn them on.")</p>
             <div class="row">
                 <input class="grow" type="password" @bind="_password" placeholder="New password (8+ characters)" autocomplete="new-password" />
                 <button class="btn primary" @onclick="() => Reset(me.Id)" disabled="@(_password.Length == 0 && _resetPassword.Length == 0)">Change my password</button>
@@ -151,6 +159,12 @@
         // Your own password: the old sign-in no longer counts, so sign in again.
         if (id == Me?.Id) Nav.NavigateTo("/login", forceLoad: true);
         else _message = "Password changed; they'll need to sign in again.";
+    }
+
+    private async Task SetComputerAccess(Account account, bool allowed)
+    {
+        await _store!.SetComputerAccessAsync(account.Id, allowed);
+        _message = allowed ? $"{account.Name} can use this computer now." : $"{account.Name} can't use this computer any more (work already running is stopped at its next step).";
     }
 
     private async Task Remove(string id)

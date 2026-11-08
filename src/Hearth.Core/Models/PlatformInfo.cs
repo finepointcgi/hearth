@@ -14,4 +14,25 @@ public sealed record PlatformInfo(
 {
     /// <summary>"" = same origin as the page (web host); null = webhooks not available on this platform.</summary>
     public bool SupportsWebhooks => WebhookBaseUrl is not null;
+
+    /// <summary>
+    /// Whether this account may use this computer (asked each time, so the owner's choice applies at once). With
+    /// separate accounts, only the owner and the people they allow can; with one person, always.
+    /// </summary>
+    public Func<bool>? ComputerAccess { get; init; }
+
+    /// <summary>
+    /// Running programs and touching files on this computer as the person it belongs to: code, terminal commands,
+    /// other agents, computer and desktop control, other computers over SSH, local folders. Narrower than
+    /// <see cref="CanRunProcesses"/>, which also covers safe helpers (the Claude Code model with its tools off, OCR,
+    /// speech).
+    /// </summary>
+    public bool CanUseComputer => CanRunProcesses && AccountMayUseComputer;
+
+    /// <summary>The account's own permission alone (for local folders, which don't need programs to run).</summary>
+    public bool AccountMayUseComputer => ComputerAccess?.Invoke() ?? true;
+
+    /// <summary>Why <see cref="CanUseComputer"/> is false, for the person reading; null when it's true.</summary>
+    public string? ComputerProblem => !CanRunProcesses ? "Not available on this platform"
+        : !CanUseComputer ? "This account isn't allowed to use this computer (the owner can allow it in Settings → Accounts)" : null;
 }

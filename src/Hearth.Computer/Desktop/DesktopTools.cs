@@ -14,7 +14,7 @@ public sealed class DesktopToolProvider(DesktopController host, SandboxDesktops 
     public async Task<IReadOnlyList<ITool>> GetToolsAsync(AppSettings settings, CancellationToken ct)
     {
         var c = settings.Computer;
-        if (!platform.CanRunProcesses) return [];
+        if (!platform.CanUseComputer) return [];
         var hostOn = c.DesktopControl && host.Supported;
         var anySandbox = (await bots.ListAsync()).Any(b => b.Abilities is { ComputerUse: true, Desktop: DesktopTarget.Sandbox });
         if (!hostOn && !anySandbox) return [];

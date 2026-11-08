@@ -13,6 +13,13 @@ public sealed class Account
     public string Salt { get; set; } = "";
     /// <summary>The first account: it keeps the original data folder and manages the others.</summary>
     public bool IsOwner { get; set; }
+    /// <summary>
+    /// The owner lets this person use this computer as the owner does: run code and commands, other agents
+    /// (with the owner's logins), computer control, other computers over SSH and local folders. Off unless allowed.
+    /// </summary>
+    public bool ComputerAccess { get; set; }
+    /// <summary>The owner always can; others only when allowed.</summary>
+    public bool CanUseComputer => IsOwner || ComputerAccess;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 }
 
@@ -129,6 +136,13 @@ public sealed class AccountStore(string rootDataDirectory)
         await UpdateAsync(x => { if (x.Accounts.FirstOrDefault(a => a.Id == id) is { } a) a.Name = name.Trim(); });
         return null;
     }
+
+    /// <summary>Lets someone use this computer, or stops them (applies straight away, also to work already running).</summary>
+    public Task SetComputerAccessAsync(string id, bool allowed) =>
+        UpdateAsync(x => { if (x.Accounts.FirstOrDefault(a => a.Id == id) is { IsOwner: false } a) a.ComputerAccess = allowed; });
+
+    /// <summary>Whether this account may use this computer right now (false once it's removed).</summary>
+    public bool MayUseComputer(string id) => Find(id) is { CanUseComputer: true };
 
     /// <summary>Removes an account (never the owner). Its data folder is left on disk.</summary>
     public Task RemoveAsync(string id) => UpdateAsync(x => x.Accounts.RemoveAll(a => a.Id == id && !a.IsOwner));

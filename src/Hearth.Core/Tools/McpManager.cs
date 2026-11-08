@@ -98,9 +98,10 @@ public sealed partial class McpManager(PlatformInfo platform, IHttpClientFactory
             if (s.Headers.Count > 0) opts.AdditionalHeaders = new Dictionary<string, string>(s.Headers);
             return new HttpClientTransport(opts, http.CreateClient("mcp"), ownsHttpClient: false);
         }
-        if (!platform.CanRunProcesses)
-            throw new PlatformNotSupportedException(
-                "This platform can't launch local MCP servers. Use an HTTP MCP server instead.");
+        if (!platform.CanUseComputer)
+            throw new PlatformNotSupportedException(platform.CanRunProcesses
+                ? "This account isn't allowed to run programs on this computer, so it can't launch local MCP servers. Use an HTTP MCP server instead."
+                : "This platform can't launch local MCP servers. Use an HTTP MCP server instead.");
         return new StdioClientTransport(new StdioClientTransportOptions
         {
             Name = s.Name,

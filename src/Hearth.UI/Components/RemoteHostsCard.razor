@@ -8,9 +8,9 @@
         Hearth signs in with your SSH keys only — set up key login first (<code>ssh-copy-id user@host</code>) — and asks before every
         command unless you change that under 🛡 Permissions → Remote computers. Bots need the <b>Code</b> ability.
     </p>
-    @if (!Platform.CanRunProcesses)
+    @if (!Platform.CanUseComputer)
     {
-        <span class="muted small">Not available on this device.</span>
+        <span class="muted small">@(Platform.CanRunProcesses ? Platform.ComputerProblem + "." : "Not available on this device.")</span>
     }
     else
     {

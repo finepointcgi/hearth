@@ -44,15 +44,12 @@ public sealed class BuiltInToolProvider(
             (new ReadFileTool(computer), s.Computer.Enabled ? null : "Computer is off"),
             (new WriteFileTool(computer), s.Computer.Enabled ? null : "Computer is off"),
             (new RunCommandTool(computer, sandbox),
-                !platform.CanRunProcesses ? "Not available on this platform"
-                : !s.Computer.AllowCommands ? "Turned off" : null),
+                platform.ComputerProblem ?? (!s.Computer.AllowCommands ? "Turned off" : null)),
             (new RunRemoteTool(s.RemoteHosts),
-                !platform.CanRunProcesses ? "Not available on this platform"
-                : s.RemoteHosts.Count == 0 ? "Add a computer on the Computer page" : null),
+                platform.ComputerProblem ?? (s.RemoteHosts.Count == 0 ? "Add a computer on the Computer page" : null)),
             (new PythonTool(sandbox, computer),
-                !platform.CanRunProcesses ? "Not available on this platform"
-                : !s.Tools.PythonEnabled ? "Turned off"
-                : !sandbox.Active(s) && PythonTool.FindPython(s.Tools.PythonPath) is null ? "Python not found" : null),
+                platform.ComputerProblem ?? (!s.Tools.PythonEnabled ? "Turned off"
+                : !sandbox.Active(s) && PythonTool.FindPython(s.Tools.PythonPath) is null ? "Python not found" : null)),
         ];
     }
 

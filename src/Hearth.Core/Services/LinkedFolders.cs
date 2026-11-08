@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Hearth.Core.Models;
 
 namespace Hearth.Core.Services;
 
@@ -25,7 +26,7 @@ public sealed class LinkedFolder
 /// up as they happen (a file watcher) and by a full check every 15 minutes, so search always reflects what's there.
 /// Bots can also read the files themselves (read_linked_file).
 /// </summary>
-public sealed class LinkedFolders(IAppPaths paths, DocumentStore docs) : IDisposable
+public sealed class LinkedFolders(IAppPaths paths, DocumentStore docs, PlatformInfo? platform = null) : IDisposable
 {
     public const int MaxFiles = 3000;
     public const long MaxFileBytes = 8 * 1024 * 1024;
@@ -60,6 +61,8 @@ public sealed class LinkedFolders(IAppPaths paths, DocumentStore docs) : IDispos
     /// <summary>Links a folder and starts indexing it. Returns an error message, or null.</summary>
     public async Task<string?> AddAsync(string path)
     {
+        if (platform is { AccountMayUseComputer: false })
+            return "This account isn't allowed to use folders on this computer. The owner can allow it in Settings → Accounts.";
         path = Normalize(path);
         if (path.Length == 0) return "Enter a folder path.";
         if (!Directory.Exists(path)) return $"Can't find the folder {path} (or Hearth isn't allowed to open it).";
@@ -98,6 +101,7 @@ public sealed class LinkedFolders(IAppPaths paths, DocumentStore docs) : IDispos
     /// </summary>
     public async Task<LinkedFolder?> FolderForAsync(string path)
     {
+        if (platform is { AccountMayUseComputer: false }) return null; // no reading or writing this computer's files
         var full = Normalize(path);
         var folder = (await ListAsync()).FirstOrDefault(f => f.Enabled && Inside(full, f.Path));
         if (folder is null) return null;
@@ -113,6 +117,7 @@ public sealed class LinkedFolders(IAppPaths paths, DocumentStore docs) : IDispos
 
     public async Task SyncAllAsync()
     {
+        if (platform is { AccountMayUseComputer: false }) return; // stopped when the owner takes away access
         foreach (var f in await ListAsync()) await SyncAsync(f.Id);
     }
 

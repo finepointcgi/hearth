@@ -13,7 +13,7 @@ public sealed class ComputerToolProvider(PlaywrightComputer computer, PlatformIn
 {
     public async Task<IReadOnlyList<ITool>> GetToolsAsync(AppSettings settings, CancellationToken ct)
     {
-        if (!platform.CanRunProcesses || !settings.Computer.Enabled) return [];
+        if (!platform.CanUseComputer || !settings.Computer.Enabled) return [];
         var ask = !settings.Computer.AutoApproveActions;
         var protect = settings.Computer.ProtectSensitiveFields;
         var logins = await vault.ListAsync();

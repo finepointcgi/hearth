@@ -85,7 +85,7 @@ public sealed class AudioTranscriber(SpeechService speech, SettingsStore setting
     /// </summary>
     public async Task<string> SetUpLocalAsync(IHttpClientFactory http, IProgress<string> progress, CancellationToken ct)
     {
-        if (!platform.CanRunProcesses) throw new InvalidOperationException("This Hearth can't install programs; set a speech-to-text server instead.");
+        if (!platform.CanUseComputer) throw new InvalidOperationException("This Hearth can't install programs for this account; set a speech-to-text server instead.");
         if (Find("ffmpeg") is null) throw new InvalidOperationException("ffmpeg is needed: install it with Homebrew (brew install ffmpeg).");
         if (Find("whisper-cli") is null)
         {

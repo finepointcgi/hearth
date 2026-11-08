@@ -109,7 +109,7 @@
         </div>
         <div class="row">
             <span class="muted small">Cloud &amp; other:</span>
-            @if (Platform.CanRunProcesses)
+            @if (Platform.CanUseComputer)
             {
                 <button class="btn ghost" @onclick="AddClaudeCode">＋ Claude Code</button>
             }

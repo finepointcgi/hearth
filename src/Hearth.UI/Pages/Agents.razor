@@ -4,6 +4,7 @@
 @using Hearth.Core.Services.Agents
 @inject AgentHub Hub
 @inject AgentCare Care
+@inject PlatformInfo Platform
 @inject SettingsStore SettingsStore
 @inject LinkedFolders Folders
 @inject NavigationManager Nav
@@ -22,11 +23,15 @@
             allow comes to you to approve, here or on your phone.</p>
         @if (!Hub.Available)
         {
-            <div class="error-box">Agents run as programs on this computer, so they work in the desktop app or the web host with local access.</div>
+            <div class="error-box">@(Platform.CanRunProcesses ? "This account isn't allowed to use this computer, and other agents would act with its logins and files. The owner can allow it in Settings → Accounts." : "Agents run as programs on this computer, so they work in the desktop app or the web host with local access.")</div>
         }
     </section>
 
-    @if (_agents is null)
+    @if (Platform.CanRunProcesses && !Platform.CanUseComputer)
+    {
+        @* This account may not use this computer: nothing here would work for it. *@
+    }
+    else if (_agents is null)
     {
         <p class="muted">Looking for agents…</p>
     }

@@ -47,8 +47,9 @@ public sealed class AgentHub : IAsyncDisposable
     /// <summary>A run changed (a step, its status). Fired often while it works.</summary>
     public event Action<AgentRun>? Changed;
 
-    /// <summary>Agents run as local programs: desktop, or the web host with local access.</summary>
-    public bool Available => _platform.CanRunProcesses;
+    /// <summary>Agents run as local programs (desktop, or the web host with local access), and only for accounts
+    /// allowed to use this computer: they act with its logins and files.</summary>
+    public bool Available => _platform.CanUseComputer;
 
     /// <summary>For tests: the home folder agents keep their files in on this computer.</summary>
     public string Home { get; set; } = AgentCatalog.HomeFolder;
@@ -60,10 +61,13 @@ public sealed class AgentHub : IAsyncDisposable
 
     public async Task<IReadOnlyList<AgentStatus>> StatusAsync(bool refresh = false)
     {
-        if (!refresh && _status is not null && DateTime.UtcNow - _statusAt < TimeSpan.FromMinutes(10)) return _status;
+        var available = Available;
+        // A list made while this account wasn't allowed to use this computer is looked for again once it is.
+        if (!refresh && _status is not null && _statusAvailable == available && DateTime.UtcNow - _statusAt < TimeSpan.FromMinutes(10)) return _status;
+        _statusAvailable = available;
         var found = await Task.WhenAll(AgentCatalog.All.Select(async def =>
         {
-            var path = Available ? Find(def) : null;
+            var path = available ? Find(def) : null;
             string? version = null;
             if (path is not null)
                 try
@@ -77,6 +81,8 @@ public sealed class AgentHub : IAsyncDisposable
         _statusAt = DateTime.UtcNow;
         return _status = found;
     }
+
+    private bool _statusAvailable;
 
     private string? Find(AgentDef def) => Locator is { } l ? l(def) : AgentCatalog.Locate(def.Command);
 
@@ -248,7 +254,9 @@ public sealed class AgentHub : IAsyncDisposable
     public async Task<AgentRun> StartAsync(string agentId, string task, string folder, string? conversationId = null, string? botId = null,
         bool unattended = false, string? computer = null, string? profile = null)
     {
-        if (!Available) throw new InvalidOperationException("Agents run as programs on this computer, so they work in the desktop app or the web host with local access.");
+        if (!Available) throw new InvalidOperationException(_platform.CanRunProcesses
+            ? "This account isn't allowed to use this computer, so it can't run other agents. The owner can allow it in Settings → Accounts."
+            : "Agents run as programs on this computer, so they work in the desktop app or the web host with local access.");
         var def = AgentCatalog.Find(agentId) ?? throw new InvalidOperationException($"No agent called \"{agentId}\". Hearth knows: {string.Join(", ", AgentCatalog.All.Select(a => a.Name))}.");
         task = task.Trim();
         if (task.Length == 0) throw new InvalidOperationException("Say what the agent should do.");

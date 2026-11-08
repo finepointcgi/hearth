@@ -41,7 +41,7 @@
                 <span class="muted small">@(reason ?? "Ready")</span>
             </div>
         }
-        @if (Platform.CanRunProcesses)
+        @if (Platform.CanUseComputer)
         {
             <div class="sub">
                 <label class="check"><input type="checkbox" @bind="_s.Tools.PythonEnabled" /> Allow the Python tool</label>
@@ -76,7 +76,7 @@
                 var it = item;
                 var added = _s?.McpServers.Any(m => m.Name == it.Id) == true;
                 var missing = it.Needs is { } need && !OnPath(need == "node" ? "npx" : "uvx");
-                <button class="catalog-item @(_adding == it ? "on" : "")" disabled="@(added || (missing && it.Transport == McpTransport.Stdio) || (it.Transport == McpTransport.Stdio && !Platform.CanRunProcesses))"
+                <button class="catalog-item @(_adding == it ? "on" : "")" disabled="@(added || (missing && it.Transport == McpTransport.Stdio) || (it.Transport == McpTransport.Stdio && !Platform.CanUseComputer))"
                         @onclick="() => StartAdd(it)" title="@(added ? "Already added" : missing ? $"Needs {(it.Needs == "node" ? "Node.js" : "uv")} installed" : it.Description)">
                     <span class="needs-icon"><Icon Name="@it.Icon" Size="17" /></span>
                     <span class="grow-text"><b>@it.Name</b><small>@(added ? "Added" : missing ? $"Needs {(it.Needs == "node" ? "Node.js" : "uv")}" : it.Description)</small></span>
@@ -109,7 +109,7 @@
         <h3>MCP servers</h3>
         <p class="muted">
             Plug in any <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">Model Context Protocol</a> server (files, GitHub, databases, Home Assistant…).
-            @if (!Platform.CanRunProcesses) { <b>This platform can only use HTTP MCP servers.</b> }
+            @if (!Platform.CanUseComputer) { <b>@(Platform.CanRunProcesses ? "This account can only use HTTP MCP servers." : "This platform can only use HTTP MCP servers.")</b> }
         </p>
 
         @foreach (var srv in _s.McpServers)
@@ -218,7 +218,7 @@
             .Concat([Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin"])
             .Any(d => File.Exists(Path.Combine(d, exe)) || File.Exists(Path.Combine(d, exe + ".cmd")) || File.Exists(Path.Combine(d, exe + ".exe")));
 
-    private void AddServer() => _s!.McpServers.Add(new McpServerConfig { Name = $"server{_s.McpServers.Count + 1}", Transport = Platform.CanRunProcesses ? McpTransport.Stdio : McpTransport.Http });
+    private void AddServer() => _s!.McpServers.Add(new McpServerConfig { Name = $"server{_s.McpServers.Count + 1}", Transport = Platform.CanUseComputer ? McpTransport.Stdio : McpTransport.Http });
 
     private void Import()
     {
