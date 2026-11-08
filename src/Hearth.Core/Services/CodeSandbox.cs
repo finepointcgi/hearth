@@ -55,7 +55,7 @@ public sealed class CodeSandbox : IDisposable
     }
 
     /// <summary>Code runs in the sandbox (and so needs no approval) when it's on and Docker is installed.</summary>
-    public bool Active(AppSettings s) => s.Tools.Sandbox.Enabled && DockerPath is not null;
+    public bool Active(AppSettings s) => s.Tools.Sandbox.Enabled && _platform.CanUseComputer && DockerPath is not null;
 
     /// <summary>Is Docker running? (For the settings page.)</summary>
     public async Task<string?> ProblemAsync(CancellationToken ct = default)

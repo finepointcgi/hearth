@@ -48,9 +48,10 @@ public sealed class PlaywrightComputer : IBotComputer, IAsyncDisposable
     {
         get
         {
-            if (!_platform.CanRunProcesses)
-                return new(false, false, true, null, null, null, null,
-                    "The bot computer needs local access: use the desktop app, or enable Hearth:AllowLocalProcesses on the web host.");
+            if (!_platform.CanUseComputer)
+                return new(false, false, true, null, null, null, null, _platform.CanRunProcesses
+                    ? "This account isn't allowed to use this computer. The owner can allow it in Settings → Accounts."
+                    : "The bot computer needs local access: use the desktop app, or enable Hearth:AllowLocalProcesses on the web host.");
             var page = ActivePage();
             var running = _profiles.Keys.ToList();
             var headless = _active is { } a && _profiles.TryGetValue(a.profile, out var p) ? p.Headless : true;

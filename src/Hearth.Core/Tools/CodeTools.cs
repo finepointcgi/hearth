@@ -20,8 +20,9 @@ public sealed class CodeTools(ProjectHistory history, CodeSandbox sandbox, Platf
         "dist", "build", ".next", ".nuxt", "target", ".gradle", ".dart_tool", "Pods", "DerivedData",
     };
 
-    /// <summary>Code sessions need a local file system (desktop, or the web host with local access).</summary>
-    public bool Available => platform.CanRunProcesses;
+    /// <summary>Code sessions need a local file system (desktop, or the web host with local access) and an account
+    /// allowed to use this computer.</summary>
+    public bool Available => platform.CanUseComputer;
 
     /// <summary>The folder a run codes in: the chat's code session, else the bot's own project folder (Code ability).</summary>
     public static CodeSession? SessionFor(Conversation conv, Bot? bot) =>

@@ -25,6 +25,12 @@ public sealed class AgentCare(SettingsStore settingsStore, SkillPorter porter, S
 
     private bool _watching;
 
+    /// <summary>Agents' files belong to whoever this computer is signed in as: only accounts allowed to use it.</summary>
+    private void CheckAllowed()
+    {
+        if (!hub.Available) throw new InvalidOperationException("This account isn't allowed to use this computer, so it can't look after other agents. The owner can allow it in Settings → Accounts.");
+    }
+
     public string HomeOf(AgentDef def) => HomeOf(new AgentPlace(def));
     private string HomeOf(AgentPlace place) => Path.Combine(Home, place.RelativeHome);
     private static string RemotePath(AgentPlace place, string rel) => Tools.Ssh.QuotePath($"~/{place.RelativeHome}/{rel}");
@@ -52,6 +58,7 @@ public sealed class AgentCare(SettingsStore settingsStore, SkillPorter porter, S
 
     public async Task<IReadOnlyList<AgentMemoryFile>> MemoryFilesAsync(AgentPlace place)
     {
+        CheckAllowed();
         if (place.Host is not { } host) return LocalFiles(place);
         var script = string.Concat(place.Def.MemoryFiles.Select(rel =>
             $"f={RemotePath(place, rel)}; if [ -f \"$f\" ]; then echo \"@@{rel}|$(wc -c < \"$f\")\"; else echo \"@@{rel}|-\"; fi; ")) + "echo @@end";
@@ -73,6 +80,7 @@ public sealed class AgentCare(SettingsStore settingsStore, SkillPorter porter, S
 
     public async Task<string> ReadAsync(AgentPlace place, string name)
     {
+        CheckAllowed();
         CheckName(place, name);
         if (place.Host is not { } host)
         {
@@ -92,6 +100,7 @@ public sealed class AgentCare(SettingsStore settingsStore, SkillPorter porter, S
     /// <summary>Saves an edited memory file; the previous version is kept next to it (.hearth-backup).</summary>
     public async Task SaveAsync(AgentPlace place, string name, string text)
     {
+        CheckAllowed();
         CheckName(place, name);
         if (place.Host is not { } host)
         {
@@ -117,6 +126,7 @@ public sealed class AgentCare(SettingsStore settingsStore, SkillPorter porter, S
     /// </summary>
     public async Task<int> ShareMemoriesAsync(AgentPlace place)
     {
+        CheckAllowed();
         var facts = (await memories.ListAsync()).Where(m => !m.Archived).OrderByDescending(m => m.CreatedAt).Select(m => m.Text.Trim()).ToList();
         var body = new StringBuilder();
         var n = 0;
@@ -176,6 +186,7 @@ public sealed class AgentCare(SettingsStore settingsStore, SkillPorter porter, S
     /// </summary>
     public async Task<int> ShareSkillsAsync(AgentPlace place, bool share)
     {
+        CheckAllowed();
         if (place.Def.Skills == SkillLink.None || place.Def.SkillsDir is null)
             throw new InvalidOperationException($"{place.Def.Name} doesn't read skills from a folder.");
         int count;
@@ -281,6 +292,7 @@ public sealed class AgentCare(SettingsStore settingsStore, SkillPorter porter, S
 
     public async Task ResyncAsync()
     {
+        if (!hub.Available) return;
         try
         {
             var settings = await settingsStore.GetAsync();

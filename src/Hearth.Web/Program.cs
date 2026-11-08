@@ -30,14 +30,15 @@ string? Setting(IConfiguration c, string key) => c["Hearth:" + key] ?? c[LegacyN
 var allowProcesses = bool.TryParse(Setting(builder.Configuration, "AllowLocalProcesses"), out var allow) && allow;
 var passwordSet = !string.IsNullOrEmpty(Setting(builder.Configuration, "Password"));
 // Everything Hearth is, for one account (each account gets its own set; see AccountHosts).
-void ConfigureAccount(IServiceCollection s)
+// computerAccess: for someone other than the owner, whether the owner lets them use this computer (asked each time).
+void ConfigureAccount(IServiceCollection s, Func<bool>? computerAccess)
 {
-    s.AddHearth(new PlatformInfo("Web server", IsMobile: false, CanRunProcesses: allowProcesses, WebhookBaseUrl: ""));
+    s.AddHearth(new PlatformInfo("Web server", IsMobile: false, CanRunProcesses: allowProcesses, WebhookBaseUrl: "") { ComputerAccess = computerAccess });
     s.AddHearthComputer(); // the bots' browser; only usable when AllowLocalProcesses is on
     s.Replace(Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<IAppRestarter, WebRestarter>());
     s.AddSingleton<IAccessInfo>(sp => new ServerAccessInfo(sp.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>(), passwordSet));
 }
-ConfigureAccount(builder.Services);
+ConfigureAccount(builder.Services, null);
 // The app's Hearth services forward to the signed-in account's own set (the owner's when accounts are off).
 Hearth.Web.AccountHosts.ForwardToAccounts(builder.Services);
 builder.Services.AddHttpContextAccessor();

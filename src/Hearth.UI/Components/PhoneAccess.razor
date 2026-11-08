@@ -111,7 +111,7 @@
 
     private async Task<string?> TailscaleAsync(string args)
     {
-        if (!Platform.CanRunProcesses || TailscaleExe() is not { } exe) return null;
+        if (!Platform.CanUseComputer || TailscaleExe() is not { } exe) return null;
         try
         {
             var psi = new System.Diagnostics.ProcessStartInfo(exe, args) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };

@@ -13,7 +13,7 @@ namespace Hearth.Web;
 /// services forward to the set of whoever is signed in, so pages and endpoints need no changes. With accounts off,
 /// everything goes to the owner's set — the original data folder, as before.
 /// </summary>
-public sealed class AccountHosts(IServiceProvider root, AccountStore store, Action<IServiceCollection> configure) : IAsyncDisposable
+public sealed class AccountHosts(IServiceProvider root, AccountStore store, Action<IServiceCollection, Func<bool>?> configure) : IAsyncDisposable
 {
     public const string Claim = "hearth_account";
     private readonly ConcurrentDictionary<string, Lazy<ServiceProvider>> _hosts = new();
@@ -25,13 +25,15 @@ public sealed class AccountHosts(IServiceProvider root, AccountStore store, Acti
     {
         var dir = account is null || account.IsOwner ? store.RootDataDirectory : store.DataDirectoryFor(account);
         var key = account is null || account.IsOwner ? "owner" : account.Id;
-        return _hosts.GetOrAdd(key, _ => new Lazy<ServiceProvider>(() => Build(dir, key != "owner"))).Value;
+        return _hosts.GetOrAdd(key, _ => new Lazy<ServiceProvider>(() => Build(dir, key == "owner" ? null : key))).Value;
     }
 
     public bool IsRunning(string accountId) => _hosts.ContainsKey(accountId);
 
-    private ServiceProvider Build(string dir, bool newAccount)
+    /// <param name="accountId">Someone other than the owner: they use this computer only while the owner allows it.</param>
+    private ServiceProvider Build(string dir, string? accountId)
     {
+        var newAccount = accountId is not null;
         Directory.CreateDirectory(dir);
         if (newAccount) SeedFromOwner(dir);
         var s = new ServiceCollection();
@@ -41,7 +43,7 @@ public sealed class AccountHosts(IServiceProvider root, AccountStore store, Acti
         s.AddSingleton(root.GetRequiredService<IConfiguration>());
         s.AddSingleton(root.GetRequiredService<IHostApplicationLifetime>());
         s.AddSingleton(root.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>());
-        configure(s);
+        configure(s, accountId is null ? null : () => store.MayUseComputer(accountId));
         var sp = s.BuildServiceProvider();
         if (newAccount) _ = SyncModelServersAsync(sp);
         AccountStartup.Start(sp);

@@ -43,7 +43,8 @@ public sealed partial class ClaudeCodeClient(ProviderProfile profile, PlatformIn
         if (!platform.CanRunProcesses)
             throw new LlmException("Claude Code runs as a local program, so it's available in the desktop app " +
                                    "(or the web host with Hearth:AllowLocalProcesses). On phones, use the Anthropic API provider.");
-        return FindCli(profile.BaseUrl)
+        // A program path in the address would run any program: only for accounts allowed to use this computer.
+        return FindCli(platform.CanUseComputer ? profile.BaseUrl : null)
             ?? throw new LlmException("Claude Code isn't installed. Install it from claude.com/code, run `claude` once to sign in, " +
                                       "or put the full path to the claude program in this provider's address field.");
     }

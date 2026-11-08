@@ -305,7 +305,7 @@ public sealed class RoutineRunner(
 
     private async Task SyncWatchersAsync()
     {
-        if (!platform.CanRunProcesses) return; // folder access is desktop-only
+        if (!platform.CanUseComputer) return; // folder access: desktop only, and only for accounts allowed to use this computer
         var wanted = new Dictionary<string, (Bot bot, Routine routine)>();
         foreach (var b in await bots.ListAsync())
             foreach (var r in b.Routines.Where(r => r.Enabled && r.Trigger == TriggerKind.Folder && Directory.Exists(r.FolderPath)))

@@ -94,7 +94,7 @@
                 </select>
             </label>
             <label class="check"><input type="checkbox" @bind="_s.Computer.AutoApproveActions" /> Let bots click and type without asking each time</label>
-            @if (Platform.CanRunProcesses)
+            @if (Platform.CanUseComputer)
             {
                 <label class="check"><input type="checkbox" @bind="_s.Computer.AllowCommands" /> Allow shell commands in the workspace (asks every time unless tools are auto-approved)</label>
             }
@@ -114,9 +114,9 @@
             <b>Fail-safe:</b> push the mouse into the top-left corner of the screen and the next action is refused; the ■ stop
             button in the chat cancels the whole run.
         </p>
-        @if (!Desktop.Supported || !Platform.CanRunProcesses)
+        @if (!Desktop.Supported || !Platform.CanUseComputer)
         {
-            <div class="notice">@(Platform.CanRunProcesses ? Desktop.Problem : "Computer use is available in the desktop app.")</div>
+            <div class="notice">@(!Platform.CanRunProcesses ? "Computer use is available in the desktop app." : Platform.ComputerProblem is { } off ? off + "." : Desktop.Problem)</div>
         }
         else if (_s is not null)
         {
