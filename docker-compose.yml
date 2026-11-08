@@ -1,25 +1,25 @@
-# Always-on Locus. Start: `LOCUS_PASSWORD=pick-something docker compose up -d`, then open http://<this machine>:8080
+# Always-on Hearth. Start: `HEARTH_PASSWORD=pick-something docker compose up -d`, then open http://<this machine>:8080
 services:
-  locus:
+  hearth:
     build: .
-    image: locus:latest
-    container_name: locus
+    image: hearth:latest
+    container_name: hearth
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
-      - locus-data:/data            # chats, bots, memory, settings, browser sign-ins
+      - hearth-data:/data            # chats, bots, memory, settings, browser sign-ins
     environment:
       # Strongly recommended: the container is reachable from your network.
-      Locus__Password: "${LOCUS_PASSWORD:-}"
+      Hearth__Password: "${HEARTH_PASSWORD:-}"
       TZ: "${TZ:-UTC}"           # e.g. TZ=Europe/London; routine times use this
     extra_hosts:
-      # Lets Locus reach model servers on the Docker host, e.g. http://host.docker.internal:11434 (Ollama)
+      # Lets Hearth reach model servers on the Docker host, e.g. http://host.docker.internal:11434 (Ollama)
       - "host.docker.internal:host-gateway"
     shm_size: "1gb"                  # Chromium needs more than Docker's default 64 MB
 
   # Optional local voices for live conversation mode: `docker compose --profile voice up -d`,
-  # then in Locus → Settings → Voice set speech-to-text to http://speaches:8000 and text-to-speech to http://kokoro:8880.
+  # then in Hearth → Settings → Voice set speech-to-text to http://speaches:8000 and text-to-speech to http://kokoro:8880.
   speaches:
     profiles: [voice]
     image: ghcr.io/speaches-ai/speaches:latest-cpu
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
 
   # Optional Signal bridge: `docker compose --profile signal up -d`, link it at
-  # http://localhost:8081/v1/qrcodelink?device_name=locus, then in Locus use http://signal:8080 (or http://localhost:8081 outside Docker).
+  # http://localhost:8081/v1/qrcodelink?device_name=hearth, then in Hearth use http://signal:8080 (or http://localhost:8081 outside Docker).
   signal:
     profiles: [signal]
     image: bbernhard/signal-cli-rest-api:latest
@@ -44,7 +44,7 @@ services:
     volumes:
       - signal-data:/home/.local/share/signal-cli
 
-  # Optional private push server for phone notifications: `docker compose --profile ntfy up -d`, then in Locus →
+  # Optional private push server for phone notifications: `docker compose --profile ntfy up -d`, then in Hearth →
   # Connections → Phone notifications set the server to http://<this machine>:8082 (and subscribe the ntfy app to it).
   ntfy:
     profiles: [ntfy]
@@ -57,7 +57,7 @@ services:
       - ntfy-cache:/var/cache/ntfy
 
 volumes:
-  locus-data:
+  hearth-data:
   ntfy-cache:
   signal-data:
   speech-models:

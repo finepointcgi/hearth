@@ -1,0 +1,738 @@
+@page "/"
+@page "/c/{Id}"
+@page "/code"
+@page "/code/{Id}"
+@inherits StatefulComponent
+@inject ChatService ChatSvc
+@inject ConversationStore Store
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject PlatformInfo Platform
+@inject ISpeechOutput Speech
+@inject BotStore Bots
+@inject LiveVoice Live
+@inject ChatRuns Runs
+@inject CodeTools CodeTools
+@inject LinkedFolders Folders
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <div class="model-picker">
+        @if (State.LoadingModels)
+        {
+            <span class="muted">Loading models…</span>
+        }
+        else if (State.Models.Count > 0)
+        {
+            <select value="@State.SelectedModel" @onchange="OnModelChanged" title="Model">
+                @foreach (var m in State.Models)
+                {
+                    <option value="@m.Id">@m.Id</option>
+                }
+            </select>
+        }
+        else
+        {
+            <span class="muted">No model</span>
+        }
+        <button class="icon-btn" title="Refresh models" aria-label="Refresh models" @onclick="State.RefreshModelsAsync"><Icon Name="refresh-cw" Size="16" /></button>
+        @if (State.Capabilities is { } caps)
+        {
+            <span class="caps">
+                @if (caps.Tools) { <span title="Supports tool calling">🛠</span> }
+                @if (caps.Vision) { <span title="Understands images">👁</span> }
+                @if (caps.Thinking) { <span title="Reasoning model">💡</span> }
+            </span>
+        }
+    </div>
+    <span class="spacer"></span>
+    @if (Members.Count > 0)
+    {
+        <a class="chat-members" href="@(Members.Count == 1 ? $"bots/{Members[0].Id}" : "bots")" title="@string.Join(", ", Members.Select(m => m.Name))">
+            <AvatarStack Bots="Members" Size="sm" />
+            <span class="only-desktop">@(Members.Count == 1 ? Members[0].Name : $"{Members.Count} bots")</span>
+        </a>
+    }
+    @if (_conv is { Messages.Count: > 0 })
+    {
+        <button class="icon-btn" title="Copy chat as Markdown" aria-label="Copy chat as Markdown" @onclick="ExportMarkdown"><Icon Name="download" /></button>
+    }
+    <button class="icon-btn" title="@(IsCodeRoute ? "New code session" : "New chat")" aria-label="@(IsCodeRoute ? "New code session" : "New chat")" @onclick="NewChat"><Icon Name="@(IsCodeRoute ? "terminal" : "message-square-plus")" /></button>
+</header>
+
+@if (_conv?.Code is { } session && !_codeSetup)
+{
+    <div class="code-bar">
+        <Icon Name="terminal" Size="16" />
+        <button class="code-folder" title="@session.Directory — change folder" @onclick="ToggleCodeSetup"><b>@session.Name</b> <span class="muted small ellipsis only-desktop">@session.Directory</span></button>
+        @if (!Directory.Exists(session.Directory)) { <span class="tiny-error">Folder not found</span> }
+        <span class="spacer"></span>
+        <select class="code-mode mode-@session.Mode.ToString().ToLowerInvariant()" value="@session.Mode" @onchange="SetCodeMode" title="Permission mode" aria-label="Permission mode">
+            <option value="@CodePermissionMode.Ask">Ask before edits</option>
+            <option value="@CodePermissionMode.AcceptEdits">Accept edits</option>
+            <option value="@CodePermissionMode.Plan">Plan only</option>
+        </select>
+    </div>
+}
+@if (_codeSetup)
+{
+    <div class="code-setup">
+        <div class="grow">
+            <b>@(_conv is null ? "New code session" : "Change folder")</b>
+            <p class="muted small">Work in a project folder like a coding agent: the assistant finds, reads and edits files, runs builds and tests, and keeps a task list. Edits and commands ask first unless you choose otherwise. Uses CLAUDE.md / AGENTS.md from the folder.</p>
+            <div class="code-setup-row">
+                <input class="grow" placeholder="Full path of the project folder, e.g. /Users/me/src/my-app" list="code-folders" @bind="_codeDir" @bind:event="oninput" @onkeydown="CodeDirKey" aria-label="Project folder" autofocus />
+                <datalist id="code-folders">
+                    @foreach (var f in _recentFolders) { <option value="@f"></option> }
+                </datalist>
+                @if (_conv is null)
+                {
+                    <select value="@CodeBotId" @onchange="PickCodeBot" aria-label="Who works on it" title="Who works on it">
+                        @foreach (var b in CodeBots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
+                        <option value="">Hearth (no bot)</option>
+                    </select>
+                }
+                <select @bind="_codeMode" aria-label="Permission mode">
+                    <option value="@CodePermissionMode.Ask">Ask before edits</option>
+                    <option value="@CodePermissionMode.AcceptEdits">Accept edits</option>
+                    <option value="@CodePermissionMode.Plan">Plan only</option>
+                </select>
+                <button class="btn primary" @onclick="StartCodeSession">@(_conv?.Code is null ? "Start" : "Save")</button>
+                @if (_conv is not null) { <button class="btn ghost" @onclick="() => _codeSetup = false">Cancel</button> }
+            </div>
+            @if (_codeError is not null) { <div class="tiny-error">@_codeError</div> }
+        </div>
+    </div>
+}
+
+<section class="chat" @ref="_scroller">
+    @if (_conv is { Messages.Count: 0 } && Members.Count > 0 && !IsCodeRoute)
+    {
+        <div class="welcome">
+            <div class="welcome-avatars">
+                @foreach (var b in Members) { <BotAvatar Bot="b" Size="lg" /> }
+            </div>
+            <h1>@(Members.Count == 1 ? Members[0].Name : _conv.Title)</h1>
+            <p class="muted">@(Members.Count == 1 ? Members[0].Title : string.Join(" · ", Members.Select(m => $"{m.Name} ({m.Title})")))</p>
+            <div class="suggestions">
+                @foreach (var s in BotSuggestions())
+                {
+                    <button class="suggestion" @onclick="() => Send(new ComposerInput(s, [], []))">@s</button>
+                }
+            </div>
+        </div>
+    }
+    else if (IsCodeRoute && (_conv is null || _conv.Messages.Count == 0))
+    {
+        <div class="welcome">
+            @if (Members.Count == 1) { <div class="welcome-avatars"><BotAvatar Bot="Members[0]" Size="lg" /></div> }
+            else { <div class="welcome-logo"><Icon Name="terminal" Size="26" /></div> }
+            <h1>@(_conv?.Code is { } c ? (Members.Count == 1 ? $"{Members[0].Name} · {c.Name}" : c.Name) : "Code")</h1>
+            <p class="muted">@(_conv is null ? "Pick a project folder above to start." : "Ask for a change, a fix or an explanation. Try Plan only first for bigger jobs.")</p>
+            @if (_conv is not null)
+            {
+                <div class="suggestions">
+                    @foreach (var s in CodeSuggestions)
+                    {
+                        <button class="suggestion" @onclick="() => Send(new ComposerInput(s, [], []))">@s</button>
+                    }
+                </div>
+            }
+        </div>
+    }
+    else if (_conv is null || _conv.Messages.Count == 0)
+    {
+        <div class="welcome">
+            <div class="welcome-logo">H</div>
+            <h1>@Greeting</h1>
+            @if (State.FallbackNotice is not null)
+            {
+                <div class="connect-help"><strong>Using your backup server.</strong> <p>@State.FallbackNotice</p></div>
+            }
+            @if (State.ModelError is not null)
+            {
+                <div class="connect-help">
+                    <strong>Can't reach your model server.</strong>
+                    <p>@State.ModelError</p>
+                    <ul>
+                        @foreach (var tip in Tips())
+                        {
+                            <li>@((MarkupString)tip)</li>
+                        }
+                    </ul>
+                    <a class="btn primary" href="settings">Open settings</a>
+                </div>
+            }
+            else
+            {
+                <div class="suggestions">
+                    @foreach (var s in Suggestions)
+                    {
+                        <button class="suggestion" @onclick="() => Send(new ComposerInput(s.prompt, [], []))">
+                            <Icon Name="@s.icon" Size="17" /> @s.label
+                        </button>
+                    }
+                </div>
+                <a class="teach-link" href="teach"><Icon Name="lightbulb" Size="15" /> How to teach Hearth</a>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="messages">
+            @for (var i = 0; i < _conv.Messages.Count; i++)
+            {
+                var m = _conv.Messages[i];
+                var index = i;
+                @if (m.Behind)
+                {
+                    // The work behind a team answer, folded into one dropdown per turn.
+                    var start = i;
+                    // The turn's work, including notices that landed in the middle of it ("Chief added Researcher…").
+                    while (i + 1 < _conv.Messages.Count && (_conv.Messages[i + 1] is { Behind: true } next && next.TeamTurn == m.TeamTurn
+                           || _conv.Messages[i + 1] is { Notice: not null, Content.Length: 0, TeamTurn: null } && i + 2 < _conv.Messages.Count
+                              && _conv.Messages[i + 2] is { Behind: true } after && after.TeamTurn == m.TeamTurn)) i++;
+                    var work = _conv.Messages.GetRange(start, i - start + 1);
+                    var working = work.FirstOrDefault(w => w.IsStreaming);
+                    var done = !Busy || _conv.Messages.Skip(i + 1).Any(x => x.TeamTurn == m.TeamTurn);
+                    var who = work.Where(w => w.BotId is not null).Select(w => State.BotById(w.BotId!)).OfType<Bot>().DistinctBy(b => b.Id)
+                        .Where(b => !b.IsCoordinator).ToList();
+                    <details class="team-work @(done ? "" : "working")" @key="@("team-" + m.Id)">
+                        <summary>
+                            <Icon Name="users" Size="14" />
+                            @if (!done && working is not null && State.BotById(working.BotId ?? "") is { } busyBot)
+                            {
+                                <span>@busyBot.Name is working…</span>
+                            }
+                            else if (!done)
+                            {
+                                <span>The team is working…</span>
+                            }
+                            else
+                            {
+                                <span>How the team got here</span>
+                            }
+                            <span class="muted small">@string.Join(", ", who.Select(b => b.Name)) · @work.Count(w => w.Content.Length > 0 || w.ToolCalls.Count > 0) steps</span>
+                        </summary>
+                        <div class="team-work-body">
+                            @foreach (var w in work)
+                            {
+                                var wi = _conv.Messages.IndexOf(w);
+                                <MessageView @key="w.Id" Message="w" Conv="_conv" IsLast="false" Busy="Busy" OnRegenerate="Regenerate" OnEdit="text => EditAndResend(wi, text)" />
+                            }
+                        </div>
+                    </details>
+                }
+                else
+                {
+                    <MessageView @key="m.Id" Message="m" Conv="_conv" IsLast="index == _conv.Messages.Count - 1" Busy="Busy"
+                                 OnRegenerate="Regenerate" OnEdit="text => EditAndResend(index, text)" OnDraft="SetDraft" />
+                }
+            }
+            @if (Busy && _conv.Messages.LastOrDefault() is { Role: ChatRole.User } || Busy && _conv.Messages.LastOrDefault() is { Notice: not null, Content.Length: 0, IsStreaming: false, ToolCalls.Count: 0 })
+            {
+                // Before the first reply appears (the lead deciding who takes it): show that something is happening.
+                var lead = Members.FirstOrDefault(b => b.IsCoordinator) ?? Members.FirstOrDefault();
+                <div class="pending-reply"><span class="pending-dot"></span> @(lead?.Name ?? "Hearth") is thinking…</div>
+            }
+        </div>
+    }
+</section>
+
+@if (Live.Active || Live.Error is not null)
+{
+    <div class="live-panel @Live.Phase.ToString().ToLowerInvariant()">
+        <div class="live-orb" style="--level:@Live.Level.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)" @onclick="Live.InterruptAsync"></div>
+        <div class="grow">
+            <b>@(Live.Phase switch { LivePhase.Listening => "Listening…", LivePhase.Thinking => "Thinking…", LivePhase.Speaking => "Speaking — tap the circle to interrupt", _ => "Conversation ended" })</b>
+            @if (Live.Heard.Length > 0) { <div class="muted small">“@Live.Heard”</div> }
+            @if (Live.Error is not null) { <div class="tiny-error">@Live.Error</div> }
+        </div>
+        @if (Live.Active) { <button class="btn ghost" @onclick="Live.StopAsync">End</button> }
+    </div>
+}
+@if (_conv?.Code is { Todos.Count: > 0 } todoCode)
+{
+    var done = todoCode.Todos.Count(t => t.Status == CodeTodoStatus.Completed);
+    <details class="code-todos" open="@(done < todoCode.Todos.Count)">
+        <summary><Icon Name="check" Size="14" /> Tasks <span class="muted small">@done/@todoCode.Todos.Count</span></summary>
+        <ul>
+            @foreach (var t in todoCode.Todos)
+            {
+                <li class="todo-@t.Status.ToString().ToLowerInvariant()">
+                    <Icon Name="@(t.Status switch { CodeTodoStatus.Completed => "check", CodeTodoStatus.InProgress => "circle-dot", _ => "circle" })" Size="14" />
+                    <span>@t.Content</span>
+                </li>
+            }
+        </ul>
+    </details>
+}
+@if (_conv is { Plan.Count: > 0 } planned && planned.Code is null)
+{
+    var stepsDone = planned.Plan.Count(t => t.Status == CodeTodoStatus.Completed);
+    <details class="code-todos" open="@(stepsDone < planned.Plan.Count)">
+        <summary><Icon Name="check" Size="14" /> Plan <span class="muted small">@stepsDone/@planned.Plan.Count</span></summary>
+        <ul>
+            @foreach (var t in planned.Plan)
+            {
+                <li class="todo-@t.Status.ToString().ToLowerInvariant()">
+                    <Icon Name="@(t.Status switch { CodeTodoStatus.Completed => "check", CodeTodoStatus.InProgress => "circle-dot", _ => "circle" })" Size="14" />
+                    <span>@t.Content</span>
+                </li>
+            }
+        </ul>
+    </details>
+}
+@if (_conv?.Code is { Mode: CodePermissionMode.Plan } && !Busy && _conv.Messages.LastOrDefault() is { Role: ChatRole.Assistant, Error: null, Content.Length: > 0 })
+{
+    <div class="plan-actions">
+        <span class="muted small">Happy with the plan?</span>
+        <button class="btn ghost" @onclick="() => StartOnPlan(CodePermissionMode.Ask)">Go ahead, ask before edits</button>
+        <button class="btn primary" @onclick="() => StartOnPlan(CodePermissionMode.AcceptEdits)">Go ahead, accept edits</button>
+    </div>
+}
+@if (!(IsCodeRoute && _conv is null))
+{
+<Composer @ref="_composer" Busy="Busy" OnSend="Send" OnStop="Stop" Members="Members" OnTalk="ToggleTalk" Talking="Live.Active" />
+}
+<div class="disclaimer">@(Personas.IsLocal(State.Settings.ActiveProvider) ? "Runs on your own hardware" : "Sent to a cloud model") · @State.Settings.ActiveProvider.Name · @(Members.Count switch { 0 => Personas.Get(State.PersonaId).Name + " mode", 1 => Members[0].Name, var n => $"group of {n} bots" })</div>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+    /// <summary>Text to put in the message box, ready to finish and send (the Teach Hearth examples).</summary>
+    [SupplyParameterFromQuery(Name = "draft")] public string? Draft { get; set; }
+    private string? _draftApplied;
+
+    private Conversation? _conv;
+    private ElementReference _scroller;
+    private Composer? _composer;
+
+    private async Task SetDraft(string text)
+    {
+        if (_composer is not null) await _composer.SetTextAsync(text);
+    }
+    private DateTime _lastRender;
+    private bool _forceScroll;
+
+    private bool Busy => Runs.IsRunning(_conv?.Id);
+
+    private List<Bot> Members => _conv is null ? [] : _conv.BotIds.Select(State.BotById).OfType<Bot>().ToList();
+
+    private IEnumerable<string> BotSuggestions()
+    {
+        if (Members.Count == 1)
+        {
+            yield return "What can you help me with?";
+            yield return "Here's what I'm working on this week — what should I focus on?";
+            yield break;
+        }
+        yield return "Introduce yourselves in one line each.";
+        yield return "I want to launch a small side project this month. Plan it as a team.";
+        yield return "@everyone debate: tabs or spaces?";
+    }
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        Store.Saved += OnSavedElsewhere;
+        Live.Changed += OnLiveChanged;
+        Runs.Updated += OnRunUpdated;
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private bool _wasCodeRoute;
+
+    /// <summary>"/" and "/code" share this page with the same (empty) parameters, so Blazor doesn't re-run
+    /// OnParametersSet when switching between them; catch that here.</summary>
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(async () =>
+    {
+        if (Id is not null || IsCodeRoute == _wasCodeRoute) return;
+        await OnParametersSetAsync();
+        StateHasChanged();
+    });
+
+    /// <summary>The reply runs in the background (it carries on if this page closes); this page follows it.</summary>
+    private void OnRunUpdated(string id)
+    {
+        if (_conv is null || id != _conv.Id) return;
+        if (Runs.Live(id) is { } live && !ReferenceEquals(live, _conv)) _conv = live; // started on another device
+        _ = OnStreamUpdate();
+    }
+
+    /// <summary>Picks up messages written by routines or other bots while this chat is open.</summary>
+    private void OnSavedElsewhere(Conversation c)
+    {
+        if (_conv is null || c.Id != _conv.Id || ReferenceEquals(c, _conv) || Busy) return;
+        InvokeAsync(async () =>
+        {
+            _conv = await Store.GetAsync(c.Id) ?? _conv;
+            _forceScroll = true;
+            StateHasChanged();
+        });
+    }
+
+    private static readonly (string icon, string label, string prompt)[] Suggestions =
+    [
+        ("sparkles", "Explain like I'm five", "Explain how large language models work like I'm five."),
+        ("code", "Debug my code", "I'll paste some code. Find the bugs and explain the fixes."),
+        ("globe", "Plan a weekend trip", "Plan a fun, cheap 2-day weekend trip itinerary. Ask me where I live first."),
+        ("headphones", "Roast my playlist", "Roast my music taste. I mostly listen to 2000s pop-punk and lo-fi beats."),
+        ("calculator", "Crunch some numbers", "If I invest $300 a month at 7% annual return, how much will I have after 25 years? Show the math."),
+        ("user", "Get to know me", "Ask me 3 quick questions about myself and remember my answers for future chats."),
+    ];
+
+    private string Greeting => DateTime.Now.Hour switch
+    {
+        < 5 => "Up late?",
+        < 12 => "Good morning.",
+        < 18 => "Good afternoon.",
+        _ => "Good evening.",
+    };
+
+    private bool IsCodeRoute => Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0] is var p && (p == "code" || p.StartsWith("code/"));
+
+    private static readonly string[] CodeSuggestions =
+    [
+        "Give me a quick tour of this project: what it does and how it's organised.",
+        "Run the tests and fix anything that fails.",
+        "Find likely bugs or risky code and list them.",
+    ];
+
+    private bool _codeSetup;
+    private string _codeDir = "";
+    private CodePermissionMode _codeMode = CodePermissionMode.Ask;
+    private string? _codeError;
+    private List<string> _recentFolders = [];
+    /// <summary>The bot picked for a new code session: null = not picked yet (use the default), "" = Hearth.</summary>
+    private string? _codeBot;
+    private string CodeBotId => _codeBot ?? DefaultCodeBot ?? "";
+
+    /// <summary>The coding bot used most recently, else the first one that can code. Worked out on demand because
+    /// bots may still be loading when the page opens.</summary>
+    private string? DefaultCodeBot =>
+        State.Conversations.Where(c => c.Project is not null && c.BotIds.Count == 1)
+            .OrderByDescending(c => c.UpdatedAt).Select(c => c.BotIds[0]).FirstOrDefault(id => CodeBots.Any(b => b.Id == id))
+        ?? CodeBots.FirstOrDefault()?.Id;
+
+    /// <summary>Bots that can work in code sessions (the Code ability).</summary>
+    private List<Bot> CodeBots => State.Bots.Where(b => b.Abilities.Code && b.ToolMode != BotToolMode.None).ToList();
+
+    private void PickCodeBot(ChangeEventArgs e)
+    {
+        _codeBot = e.Value?.ToString() ?? "";
+        if (State.BotById(CodeBotId) is { Abilities.ProjectFolder: { Length: > 0 } folder } bot)
+        {
+            _codeDir = folder;
+            _codeMode = bot.Abilities.CodeMode;
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _wasCodeRoute = IsCodeRoute;
+        if (Id is null)
+        {
+            if (IsCodeRoute && CodeTools.Available) { _conv = null; await OpenCodeSetup(); }
+            else _codeSetup = false;
+        }
+        if (_conv is not null && _conv.Id == Id) return; // same chat (e.g. after first-message navigation)
+        if (Id is not null) _codeSetup = false;
+        if (Live.Active) await Live.StopAsync();
+
+        if (Id is null)
+        {
+            _conv = null;
+            return;
+        }
+
+        // A chat that's still working: show the live one so the reply keeps streaming in.
+        _conv = Runs.Live(Id) ?? await Store.GetAsync(Id);
+        if (_conv is null) { Nav.NavigateTo(IsCodeRoute ? "code" : ""); return; }
+        // Code sessions live in the Code tab, other chats in Chats.
+        if ((_conv.Code is not null) != IsCodeRoute) { Nav.NavigateTo($"{(_conv.Code is null ? "c" : "code")}/{_conv.Id}", replace: true); return; }
+        if (_conv.Unread)
+        {
+            _conv.Unread = false;
+            await Store.SaveAsync(_conv);
+        }
+        State.PersonaId = _conv.PersonaId;
+        if (_conv.Model is not null && _conv.Model != State.SelectedModel && State.Models.Any(m => m.Id == _conv.Model))
+            await State.SelectModelAsync(_conv.Model);
+        _forceScroll = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await JS.InvokeVoidAsync("hearth.afterRender", _scroller, _forceScroll);
+        _forceScroll = false;
+        if (!string.IsNullOrEmpty(Draft) && Draft != _draftApplied && _composer is not null)
+        {
+            _draftApplied = Draft;
+            await _composer.SetTextAsync(Draft);
+        }
+    }
+
+    private async Task OnModelChanged(ChangeEventArgs e) => await State.SelectModelAsync(e.Value?.ToString());
+
+    private async Task Send(ComposerInput input)
+    {
+        if (Busy) return;
+        _codeSetup = false;
+        var imagine = input.Text.StartsWith("/imagine", StringComparison.OrdinalIgnoreCase) && State.CanImagine;
+        if (!imagine && State.SelectedModel is null) return;
+        if (_conv is null)
+        {
+            _conv = new Conversation { PersonaId = State.PersonaId, Model = State.SelectedModel };
+            await Store.SaveAsync(_conv);
+            Nav.NavigateTo($"c/{_conv.Id}");
+        }
+        _conv.PersonaId = State.PersonaId;
+        var message = new ChatMessage { Role = ChatRole.User, Content = input.Text, Images = input.Images, UntrustedSource = input.UntrustedSource };
+        foreach (var doc in input.Docs)
+        {
+            message.AttachedFiles.Add(doc.Name);
+            message.AttachmentText += doc.Indexed
+                ? $"\n[{doc.Name} was added to the document library; use search_documents to read it]\n"
+                : $"\n--- {doc.Name} ---\n{doc.Text}\n";
+        }
+        _conv.Messages.Add(message);
+        _forceScroll = true;
+
+        if (imagine)
+        {
+            var prompt = input.Text["/imagine".Length..].Trim();
+            var target = _conv;
+            await Runs.StartAsync(target, (update, ct) => ChatSvc.ImagineAsync(target, prompt, update, ct));
+            return;
+        }
+        await Generate();
+    }
+
+    private async Task Generate()
+    {
+        if (_conv is null || State.SelectedModel is null) return;
+        var conv = _conv;
+        // Code sessions always work with tools.
+        var options = new SendOptions(State.SelectedModel, State.Think, State.DeepSearch && State.CanSearch, State.UseTools || conv.Code is not null);
+        try { await Runs.ReplyAsync(conv, options); }
+        catch (InvalidOperationException) { return; } // already working (e.g. started on another device)
+
+        var last = conv.Messages.LastOrDefault();
+        if (State.Settings.Voice.AutoReadAloud && !Live.Active && last is { Role: ChatRole.Assistant, Error: null, Content.Length: > 0 })
+        {
+            try { await Speech.SpeakAsync(State.Settings, last.Content); } catch { /* read-aloud is best effort */ }
+        }
+    }
+
+    private bool _renderScheduled;
+
+    /// <summary>Throttled render: at most every 40ms, but a skipped update is always rendered shortly after
+    /// (otherwise e.g. an approval prompt that arrives right after a token could stay invisible).</summary>
+    private Task OnStreamUpdate()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastRender).TotalMilliseconds >= 40)
+        {
+            _lastRender = now;
+            return InvokeAsync(StateHasChanged);
+        }
+        if (!_renderScheduled)
+        {
+            _renderScheduled = true;
+            _ = Task.Delay(50).ContinueWith(_ => InvokeAsync(() =>
+            {
+                _renderScheduled = false;
+                _lastRender = DateTime.UtcNow;
+                StateHasChanged();
+            }));
+        }
+        return Task.CompletedTask;
+    }
+
+    private void Stop() => Runs.Stop(_conv?.Id);
+
+    private async Task Regenerate()
+    {
+        if (_conv is null || Busy) return;
+        if (_conv.Messages.LastOrDefault() is { Role: ChatRole.Assistant } last) _conv.Messages.Remove(last);
+        await Generate();
+    }
+
+    private async Task EditAndResend(int index, string text)
+    {
+        if (_conv is null || Busy) return;
+        _conv.Messages[index].Content = text;
+        _conv.Messages.RemoveRange(index + 1, _conv.Messages.Count - index - 1);
+        await Generate();
+    }
+
+    private async Task NewChat()
+    {
+        if (IsCodeRoute) { Nav.NavigateTo("code"); return; }
+        if (_conv is { BotIds.Count: > 0 })
+        {
+            // New thread with the same bot(s).
+            var fresh = new Conversation { Title = _conv.BotIds.Count > 1 ? _conv.Title : "New chat", BotIds = _conv.BotIds.ToList() };
+            await Store.SaveAsync(fresh);
+            Nav.NavigateTo($"c/{fresh.Id}");
+            return;
+        }
+        Nav.NavigateTo("");
+    }
+
+    private async Task ToggleCodeSetup()
+    {
+        if (_codeSetup) { _codeSetup = false; return; }
+        await OpenCodeSetup();
+    }
+
+    /// <summary>Shows the folder picker, suggesting folders used before and editable linked folders.</summary>
+    private async Task OpenCodeSetup()
+    {
+        _codeSetup = true;
+        _codeError = null;
+        _codeDir = _conv?.Code?.Directory ?? "";
+        _codeMode = _conv?.Code?.Mode ?? CodePermissionMode.Ask;
+        var recent = new List<string>();
+        foreach (var c in State.Conversations.Where(c => c.Project is not null).OrderByDescending(c => c.UpdatedAt).Take(20))
+            if (await Store.GetAsync(c.Id) is { Code.Directory: { Length: > 0 } d } && !recent.Contains(d)) recent.Add(d);
+        try { recent.AddRange((await Folders.ListAsync()).Where(f => f.Enabled && f.Editable).Select(f => f.Path).Where(p => !recent.Contains(p))); }
+        catch { /* linked folders are optional */ }
+        _recentFolders = recent;
+        if (_conv is null)
+        {
+            _codeBot = null;
+            if (State.BotById(CodeBotId) is { Abilities.ProjectFolder: { Length: > 0 } folder } bot && _codeDir.Length == 0)
+            {
+                _codeDir = folder;
+                _codeMode = bot.Abilities.CodeMode;
+            }
+        }
+        if (_codeDir.Length == 0 && recent.Count > 0) _codeDir = recent[0];
+    }
+
+    private async Task CodeDirKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await StartCodeSession();
+        else if (e.Key == "Escape") _codeSetup = false;
+    }
+
+    private async Task StartCodeSession()
+    {
+        var dir = _codeDir.Trim().Trim('"');
+        if (dir.StartsWith('~')) dir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + dir[1..];
+        if (dir.Length == 0 || !Path.IsPathRooted(dir)) { _codeError = "Enter the folder's full path."; return; }
+        if (!Directory.Exists(dir)) { _codeError = "That folder doesn't exist."; return; }
+        dir = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (Path.GetPathRoot(dir) == dir + Path.DirectorySeparatorChar || dir == Path.GetPathRoot(dir)
+            || dir.Equals(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), StringComparison.OrdinalIgnoreCase))
+        { _codeError = "Pick a project folder, not the whole drive or your home folder."; return; }
+
+        var conv = _conv;
+        if (conv is null)
+        {
+            conv = _conv = new Conversation
+            {
+                PersonaId = State.PersonaId, Model = State.SelectedModel,
+                BotIds = State.BotById(CodeBotId) is { } bot ? [bot.Id] : [],
+            };
+        }
+        conv.Code ??= new CodeSession();
+        conv.Code.Directory = dir;
+        conv.Code.Mode = _codeMode;
+        _codeSetup = false;
+        await Store.SaveAsync(conv);
+        if (Id != conv.Id) Nav.NavigateTo($"code/{conv.Id}");
+    }
+
+    private async Task SetCodeMode(ChangeEventArgs e)
+    {
+        if (_conv?.Code is null || !Enum.TryParse<CodePermissionMode>(e.Value?.ToString(), out var mode)) return;
+        _conv.Code.Mode = mode;
+        await Store.SaveAsync(_conv);
+    }
+
+    private async Task StartOnPlan(CodePermissionMode mode)
+    {
+        if (_conv?.Code is null || Busy) return;
+        _conv.Code.Mode = mode;
+        await Send(new ComposerInput("The plan looks good. Go ahead and implement it.", [], []));
+    }
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    private async Task ExportMarkdown()
+    {
+        if (_conv is null) return;
+        var md = $"# {_conv.Title}\n\n" + string.Join("\n\n", _conv.Messages
+            .Where(m => m.Error is null)
+            .Select(m => $"**{(m.Role == ChatRole.User ? "You" : "Hearth")}:**\n\n{m.Content}"));
+        await JS.InvokeVoidAsync("hearth.copy", md);
+    }
+
+    private IEnumerable<string> Tips()
+    {
+        var p = State.Settings.ActiveProvider;
+        if (p.Kind == ProviderKind.Ollama)
+        {
+            yield return "Install <b>Ollama</b> from ollama.com and run <code>ollama pull llama3.2</code>.";
+            if (Platform.IsMobile)
+            {
+                yield return "Phones can't reach <code>localhost</code> on your computer. Use your computer's LAN IP, e.g. <code>http://192.168.1.20:11434</code>.";
+                yield return "Start Ollama listening on the network: <code>OLLAMA_HOST=0.0.0.0 ollama serve</code>.";
+                if (Platform.IsAndroidEmulator)
+                    yield return "On the Android emulator your computer is <code>http://10.0.2.2:11434</code>.";
+            }
+        }
+        else
+        {
+            yield return "Start the server in LM Studio (Developer tab → Start Server), or run <code>llama-server -m model.gguf</code>.";
+            if (Platform.IsMobile)
+                yield return "Enable “Serve on local network” and use your computer's LAN IP.";
+        }
+    }
+
+    private void OnLiveChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task ToggleTalk()
+    {
+        if (Live.Active) { await Live.StopAsync(); return; }
+        if (State.SelectedModel is null) return;
+        await Speech.StopAsync();
+        await Live.RunAsync(State.Settings, async text =>
+        {
+            var before = _conv?.Messages.Count ?? 0;
+            var sending = Send(new ComposerInput(text, [], []));
+            // When the team takes it on, the lead's "on it" is said right away; the answer follows when it's ready.
+            string? said = null;
+            while (!sending.IsCompleted)
+            {
+                await Task.WhenAny(sending, Task.Delay(300));
+                if (said is null && _conv?.Messages.Skip(before).ToArray().FirstOrDefault(m => m.Ack) is { } ack)
+                {
+                    said = ack.Id;
+                    await Live.SayMeanwhileAsync(State.Settings, ack.Content);
+                }
+            }
+            await sending;
+            if (_conv is null) return null;
+            // Everything that came back for this turn (several bots may answer in a group), not the folded team work.
+            var replies = _conv.Messages.Skip(before + 1)
+                .Where(m => m is { Role: ChatRole.Assistant, Error: null, Behind: false } && m.Content.Length > 0 && m.Id != said).ToList();
+            if (replies.Count == 0) return null;
+            if (replies.Count == 1 || Members.Count < 2) return string.Join("\n\n", replies.Select(r => r.Content));
+            return string.Join("\n\n", replies.Select(r => $"{State.BotById(r.BotId ?? "")?.Name ?? "Hearth"} says: {r.Content}"));
+        });
+    }
+
+    public override void Dispose()
+    {
+        // The reply keeps going in the background; this page just stops following it.
+        Runs.Updated -= OnRunUpdated;
+        Nav.LocationChanged -= OnLocationChanged;
+        Store.Saved -= OnSavedElsewhere;
+        Live.Changed -= OnLiveChanged;
+        _ = Live.StopAsync();
+        base.Dispose();
+    }
+}

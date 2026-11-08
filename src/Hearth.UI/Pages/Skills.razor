@@ -1,0 +1,331 @@
+@page "/skills"
+@inherits StatefulComponent
+@inject SkillStore Store
+@inject SettingsStore Settings
+@inject SkillPorter Porter
+@inject LearningLoop Loop
+@inject IJSRuntime JS
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <h2 class="topbar-title">Skills</h2>
+    <span class="spacer"></span>
+    <button class="btn primary" @onclick="New">＋ New skill</button>
+</header>
+
+<div class="settings">
+    <section class="card">
+        <p class="muted">
+            Skills are reusable prompts shared by you and every bot. Type <code>/name</code> in any chat or routine to run one
+            (anything after the name is its input), and with tools on, bots load a skill by themselves when it fits.
+        </p>
+    </section>
+
+    @if (_editing is not null)
+    {
+        <section class="card">
+            <h3>@(_isNew ? "New skill" : "/" + _editing.Name)</h3>
+            <div class="row">
+                <label>Icon <input @bind="_editing.Icon" style="width:4.5rem;text-align:center;font-size:1.2rem" maxlength="8" /></label>
+                <label class="grow">Name (the slash command)
+                    <input @bind="_editing.Name" placeholder="e.g. weekly-report" />
+                </label>
+            </div>
+            <label>When to use it (one line — bots read this)
+                <input @bind="_editing.Description" placeholder="e.g. Turn my notes into a weekly status report" />
+            </label>
+            <label>Instructions
+                <textarea rows="8" @bind="_editing.Instructions" placeholder="Step-by-step instructions, format, tone, what to include and avoid…"></textarea>
+            </label>
+            @if (_error is not null) { <div class="error-box">@_error</div> }
+            <div class="row end">
+                <button class="btn ghost" @onclick="() => _editing = null">Cancel</button>
+                <button class="btn primary" @onclick="Save">Save skill</button>
+            </div>
+        </section>
+    }
+
+    <section class="card">
+        <h3>Bots write their own skills</h3>
+        <label class="check"><input type="checkbox" checked="@State.Settings.SkillLearning.Enabled" @onchange="e => SetLearning(s => s.Enabled = (bool)e.Value!)" />
+            <span><b>Learn from experience</b> — after a job that took several steps, a bot saves the method as a skill, and fixes skills that turned out wrong</span></label>
+        @if (State.Settings.SkillLearning.Enabled)
+        {
+            <label class="check"><input type="checkbox" checked="@State.Settings.SkillLearning.NeedsReview" @onchange="e => SetLearning(s => s.NeedsReview = (bool)e.Value!)" />
+                <span><b>Let me review them first</b> — new and changed skills wait here for your OK</span></label>
+            <label class="row">Review a reply when it used at least
+                <input type="number" min="2" max="20" style="width:4.5rem" value="@State.Settings.SkillLearning.MinToolCalls" @onchange="e => SetLearning(s => s.MinToolCalls = int.TryParse(e.Value?.ToString(), out var n) ? Math.Clamp(n, 2, 20) : 4)" />
+                tools</label>
+        }
+    </section>
+
+    @if (State.Skills.Any(s => s.Pending))
+    {
+        <section class="card">
+            <h3>Waiting for your OK</h3>
+            @foreach (var s in State.Skills.Where(s => s.Pending))
+            {
+                var skill = s;
+                <details class="memory-row skill-pending">
+                    <summary><b>/@skill.Name</b> <span class="muted small">@skill.Description · @(skill.Source is not null ? "imported" : "by " + Author(skill))@(skill.Revisions.Count > 0 ? " · changed" : "")</span>
+                        @if (skill.Warnings.Count > 0) { <span class="tiny-error"> ⚠ @skill.Warnings.Count to check</span> }</summary>
+                    @if (skill.Source is not null) { <div class="muted small">From @skill.Source</div> }
+                    @foreach (var w in skill.Warnings) { <div class="error-box small">⚠ @w</div> }
+                    @if (skill.Files.Count > 0) { <div class="muted small">Bundled files: @string.Join(", ", skill.Files.Keys)</div> }
+                    <pre class="code-block small" style="white-space:pre-wrap">@skill.Instructions</pre>
+                    <div class="row end">
+                        @if (skill.Revisions.Count > 0) { <button class="btn ghost" @onclick="() => Reject(skill)">Keep the old version</button> }
+                        else { <button class="btn ghost" @onclick="() => Store.DeleteAsync(skill.Id)">Discard</button> }
+                        <button class="btn ghost" @onclick="() => Edit(skill)">Edit</button>
+                        <button class="btn primary" @onclick="() => Approve(skill)">Approve</button>
+                    </div>
+                </details>
+            }
+        </section>
+    }
+
+    <AgentImportCard />
+    <section class="card">
+        <div class="row">
+            <span class="grow"><b>Starter skills</b><br /><span class="muted small">Job pipeline, interview prep, meal plan, meeting prep, email triage, research report and weekly review. They use whatever you've connected (mail, calendar, documents, To Do).</span></span>
+            <button class="btn ghost" @onclick="AddStarters">Add missing</button>
+        </div>
+        @if (_starterMessage is not null) { <span class="muted small">@_starterMessage</span> }
+    </section>
+    <SkillCatalogCard />
+
+    <section class="card">
+        <h3>Import &amp; export</h3>
+        <p class="muted small">
+            Skills use the open <code>SKILL.md</code> format, so they move between Hearth, Claude, Hermes and OpenClaw. Import a
+            GitHub folder or file link (e.g. a skill from a skills hub), a raw SKILL.md link, a .zip, or a .md file. Imported skills
+            wait for your review, with anything risky flagged. Approved skills are also kept as files in
+            <code>@Porter.FolderPath</code>, where other agents can read them.
+        </p>
+        <div class="row">
+            <input class="grow" @bind="_importUrl" placeholder="https://github.com/owner/repo/tree/main/skills/some-skill" />
+            <button class="btn primary" @onclick="ImportUrl" disabled="@(_importing || string.IsNullOrWhiteSpace(_importUrl))">@(_importing ? "Importing…" : "Import")</button>
+        </div>
+        <div class="row">
+            <label class="btn ghost file-btn">Upload .md or .zip<InputFile OnChange="ImportFile" accept=".md,.zip,text/markdown,application/zip" style="display:none" /></label>
+            <span class="spacer"></span>
+            <button class="btn ghost" @onclick="ExportAll" disabled="@(!State.Skills.Any(s => !s.Pending))">⬇ Export all (.zip)</button>
+        </div>
+        @if (_importMessage is not null) { <div class="ok-text small">@_importMessage</div> }
+        @if (_error is not null && _editing is null) { <div class="error-box">@_error</div> }
+    </section>
+
+    <TeachSkill />
+
+    @{ var now = DateTimeOffset.Now; var sick = State.Skills.Where(x => x.NeedsFixing).ToList(); var idle = State.Skills.Where(x => !x.NeedsFixing && x.IsIdle(now)).ToList(); }
+    @if (sick.Count + idle.Count > 0)
+    {
+        <section class="card">
+            <h3><span aria-hidden="true">🩺</span> Skills that need a look</h3>
+            @foreach (var s in sick)
+            {
+                var skill = s;
+                <div class="memory-row skill-health">
+                    <span class="tool-icon">👎</span>
+                    <span class="grow"><b>/@skill.Name</b> <span class="muted small">marked wrong @skill.WrongNotes.Count× since it last changed@(skill.Uses > 0 ? $" ({skill.Wrong} of {skill.Uses} uses in all)" : "")</span>
+                        <ul class="small health-notes">@foreach (var n in skill.WrongNotes) { <li>“@n”</li> }</ul></span>
+                    <span class="health-actions">
+                        <button class="btn small primary" @onclick="() => FixSkill(skill)" disabled="@(_fixing == skill.Id)">@(_fixing == skill.Id ? "Fixing…" : "Fix it from this")</button>
+                        <button class="btn small ghost" @onclick="() => Edit(skill)">Edit</button>
+                        <button class="btn small ghost" title="Clear these notes without changing the skill" @onclick="() => Store.ClearWrongAsync(skill)">It's fine</button>
+                    </span>
+                </div>
+            }
+            @foreach (var s in idle)
+            {
+                var skill = s;
+                <div class="memory-row skill-health">
+                    <span class="tool-icon">💤</span>
+                    <span class="grow"><b>/@skill.Name</b> <span class="muted small">@(skill.LastUsed is { } u ? $"last used {u:MMM d}" : $"never used since {skill.CreatedAt:MMM d}")</span></span>
+                    <span class="health-actions">
+                        <button class="btn small ghost" @onclick="() => Store.KeepAsync(skill)">Keep</button>
+                        <button class="btn small ghost" @onclick="() => Store.DeleteAsync(skill.Id)">Delete</button>
+                    </span>
+                </div>
+            }
+            @if (_healthMessage is not null) { <p class="muted small">@_healthMessage</p> }
+        </section>
+    }
+
+    <section class="card">
+        <h3>Your skills (@State.Skills.Count(s => !s.Pending))</h3>
+        @foreach (var s in State.Skills.Where(s => !s.Pending))
+        {
+            var skill = s;
+            <div class="memory-row">
+                <span class="tool-icon">@skill.Icon</span>
+                <span class="grow"><b>/@skill.Name</b> <span class="muted small">@skill.Description</span>
+                    <br /><span class="muted small">@(skill.WrittenByBot ? $"Written by {Author(skill)}" : "Yours")@(skill.Uses > 0 ? $" · used {skill.Uses}×" : "")@(skill.Wrong > 0 ? $" · 👎 {skill.Wrong}×" : "")@(skill.Revisions.Count > 0 ? $" · last changed {skill.UpdatedAt:MMM d} by {skill.Revisions[0].By ?? "you"}" : "")</span></span>
+                @if (skill.Revisions.Count > 0)
+                {
+                    <button class="icon-btn" title="Undo the last change (@skill.Revisions[0].Note)" @onclick="() => Store.UndoAsync(skill)">↶</button>
+                }
+                <button class="icon-btn" title="Edit" @onclick="() => Edit(skill)">✎</button>
+                <button class="icon-btn" title="Delete" @onclick="() => Store.DeleteAsync(skill.Id)">🗑</button>
+            </div>
+        }
+        @if (State.Skills.Count == 0) { <p class="muted">No skills yet — add some from the templates below.</p> }
+    </section>
+
+    <section class="card">
+        <h3>Templates</h3>
+        @foreach (var t in SkillTemplates.All.Where(t => State.Skills.All(s => s.Name != t.Name)))
+        {
+            var template = t;
+            <div class="memory-row">
+                <span class="tool-icon">@template.Icon</span>
+                <span class="grow"><b>/@template.Name</b> <span class="muted small">@template.Description</span></span>
+                <button class="btn ghost small" @onclick="() => Add(template)">＋ Add</button>
+            </div>
+        }
+        <button class="btn ghost" @onclick="AddAll">＋ Add all templates</button>
+    </section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "from")] public string? From { get; set; }
+
+    private Skill? _editing;
+    private string? _fixing, _healthMessage;
+
+    private async Task FixSkill(Skill skill)
+    {
+        _fixing = skill.Id; _healthMessage = null;
+        try { _healthMessage = await Loop.FixSkillAsync(skill); }
+        catch (Exception ex) { _healthMessage = ex.Message; }
+        finally { _fixing = null; }
+    }
+    private bool _isNew;
+    private string? _error;
+
+    protected override void OnParametersSet()
+    {
+        if (!string.IsNullOrWhiteSpace(From) && _editing is null)
+        {
+            _isNew = true;
+            _editing = new Skill { Instructions = From, Description = "" };
+        }
+    }
+
+    private void New() { _isNew = true; _error = null; _editing = new Skill(); }
+
+    private void Edit(Skill s)
+    {
+        _isNew = false;
+        _error = null;
+        _editing = System.Text.Json.JsonSerializer.Deserialize<Skill>(System.Text.Json.JsonSerializer.Serialize(s))!;
+    }
+
+    private async Task Save()
+    {
+        _error = null;
+        if (_editing is null) return;
+        if (string.IsNullOrWhiteSpace(_editing.Instructions)) { _error = "Add some instructions."; return; }
+        try
+        {
+            if (State.Skills.FirstOrDefault(s => s.Id == _editing.Id) is { } before && before.Instructions != _editing.Instructions)
+            {
+                _editing.Revisions.Insert(0, new SkillRevision(before.Instructions, before.UpdatedAt, "Edited by you", "you"));
+                if (_editing.Revisions.Count > 5) _editing.Revisions.RemoveRange(5, _editing.Revisions.Count - 5);
+            }
+            _editing.UpdatedAt = DateTimeOffset.Now;
+            await Store.SaveAsync(_editing);
+            _editing = null;
+        }
+        catch (ArgumentException ex) { _error = ex.Message; }
+    }
+
+    private async Task Add(Skill template)
+    {
+        try { await Store.SaveAsync(template); }
+        catch (ArgumentException ex) { _error = ex.Message; }
+    }
+
+    private async Task AddAll()
+    {
+        foreach (var t in SkillTemplates.All.Where(t => State.Skills.All(s => s.Name != t.Name)))
+            await Add(t);
+    }
+
+    private string Author(Skill s) => s.CreatedBy is null ? "you" : s.CreatedBy == Bot.PlainId ? "Hearth" : State.BotById(s.CreatedBy)?.Name ?? "a bot";
+
+    private async Task SetLearning(Action<SkillLearningSettings> change)
+    {
+        var settings = await Settings.GetAsync();
+        change(settings.SkillLearning);
+        await Settings.SaveAsync(settings);
+    }
+
+    private async Task Approve(Skill s)
+    {
+        s.Pending = false;
+        await Store.SaveAsync(s);
+    }
+
+    /// <summary>A bot's change was rejected: put the previous version back and approve that.</summary>
+    private async Task Reject(Skill s)
+    {
+        s.Pending = false;
+        await Store.UndoAsync(s);
+    }
+
+    private string _importUrl = "";
+    private bool _importing;
+    private string? _importMessage;
+
+    private async Task ImportUrl()
+    {
+        await Import(() => Porter.ImportUrlAsync(_importUrl));
+        if (_error is null) _importUrl = "";
+    }
+
+    private async Task ImportFile(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        await Import(async () =>
+        {
+            await using var stream = file.OpenReadStream(20_000_000);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+            if (file.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) return await Porter.ImportZipAsync(ms, file.Name);
+            return [await Porter.ImportTextAsync(System.Text.Encoding.UTF8.GetString(ms.ToArray()), file.Name,
+                fallbackName: Path.GetFileNameWithoutExtension(file.Name) is var n && n != "SKILL" ? n : null)];
+        });
+    }
+
+    private async Task Import(Func<Task<List<Skill>>> work)
+    {
+        _importing = true;
+        _error = null;
+        _importMessage = null;
+        try
+        {
+            var added = await work();
+            _importMessage = $"Imported {string.Join(", ", added.Select(s => "/" + s.Name))} — review below before bots can use {(added.Count == 1 ? "it" : "them")}.";
+        }
+        catch (Exception ex) { _importMessage = null; _error = ex.Message; }
+        finally { _importing = false; }
+    }
+
+    private async Task ExportAll()
+    {
+        var zip = SkillPorter.ExportZip(State.Skills.Where(s => !s.Pending));
+        await JS.InvokeVoidAsync("hearth.downloadImage", "data:application/zip;base64," + Convert.ToBase64String(zip), "hearth-skills.zip");
+    }
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    private string? _starterMessage;
+
+    private async Task AddStarters()
+    {
+        var added = await Hearth.Core.Services.StarterSkills.AddMissingAsync(Store);
+        _starterMessage = added == 0 ? "You have all of them." : $"Added {added} starter skill{(added == 1 ? "" : "s")}.";
+    }
+}

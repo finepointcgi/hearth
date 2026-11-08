@@ -1,4 +1,4 @@
-# Locus — a private, local-LLM chat assistant
+# Hearth — a private, local-LLM chat assistant
 
 A Grok-style assistant (witty personas, Think mode, DeepSearch, **teams of bots that talk to each other**,
 tools, MCP, memory, documents, image generation, voice) that runs on **your own models** via Ollama,
@@ -7,14 +7,14 @@ OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq…). Written in C# / Blazor
 
 | Platform | Project | Tech |
 |---|---|---|
-| Windows, macOS, iOS, Android | `src/Locus.App` | .NET MAUI Blazor Hybrid |
-| Linux (also Win/Mac) | `src/Locus.Desktop` | Photino.Blazor native window |
-| Any browser / home server | `src/Locus.Web` | Blazor Server (self-hosted) |
+| Windows, macOS, iOS, Android | `src/Hearth.App` | .NET MAUI Blazor Hybrid |
+| Linux (also Win/Mac) | `src/Hearth.Desktop` | Photino.Blazor native window |
+| Any browser / home server | `src/Hearth.Web` | Blazor Server (self-hosted) |
 
 ```
-src/Locus.Core     LLM clients (Ollama, OpenAI-compatible, Claude API, Claude Code), agent/tool loop, tools, MCP, RAG, storage
-src/Locus.UI       Shared Razor components, CSS, JS — every host renders this
-src/Locus.Computer The bots' browser (Playwright) — desktop and web hosts only
+src/Hearth.Core     LLM clients (Ollama, OpenAI-compatible, Claude API, Claude Code), agent/tool loop, tools, MCP, RAG, storage
+src/Hearth.UI       Shared Razor components, CSS, JS — every host renders this
+src/Hearth.Computer The bots' browser (Playwright) — desktop and web hosts only
 tests/             Unit tests
 ```
 
@@ -35,7 +35,7 @@ Inspired by xAI's Grok Bot, rebuilt for local models. Open **Bots** in the sideb
 - **A bot** has a name, emoji avatar and colour, a role, its own instructions, an optional model override,
   which tools it may use, its own memory, and routines. Up to 50 bots.
 - **1:1 chats**: click a bot in the sidebar.
-- **Group chats** (2–6 bots): you write normally and Locus picks who answers (a quick routing call to the
+- **Group chats** (2–6 bots): you write normally and Hearth picks who answers (a quick routing call to the
   model), or you address someone with `@Name` / `@everyone`. Bots hand work to each other by @mentioning
   a teammate, who replies next. At most 8 bot replies per message (Settings → `MaxBotHops`) and two per
   bot, so they can't loop forever.
@@ -64,7 +64,7 @@ Inspired by xAI's Grok Bot, rebuilt for local models. Open **Bots** in the sideb
   | 📰 Feed | a new item appears in an RSS/Atom feed (GitHub releases, blogs, YouTube, Reddit…) | everywhere |
   | 🌐 Page change | a web page's readable text changes (the diff is passed along) | everywhere |
 
-  Webhooks need the routine's secret (`?token=` or an `X-Locus-Token` header); a wrong one gets 403.
+  Webhooks need the routine's secret (`?token=` or an `X-Hearth-Token` header); a wrong one gets 403.
   Feeds and pages record a baseline on the first check, so you only hear about *new* things.
   **▶ Test run / Check now** fires one immediately. Triggers run while the app is open; the web host
   runs them whenever the server is up.
@@ -85,12 +85,12 @@ Like Grok Bot's computer, but on your machine: **🖥 Computer** in the sidebar.
   downloads land in `workspace/downloads`, and optional `run_command` (shell, asks every time).
 - Runs headless and closes after 15 idle minutes. First use needs a browser: click **Install browser**
   (Chromium, ~150 MB) or choose your installed Chrome/Edge in the Computer settings.
-- Available in the desktop app and the web host with `Locus:AllowLocalProcesses`; not on iOS/Android
+- Available in the desktop app and the web host with `Hearth:AllowLocalProcesses`; not on iOS/Android
   (workspace file tools still work there).
 
 ### Computer use (desktop control)
 Turn on **Computer → Computer use** to let bots see the screen and drive the mouse and keyboard in any app: `desktop_screenshot`, `desktop_click`, `desktop_type`, `desktop_key`, `desktop_scroll`, `desktop_drag`, `desktop_open`. Every action returns a fresh screenshot that vision models see (`qwen2.5vl`, `gemma3`, `llama3.2-vision`…). Actions ask first unless you turn on auto-approve. Fail-safe: park the mouse in the top-left corner and the next action is refused; ■ in the chat stops the run.
-- macOS: grant Screen Recording + Accessibility to the app running Locus (there's a "Request permissions" button).
+- macOS: grant Screen Recording + Accessibility to the app running Hearth (there's a "Request permissions" button).
 - Windows: works out of the box.
 - Linux: X11 + `xdotool` + a screenshot tool (`scrot`, `gnome-screenshot` or ImageMagick).
 
@@ -98,7 +98,7 @@ Turn on **Computer → Computer use** to let bots see the screen and drive the m
 In a bot's settings, turn on **Computer use** and pick **Its own sandbox**. The bot then gets a private Linux
 desktop (Chromium, a terminal) in a Docker container instead of your screen. It uses the same `desktop_*` tools,
 but it can't see your screen or files, so its actions don't ask first (typing a saved login still does).
-- Needs Docker Desktop. The image (`locus-desktop:2`) builds automatically the first time; that takes a few minutes.
+- Needs Docker Desktop. The image (`hearth-desktop:2`) builds automatically the first time; that takes a few minutes.
 - The bot's editor shows a **live view** (noVNC on 127.0.0.1 behind a random password). You can click and type
   in it too, e.g. to sign in to a site for the bot. Its home folder (and sign-ins) persists in a Docker volume.
 - It stops after the Computer page's idle time and starts again on demand. **Reset** (or deleting the bot) removes
@@ -106,39 +106,39 @@ but it can't see your screen or files, so its actions don't ask first (typing a 
 
 ### Remote computers (SSH)
 **Computer → Remote computers**: add `user@host` (or an `~/.ssh/config` alias) with a note on what it is. Bots with the
-**Code** ability get `run_remote` and can run commands there. Locus uses your SSH keys only (never a password prompt),
+**Code** ability get `run_remote` and can run commands there. Hearth uses your SSH keys only (never a password prompt),
 asks before each command by default (🛡 Permissions → Remote computers), and **Test** checks the connection.
 
 ### Saved logins
 On the Computer page, add logins (name, site, username, password). Bots sign in with `browser_fill_login` (bot browser) or `desktop_type_login` (any app) without the password ever reaching the model or the chat. Passwords are encrypted with AES-GCM using a key file in the app data folder (owner-only permissions), which keeps them out of chats and logs but doesn't protect them from someone who can read your user account's files.
 
 ## Always on
-**Background service** — keeps Locus running after you close the terminal, starts at login, restarts if it
-crashes. Without a password it only listens on this computer; with `LOCUS_PASSWORD` set, other devices on your
+**Background service** — keeps Hearth running after you close the terminal, starts at login, restarts if it
+crashes. Without a password it only listens on this computer; with `HEARTH_PASSWORD` set, other devices on your
 network can reach it (and must sign in).
 ```bash
 scripts/install-service-macos.sh                 # macOS LaunchAgent  (--uninstall, --dry-run)
 scripts/install-service-linux.sh                 # systemd user unit  (--uninstall, --dry-run)
 .\scripts\install-service-windows.ps1            # Windows logon task (-Uninstall)
-LOCUS_PASSWORD=pick-one LOCUS_PORT=5290 scripts/install-service-macos.sh
+HEARTH_PASSWORD=pick-one HEARTH_PORT=5290 scripts/install-service-macos.sh
 ```
-**Docker** — the easiest way to run Locus on a server or NAS, next to your models:
+**Docker** — the easiest way to run Hearth on a server or NAS, next to your models:
 ```bash
-LOCUS_PASSWORD=pick-one docker compose up -d     # → http://<server>:8080
+HEARTH_PASSWORD=pick-one docker compose up -d     # → http://<server>:8080
 ```
-The image includes Chromium (bot browser) and Python (Code ability); data lives in the `locus-data` volume
-(`LOCUS_DATA_DIR=/data`). Model servers on the Docker host are reachable at `http://host.docker.internal:<port>`.
+The image includes Chromium (bot browser) and Python (Code ability); data lives in the `hearth-data` volume
+(`HEARTH_DATA_DIR=/data`). Model servers on the Docker host are reachable at `http://host.docker.internal:<port>`.
 Desktop control isn't available inside a container.
 
-**Backup model servers** — Settings → *Backup servers*: if the active server can't be reached, Locus retries
+**Backup model servers** — Settings → *Backup servers*: if the active server can't be reached, Hearth retries
 with the next one (using its default model) and says so in the reply. Connecting to a dead server now gives up
 after 10 seconds.
 
-**Health alerts** — Locus checks the model server every 2 minutes and messages your linked Telegram/Discord
+**Health alerts** — Hearth checks the model server every 2 minutes and messages your linked Telegram/Discord
 chats when it goes down or comes back (also on the Today dashboard). `GET /health` reports status for Docker or
 uptime monitors.
 
-**Password** — set `Locus:Password` (env `Locus__Password`) to require a sign-in for the web UI. `/health` and
+**Password** — set `Hearth:Password` (env `Hearth__Password`) to require a sign-in for the web UI. `/health` and
 the token-protected `/hooks/…` webhooks stay open.
 
 ## Tasks (long-running work)
@@ -156,7 +156,7 @@ changing: **Allow** (no prompt), **Ask**, **Block** (the tool is hidden from bot
 (filter by bot, text and days).
 
 **Guard against hidden instructions** (on by default): web pages, emails, shared files and other bots' replies can contain
-text written to steer an AI ("prompt injection"). Locus labels that content as information, not instructions, and once a
+text written to steer an AI ("prompt injection"). Hearth labels that content as information, not instructions, and once a
 run has read it, anything that changes things (sending, writing, running code or remote commands, saving memories or
 skills) asks you first, with the reason shown, even where it normally wouldn't. Areas you set to **Allow** still run;
 routines and tasks with no one to ask skip those actions and say so. Inbox emails and event-triggered routines start
@@ -166,10 +166,10 @@ out guarded.
 Google credentials are encrypted with a local key (`vault.key`, owner-only).
 
 ## Phone app
-Open Locus in your phone's browser and **Add to Home Screen**: it installs as an app (PWA). Connections →
+Open Hearth in your phone's browser and **Add to Home Screen**: it installs as an app (PWA). Connections →
 **Phone** shows QR codes for your links. Best: [Tailscale](https://tailscale.com) on this computer and your phone, then
-run `tailscale serve --bg 5290` once. Locus gets a private **https://…ts.net** link that works anywhere, while staying
-closed to your Wi-Fi. For plain home-network access instead, set `LOCUS_PASSWORD` (the page warns if you haven't).
+run `tailscale serve --bg 5290` once. Hearth gets a private **https://…ts.net** link that works anywhere, while staying
+closed to your Wi-Fi. For plain home-network access instead, set `HEARTH_PASSWORD` (the page warns if you haven't).
 
 ## First-run setup
 A new install opens **Welcome**: it finds a model server running on this computer (Ollama, LM Studio, oMLX) or
@@ -195,7 +195,7 @@ previews and downloads. In chat, `html`/`svg` code blocks get a **Preview** (san
 ## Backup and moving machines
 **Settings → Backup and restore**: **Download backup** (a zip of chats, bots, memory, settings and keys; downloaded
 models are left out), or turn on a **daily copy** to a folder (keeps the last 7). To move to a new computer, install
-Locus there, open Backup, **Restore** the zip and restart. The current data is kept in a `locus-before-restore-…`
+Hearth there, open Backup, **Restore** the zip and restart. The current data is kept in a `hearth-before-restore-…`
 folder. A backup contains your keys, so store it somewhere private.
 
 ## Bot checks
@@ -204,7 +204,7 @@ after changing a bot's instructions, abilities or model; each check runs in a th
 a model judges the answer. Failing checks show on the tab.
 
 ## Heartbeat (proactive check-ins)
-**📊 Today → 💓 Heartbeat.** Every 15 min – 4 h, Locus (or a bot you pick) goes through a checklist you write —
+**📊 Today → 💓 Heartbeat.** Every 15 min – 4 h, Hearth (or a bot you pick) goes through a checklist you write —
 "anything due today, important email, finished tasks, things I asked you to watch" — using its tools, and messages you
 (here and on your linked chats) **only when something needs your attention**. Quiet check-ins leave no trace; quiet hours
 are respected; **Check in now** runs one immediately.
@@ -218,7 +218,7 @@ something is waiting on you.
 ## Telegram & Discord
 **🔗 Connections → Telegram / Discord.** Paste a bot token (setup steps are on the page), click
 **Get pairing code** and send the code to your bot — only paired chats (and only the person who paired)
-can talk to Locus.
+can talk to Hearth.
 - Just message it — or send a **photo** (vision models see it), a **file** (PDF/text/code is read; big ones go
   to Documents) or a **voice note** (transcribed via your speech-to-text server in Settings → Voice).
 - `/bots`, `/bot Name` (switch who answers), `/groups` + `/group Name` (talk to a group of bots — each reply is
@@ -243,7 +243,7 @@ everything else is marked read and ignored. Each email thread is one conversatio
 (on the dashboard, Telegram…) unless you set **Bot inbox → change** to Allow under 🛡 Permissions.
 
 ## iMessage & Signal
-- **iMessage** (Locus on a Mac): sign the Mac's Messages app in to its own Apple ID, give the app running Locus
+- **iMessage** (Hearth on a Mac): sign the Mac's Messages app in to its own Apple ID, give the app running Hearth
   **Full Disk Access** (it reads new messages from the Messages database), then Connections → iMessage → **Turn on**
   and pair from your phone. Replies go out through Messages.
 - **Signal**: run the bridge (`docker compose --profile signal up -d`, i.e. `bbernhard/signal-cli-rest-api`), link a
@@ -262,7 +262,7 @@ Turn on **Gmail** and/or **Calendar** under Connections → Google, then **Recon
 
 ## Show-and-learn
 **⚡ Skills → 🎬 Teach by showing.** Pick a browser (shared or a bot's own), click **Start recording**, do
-the task once in the window that opens, then **Stop**. Locus records clicks, typed text, choices, Enter
+the task once in the window that opens, then **Stop**. Hearth records clicks, typed text, choices, Enter
 and page changes (passwords are never recorded), lets you remove mistakes, and writes a reusable skill
 from it — using your model to turn specific values into placeholders, or a plain step list if no model
 is available. Bots can then run it (`use_skill`) or you can type `/skill-name`.
@@ -296,7 +296,7 @@ summarize, action-items, proofread, explain-code, translate, eli5, daily-briefin
 
 ### Bots write their own skills
 Like Hermes, bots learn from experience (on by default; **Skills → Bots write their own skills**):
-- After a reply that took several tool calls, Locus asks the model whether the method is worth keeping. If so it saves
+- After a reply that took several tool calls, Hearth asks the model whether the method is worth keeping. If so it saves
   it as a skill (or fixes the skill it used, if the steps turned out wrong). Bots can also do this themselves
   with `save_skill` and `improve_skill`.
 - Every bot sees the saved skills and is told to check them before working something out from scratch; each skill
@@ -310,13 +310,13 @@ files), the same one Claude, Hermes and OpenClaw use. **Skills → Import & expo
 (a single skill or a folder of skills), a raw SKILL.md link or a .zip link, or upload a .md/.zip. Imported skills wait for
 your review, and the import scan flags risky content (download-and-run commands, hidden base64, sending keys somewhere,
 "ignore previous instructions", invisible characters, bundled scripts). **Export all** downloads a .zip, and approved
-skills are kept as files in the `skills` folder in Locus's data folder, where other agents can read them.
+skills are kept as files in the `skills` folder in Hearth's data folder, where other agents can read them.
 
 Small models get confused in group chats; `qwen3:8b`+ or similar works much better.
 
 ## Code sessions (Claude Code-style)
 Coding is a bot ability: switch on **Code** for a bot (the starter Engineer has it). Then open the **Code** tab in the left
-rail, click **New code session**, pick the folder and the bot (or plain Locus). Each session is its own conversation, so
+rail, click **New code session**, pick the folder and the bot (or plain Hearth). Each session is its own conversation, so
 several can run side by side; they're listed in the Code tab grouped by project folder, apart from your chats. The bot
 brings its own model, memory and instructions. In the session it is a coding agent for the folder: it finds files (`glob`), searches (`grep`), reads with line numbers (`read`), makes exact edits
 (`edit` / `write`, each shown as a diff and undoable with `undo_edit`), runs builds, tests and git with `bash` (in the code
@@ -341,7 +341,7 @@ first reply (reusing your existing topics when they fit); set or change one with
 header to collapse it.
 
 ## Tools (agent mode)
-Toggle **🛠 Tools** in the composer. The model calls tools, Locus runs them and feeds results back
+Toggle **🛠 Tools** in the composer. The model calls tools, Hearth runs them and feeds results back
 (up to 8 rounds). Each call shows as an expandable card; anything that can change things or run code
 asks **Allow / Deny** first (configurable in **Tools & MCP**).
 
@@ -375,18 +375,18 @@ Git and time. Fill in the token or folder it asks for and it is added.
 } }
 ```
 Local (stdio) servers run on desktop (Photino, Windows, Mac). iOS/Android use HTTP MCP servers.
-The web host disables local processes unless you set `"Locus": { "AllowLocalProcesses": true }`.
+The web host disables local processes unless you set `"Hearth": { "AllowLocalProcesses": true }`.
 
 ### Documents (RAG)
 `ollama pull nomic-embed-text`, then add PDFs/notes/code on the **Documents** page. Small files attached
 in the composer are pasted into the message; large ones are indexed automatically.
 
 ### Memory
-Everything Locus remembers lives in **one SQLite database** (`locus.db` in the data folder): shared facts about you,
+Everything Hearth remembers lives in **one SQLite database** (`hearth.db` in the data folder): shared facts about you,
 each bot's own notes (kept apart by a scope column), your profile, and a search index of every chat. Facts and chats
 are found by **keywords and by meaning** ("my car" finds "the Subaru loan"): on desktop and the web host a small
 built-in embedding model (all-MiniLM-L6-v2, ~23 MB, downloaded once, runs on the CPU) handles that. On phones, or if
-it can't download, Locus uses your server's embedding model (Settings → Documents) or falls back to keywords. Memory → Recall by meaning turns it off; **Export** saves everything as JSON. Storage sits behind an `IMemoryProvider`
+it can't download, Hearth uses your server's embedding model (Settings → Documents) or falls back to keywords. Memory → Recall by meaning turns it off; **Export** saves everything as JSON. Storage sits behind an `IMemoryProvider`
 interface, so a different backend (e.g. a hosted memory service) can replace it. Older JSON memory files are imported
 once and kept as `*.before-sqlite.bak`.
 - **Your profile**: a short summary of you that every chat starts with (Memory page). **🧹 Tidy up now** (and
@@ -427,16 +427,16 @@ active server, then your backup servers. Bots on different servers can still mes
 | Groq | `https://api.groq.com/openai/v1` | Groq key | |
 | Any OpenAI-compatible | its base URL | if needed | Together, Mistral, Fireworks, DeepSeek… |
 
-- **Claude Code**: run `claude` in a terminal once and sign in (`/login`); Locus reuses that login. Each reply
+- **Claude Code**: run `claude` in a terminal once and sign in (`/login`); Hearth reuses that login. Each reply
   runs `claude -p` in a separate empty folder with Claude Code's own tools, MCP servers and settings switched
-  off, so only Locus's tools are used (offered through a small `<tool_calls>` text protocol, with the usual
+  off, so only Hearth's tools are used (offered through a small `<tool_calls>` text protocol, with the usual
   approval cards). Models: `opus`, `sonnet`, `haiku` (latest of each) or full IDs. Images and thinking work;
   each reply starts the CLI, so it's a bit slower than the API.
 - **Claude API**: streams through the official Anthropic C# SDK with adaptive thinking (summaries shown under
   "Thought process"; **Think** raises effort to high), native tool calling, images, and server-side refusal
   fallbacks (`fallbacks: "default"`), so a request a safety classifier declines is re-served on a suitable model
   instead of stopping.
-- **OpenAI-compatible cloud APIs**: if a model rejects `max_tokens` or a custom temperature, Locus retries with
+- **OpenAI-compatible cloud APIs**: if a model rejects `max_tokens` or a custom temperature, Hearth retries with
   `max_completion_tokens` / the default temperature automatically.
 - Claude can't make embeddings: while a Claude provider is active, **Documents** uses your first local
   (Ollama/OpenAI-compatible) provider for them.
@@ -462,12 +462,12 @@ then in **Settings** set the URL to `http://<your-computer-LAN-IP>:11434`
 
 **Web (quickest, any OS):**
 ```bash
-dotnet run --project src/Locus.Web
+dotnet run --project src/Hearth.Web
 ```
 
 **Linux / Windows / macOS desktop (Photino):**
 ```bash
-dotnet run --project src/Locus.Desktop
+dotnet run --project src/Hearth.Desktop
 ```
 Linux needs WebKitGTK: `sudo apt install libwebkit2gtk-4.1-0` (Fedora: `webkit2gtk4.1`).
 
@@ -475,9 +475,9 @@ Linux needs WebKitGTK: `sudo apt install libwebkit2gtk-4.1-0` (Fedora: `webkit2g
 ```bash
 sudo dotnet workload install maui
 ```
-- Android: `dotnet build src/Locus.App -t:Run -f net10.0-android` (needs Android SDK + JDK 17)
-- iOS simulator / Mac: needs full Xcode. `dotnet build src/Locus.App -t:Run -f net10.0-ios` / `-f net10.0-maccatalyst`
-- Windows: `dotnet build src/Locus.App -t:Run -f net10.0-windows10.0.19041.0`
+- Android: `dotnet build src/Hearth.App -t:Run -f net10.0-android` (needs Android SDK + JDK 17)
+- iOS simulator / Mac: needs full Xcode. `dotnet build src/Hearth.App -t:Run -f net10.0-ios` / `-f net10.0-maccatalyst`
+- Windows: `dotnet build src/Hearth.App -t:Run -f net10.0-windows10.0.19041.0`
 
 ## DeepSearch setup (optional)
 ```bash
@@ -486,7 +486,7 @@ docker run -d -p 8080:8080 searxng/searxng
 Enable JSON in its `settings.yml` (`search: formats: [html, json]`), then set `http://localhost:8080` in Settings.
 
 ## Notes
-- Data lives in the app data folder (`~/.local/share/Locus`, `%LOCALAPPDATA%\Locus`, or the app sandbox on mobile).
+- Data lives in the app data folder (`~/.local/share/Hearth`, `%LOCALAPPDATA%\Hearth`, or the app sandbox on mobile).
 - The web host is single-user (one shared chat history); keep it on localhost or behind your own auth.
-- `fetch_url` and MCP HTTP servers make requests from wherever Locus runs (the server, for the web host).
+- `fetch_url` and MCP HTTP servers make requests from wherever Hearth runs (the server, for the web host).
 - Cleartext HTTP is allowed on Android/iOS so LAN servers work; use HTTPS if you expose a server beyond your LAN.

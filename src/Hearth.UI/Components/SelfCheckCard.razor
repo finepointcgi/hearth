@@ -1,0 +1,80 @@
+@using Hearth.Core.Services
+@implements IDisposable
+@inject SelfCheck Check
+@inject SettingsStore SettingsStore
+
+<section class="card">
+    <h3>Self-check</h3>
+    <p class="muted small">Each night Hearth asks the default model quick questions: math and date tools, a unit conversion, a follow-up, a plain answer, and its own features (people notes, plans, undo, skills, contacts when connected). If more fail than last time, or replies get much slower, it reports a problem on the Activity feed and sends a phone notification if those are set up. Anything a check creates is removed afterwards.</p>
+    <label class="check"><input type="checkbox" @bind="_s.Enabled" /> Run the self-check every night</label>
+    <label class="check"><input type="checkbox" @bind="_s.Thorough" /> Thorough: also check web research with the answer check, and a team hand-off (takes several minutes)</label>
+    <div class="row">
+        <label>At <input type="time" value="@_s.Time" @onchange="e => _s.Time = e.Value?.ToString() ?? _s.Time" /></label>
+        <span class="grow"></span>
+        @if (_message is not null) { <span class="muted small">@_message</span> }
+        <button class="btn ghost" @onclick="RunNow" disabled="@_running">@(_running ? "Checking…" : "▶ Run now")</button>
+        <button class="btn primary" @onclick="Save">Save</button>
+    </div>
+    @if (_history.Count > 0)
+    {
+        <table class="selfcheck">
+            <thead><tr><th>When</th><th>Model</th><th>Passed</th><th>Average</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var r in Enumerable.Reverse(_history).Take(7))
+                {
+                    <tr class="@(r.Passed < r.Total ? "bad" : "")">
+                        <td>@r.At.ToString("MMM d, h:mm tt")</td>
+                        <td class="muted">@r.Model</td>
+                        <td>@r.Passed/@r.Total</td>
+                        <td>@r.AverageSeconds s</td>
+                        <td class="muted small">@string.Join("; ", r.Failures)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</section>
+
+@code {
+    private SelfCheckSettings _s = new();
+    private List<SelfCheckRun> _history = [];
+    private bool _running;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var s = await SettingsStore.GetAsync();
+        _s = new SelfCheckSettings { Enabled = s.SelfCheck.Enabled, Time = s.SelfCheck.Time, Alert = s.SelfCheck.Alert, Thorough = s.SelfCheck.Thorough };
+        _history = await Check.HistoryAsync();
+        Check.Changed += OnChanged;
+    }
+
+    private async void OnChanged()
+    {
+        _history = await Check.HistoryAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Save()
+    {
+        var s = await SettingsStore.GetAsync();
+        s.SelfCheck = new SelfCheckSettings { Enabled = _s.Enabled, Time = TimeOnly.TryParse(_s.Time, out var t) ? t.ToString("HH:mm") : "03:30", Alert = _s.Alert, Thorough = _s.Thorough };
+        await SettingsStore.SaveAsync(s);
+        _message = _s.Enabled ? $"Runs nightly at {s.SelfCheck.Time}." : "Self-check is off.";
+    }
+
+    private async Task RunNow()
+    {
+        _running = true;
+        _message = "Asking the model… (about a minute)";
+        try
+        {
+            var run = await Check.RunAsync();
+            _message = run is null ? "A check is already running." : $"{run.Passed}/{run.Total} passed, {run.AverageSeconds}s average.";
+        }
+        catch (Exception ex) { _message = ex.Message; }
+        finally { _running = false; }
+    }
+
+    public void Dispose() => Check.Changed -= OnChanged;
+}

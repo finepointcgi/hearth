@@ -19,14 +19,14 @@ jobs:
       # The MAUI phone/desktop app needs extra workloads; CI covers the shared code, web host and desktop host.
       - name: Build
         run: |
-          dotnet build src/Locus.Web -c Release
-          dotnet build src/Locus.Desktop -c Release
+          dotnet build src/Hearth.Web -c Release
+          dotnet build src/Hearth.Desktop -c Release
       - name: Test
-        run: dotnet test tests/Locus.Core.Tests -c Release --logger "console;verbosity=normal"
+        run: dotnet test tests/Hearth.Core.Tests -c Release --logger "console;verbosity=normal"
 
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build the Docker image
-        run: docker build -t locus:ci .
+        run: docker build -t hearth:ci .

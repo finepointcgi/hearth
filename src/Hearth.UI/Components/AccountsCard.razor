@@ -1,0 +1,173 @@
+@using Hearth.Core.Services
+@implements IDisposable
+@inject IServiceProvider Services
+@inject NavigationManager Nav
+
+@* Separate accounts: shown on the web server only (the desktop app is one person's). *@
+@if (_store is not null)
+{
+    var config = _store.Get();
+    var me = Me;
+    <section class="card">
+        <h3>Accounts</h3>
+        @if (!_store.Enabled)
+        {
+            <p class="muted small">Give someone else in your home their own Hearth: their own bots, chats, memories, documents, people notes, Google/Microsoft connections, routines and Telegram, all separate from yours. Everyone signs in with their name and password. Model servers are shared: they're set up once, in your account.</p>
+            @if (config.Accounts.Count > 0)
+            {
+                <p class="small">@config.Accounts.Count accounts are set up (@string.Join(", ", config.Accounts.Select(a => a.Name))). Turning them on again signs everyone in with the passwords they had.</p>
+                <button class="btn primary" @onclick="TurnOnAgain">Turn on separate accounts</button>
+            }
+            else
+            {
+                <p class="small">First, your own sign-in. Everything in Hearth now becomes your account; after this, the page asks for your name and password.</p>
+                <div class="row">
+                    <input class="grow" @bind="_name" placeholder="Your name" autocomplete="username" />
+                    <input class="grow" type="password" @bind="_password" placeholder="Your password (8+ characters)" autocomplete="new-password" />
+                    <button class="btn primary" @onclick="Enable" disabled="@(_name.Trim().Length == 0 || _password.Length == 0)">Turn on separate accounts</button>
+                </div>
+            }
+        }
+        else if (me is { IsOwner: true })
+        {
+            <p class="muted small">Each account is its own Hearth. You manage accounts here; model servers you set up are shared with everyone. Signed in as <b>@me.Name</b>.</p>
+            @foreach (var a in config.Accounts)
+            {
+                var account = a;
+                <div class="memory-row">
+                    <span class="grow"><Icon Name="@(account.IsOwner ? "shield" : "user")" Size="16" /> <b>@account.Name</b>
+                        <span class="muted small">@(account.IsOwner ? "owner · you" : $"since {account.CreatedAt:MMM d, yyyy}")</span></span>
+                    @if (_resetFor == account.Id)
+                    {
+                        <input type="password" @bind="_resetPassword" placeholder="New password" autocomplete="new-password" />
+                        <button class="btn primary small" @onclick="() => Reset(account.Id)">Set</button>
+                        <button class="btn ghost small" @onclick="() => _resetFor = null">Cancel</button>
+                    }
+                    else
+                    {
+                        <button class="btn ghost small" @onclick="() => { _resetFor = account.Id; _resetPassword = string.Empty; }">Change password</button>
+                    }
+                    @if (!account.IsOwner)
+                    {
+                        @if (_removing == account.Id)
+                        {
+                            <button class="btn danger small" @onclick="() => Remove(account.Id)">Remove @account.Name</button>
+                            <button class="btn ghost small" @onclick="() => _removing = null">Keep</button>
+                        }
+                        else
+                        {
+                            <button class="icon-btn" title="Remove account" aria-label="Remove account" @onclick="() => _removing = account.Id"><Icon Name="trash-2" Size="15" /></button>
+                        }
+                    }
+                </div>
+                @if (_removing == account.Id)
+                {
+                    <div class="tiny-error">@account.Name won't be able to sign in. Their data stays on this computer (in accounts/@account.Id inside Hearth's data folder) until you delete it.</div>
+                }
+            }
+            <h4>Add someone</h4>
+            <div class="row">
+                <input class="grow" @bind="_name" placeholder="Their name" autocomplete="off" />
+                <input class="grow" type="password" @bind="_password" placeholder="Their password (8+ characters)" autocomplete="new-password" />
+                <button class="btn primary" @onclick="Add" disabled="@(_name.Trim().Length == 0 || _password.Length == 0)">Add account</button>
+            </div>
+            <p class="muted small">They start with the default team of bots and the starter skills, and connect their own Google, Microsoft and chat apps. Use a different Telegram bot for each person.</p>
+            <div class="row">
+                <span class="grow"></span>
+                @if (_confirmOff)
+                {
+                    <span class="small">Everyone else loses access until accounts are on again (their data is kept).</span>
+                    <button class="btn danger small" @onclick="Disable">Turn off</button>
+                    <button class="btn ghost small" @onclick="() => _confirmOff = false">Cancel</button>
+                }
+                else
+                {
+                    <button class="btn ghost small" @onclick="() => _confirmOff = true">Turn off separate accounts</button>
+                }
+            </div>
+        }
+        else if (me is not null)
+        {
+            <p class="muted small">Signed in as <b>@me.Name</b>. Your bots, chats, memories and connections are your own; model servers are shared and managed by @(_store.Owner?.Name ?? "the owner").</p>
+            <div class="row">
+                <input class="grow" type="password" @bind="_password" placeholder="New password (8+ characters)" autocomplete="new-password" />
+                <button class="btn primary" @onclick="() => Reset(me.Id)" disabled="@(_password.Length == 0 && _resetPassword.Length == 0)">Change my password</button>
+            </div>
+        }
+        <div class="row"><span class="grow"></span>@if (_message is not null) { <span class="muted small">@_message</span> }</div>
+        @if (_error is not null) { <div class="error-box">@_error</div> }
+    </section>
+}
+
+@code {
+    private AccountStore? _store;
+    private ICurrentUser? _user;
+    private string _name = "";
+    private string _password = "";
+    private string _resetPassword = "";
+    private string? _resetFor;
+    private string? _removing;
+    private bool _confirmOff;
+    private string? _error;
+    private string? _message;
+
+    private Account? Me => _user?.Account;
+
+    protected override void OnInitialized()
+    {
+        _store = Services.GetService<AccountStore>();
+        _user = Services.GetService<ICurrentUser>();
+        if (_store is not null) _store.Changed += OnChanged;
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task Enable()
+    {
+        _error = await _store!.EnableAsync(_name, _password);
+        if (_error is null) Nav.NavigateTo("/login", forceLoad: true);
+    }
+
+    private async Task TurnOnAgain()
+    {
+        await _store!.EnableAsync("", "");
+        Nav.NavigateTo("/login", forceLoad: true);
+    }
+
+    private async Task Add()
+    {
+        var (account, problem) = await _store!.AddAsync(_name, _password);
+        _error = problem;
+        if (account is not null) { _message = $"Added {account.Name}. They can sign in now."; _name = _password = ""; }
+    }
+
+    private async Task Reset(string id)
+    {
+        var pw = id == _resetFor ? _resetPassword : _password;
+        _error = await _store!.ChangePasswordAsync(id, pw);
+        if (_error is not null) return;
+        _resetFor = null;
+        _resetPassword = _password = "";
+        // Your own password: the old sign-in no longer counts, so sign in again.
+        if (id == Me?.Id) Nav.NavigateTo("/login", forceLoad: true);
+        else _message = "Password changed; they'll need to sign in again.";
+    }
+
+    private async Task Remove(string id)
+    {
+        await _store!.RemoveAsync(id);
+        _removing = null;
+        _message = "Account removed.";
+    }
+
+    private async Task Disable()
+    {
+        await _store!.DisableAsync();
+        Nav.NavigateTo("/", forceLoad: true);
+    }
+
+    public void Dispose()
+    {
+        if (_store is not null) _store.Changed -= OnChanged;
+    }
+}

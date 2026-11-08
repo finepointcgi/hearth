@@ -2,28 +2,28 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "locus-web",
+      "name": "hearth-web",
       "runtimeExecutable": "dotnet",
       "runtimeArgs": [
         "run",
         "--project",
-        "src/Locus.Web",
+        "src/Hearth.Web",
         "--urls",
         "http://localhost:5291"
       ],
       "port": 5291
     },
     {
-      "name": "locus-web-local-tools",
+      "name": "hearth-web-local-tools",
       "runtimeExecutable": "dotnet",
       "runtimeArgs": [
         "run",
         "--project",
-        "src/Locus.Web",
+        "src/Hearth.Web",
         "--urls",
         "http://localhost:5292",
         "--",
-        "--Locus:AllowLocalProcesses=true"
+        "--Hearth:AllowLocalProcesses=true"
       ],
       "port": 5292
     }

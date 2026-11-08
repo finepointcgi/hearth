@@ -4,5 +4,5 @@ tests/
 .git/
 .claude/
 **/*.user
-src/Locus.App/
-src/Locus.Desktop/
+src/Hearth.App/
+src/Hearth.Desktop/

@@ -1,0 +1,118 @@
+@inject AgentImporter Importer
+@inject PlatformInfo Platform
+
+@if (Platform.CanRunProcesses)
+{
+<section class="card">
+    <h3>Bring over another agent</h3>
+    <p class="muted small">Skills, memories and the personality file (SOUL.md) from Hermes, OpenClaw, Claude Code or Codex on this computer, or from any folder. You see everything first; imported skills wait for your review like any other import.</p>
+    <div class="row">
+        @foreach (var s in _sources)
+        {
+            var src = s;
+            <button class="btn ghost" @onclick="() => Preview(src)" disabled="@_busy">@src.Name</button>
+        }
+        <input class="grow" @bind="_folder" placeholder="…or a folder, e.g. ~/my-agent" />
+        <button class="btn ghost" @onclick="PreviewFolder" disabled="@(_busy || string.IsNullOrWhiteSpace(_folder))">Look</button>
+    </div>
+    @if (_sources.Count == 0) { <p class="muted small">No other agents found in your home folder.</p> }
+    @if (_message is not null) { <p class="muted small">@_message</p> }
+
+    @if (_preview is { } p)
+    {
+        <div class="sub">
+            <b>@p.Source.Name</b> <span class="muted small">@p.Source.Root</span>
+            @if (p.Soul is not null)
+            {
+                <label class="check"><input type="checkbox" @bind="_takeSoul" /> Use its personality (SOUL.md) for Hearth <span class="muted small">— replaces yours</span></label>
+                <details class="advanced"><summary>Show SOUL.md</summary><pre class="small">@p.Soul</pre></details>
+            }
+            @if (p.Memories.Count > 0)
+            {
+                <div class="row"><b class="grow">Memories (@p.Memories.Count new)</b>
+                    <button class="btn ghost small" @onclick="() => { _facts = p.Memories.ToHashSet(); }">All</button>
+                    <button class="btn ghost small" @onclick="() => _facts.Clear()">None</button></div>
+                @foreach (var f in p.Memories)
+                {
+                    var fact = f;
+                    <label class="check small"><input type="checkbox" checked="@_facts.Contains(fact)" @onchange="e => Toggle(_facts, fact, (bool)e.Value!)" /> @fact</label>
+                }
+            }
+            @if (p.Skills.Count > 0)
+            {
+                <div class="row"><b class="grow">Skills (@p.Skills.Count)</b>
+                    <input placeholder="Filter" @bind="_filter" @bind:event="oninput" style="width:10rem" />
+                    <button class="btn ghost small" @onclick="SelectSafe">All without warnings</button>
+                    <button class="btn ghost small" @onclick="() => _skills.Clear()">None</button></div>
+                <div class="import-list">
+                    @foreach (var s in p.Skills.Where(Matches))
+                    {
+                        var skill = s;
+                        <label class="check small">
+                            <input type="checkbox" checked="@_skills.Contains(skill.Path)" @onchange="e => Toggle(_skills, skill.Path, (bool)e.Value!)" />
+                            <span><b>@skill.Name</b>@(skill.Exists ? " (you have one by this name; it'll be added as a copy)" : "") — <span class="muted">@skill.Description</span>
+                                @foreach (var w in skill.Warnings) { <br /><span class="tiny-error">⚠ @w</span> }</span>
+                        </label>
+                    }
+                </div>
+            }
+            @if (p.Skills.Count == 0 && p.Memories.Count == 0 && p.Soul is null) { <p class="muted small">Nothing new to bring over.</p> }
+            <div class="row">
+                <span class="grow muted small">@_skills.Count skills · @_facts.Count memories@(_takeSoul ? " · personality" : "")</span>
+                <button class="btn primary" @onclick="Import" disabled="@(_busy || (_skills.Count == 0 && _facts.Count == 0 && !_takeSoul))">Import selected</button>
+            </div>
+        </div>
+    }
+</section>
+}
+
+@code {
+    private List<ImportSource> _sources = [];
+    private ImportPreview? _preview;
+    private HashSet<string> _skills = [], _facts = [];
+    private bool _takeSoul, _busy;
+    private string _folder = "", _filter = "";
+    private string? _message;
+
+    protected override void OnInitialized() => _sources = Importer.Detect();
+
+    private bool Matches(ImportSkill s) => _filter.Length == 0
+        || s.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase) || s.Description.Contains(_filter, StringComparison.OrdinalIgnoreCase);
+
+    private static void Toggle(HashSet<string> set, string item, bool on) { if (on) set.Add(item); else set.Remove(item); }
+
+    private void SelectSafe() => _skills = _preview?.Skills.Where(s => s.Warnings.Count == 0 && Matches(s)).Select(s => s.Path).ToHashSet() ?? [];
+
+    private async Task Preview(ImportSource source)
+    {
+        _busy = true; _message = null; _skills = []; _facts = []; _takeSoul = false;
+        try
+        {
+            _preview = await Importer.PreviewAsync(source);
+            _facts = _preview.Memories.ToHashSet(); // memories default to on; skills are picked by hand
+        }
+        catch (Exception ex) { _message = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task PreviewFolder()
+    {
+        var folder = LinkedFolders.Normalize(_folder);
+        if (!Directory.Exists(folder)) { _message = $"Can't find {folder}."; return; }
+        await Preview(AgentImporter.FromFolder(folder));
+    }
+
+    private async Task Import()
+    {
+        if (_preview is null) return;
+        _busy = true;
+        try
+        {
+            var (skills, memories, soul) = await Importer.ImportAsync(_preview, _skills, _facts, _takeSoul);
+            _message = $"Imported {skills} skill{(skills == 1 ? "" : "s")} (waiting for your review below), {memories} memor{(memories == 1 ? "y" : "ies")}{(soul ? " and the personality" : "")}.";
+            _preview = null;
+        }
+        catch (Exception ex) { _message = ex.Message; }
+        finally { _busy = false; }
+    }
+}

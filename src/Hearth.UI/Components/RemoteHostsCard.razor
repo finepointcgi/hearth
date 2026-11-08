@@ -1,0 +1,85 @@
+@inject SettingsStore Store
+@inject PlatformInfo Platform
+
+<section class="card">
+    <h3>Remote computers</h3>
+    <p class="muted small">
+        Let bots run commands on your other machines (a server, a Raspberry Pi, a work box) over SSH, with the <code>run_remote</code> tool.
+        Hearth signs in with your SSH keys only — set up key login first (<code>ssh-copy-id user@host</code>) — and asks before every
+        command unless you change that under 🛡 Permissions → Remote computers. Bots need the <b>Code</b> ability.
+    </p>
+    @if (!Platform.CanRunProcesses)
+    {
+        <span class="muted small">Not available on this device.</span>
+    }
+    else
+    {
+        @foreach (var h in _hosts)
+        {
+            var host = h;
+            <div class="memory-row">
+                <span class="grow"><b>@host.Name</b> <span class="muted small">@host.Target@(host.Port != 22 ? $":{host.Port}" : "")@(string.IsNullOrWhiteSpace(host.Notes) ? "" : $" · {host.Notes}")</span>
+                    @if (_status.TryGetValue(host.Id, out var st)) { <br /><span class="small @(st.StartsWith("✓") ? "ok-text" : "tiny-error")">@st</span> }</span>
+                <button class="btn ghost small" @onclick="() => Test(host)" disabled="@_busy">Test</button>
+                <button class="icon-btn" title="Remove" @onclick="() => Remove(host)">🗑</button>
+            </div>
+        }
+        <div class="row">
+            <input style="width:9rem" @bind="_new.Name" placeholder="Name, e.g. homelab" />
+            <input class="grow" @bind="_new.Target" placeholder="user@host or an ~/.ssh/config alias" />
+            <input type="number" style="width:5rem" @bind="_new.Port" title="Port" />
+        </div>
+        <div class="row">
+            <input class="grow" @bind="_new.KeyPath" placeholder="Key file (optional, e.g. ~/.ssh/id_ed25519)" />
+            <input class="grow" @bind="_new.Notes" placeholder="What it is (bots see this), e.g. Ubuntu server running Plex" />
+            <button class="btn primary" @onclick="Add">Add</button>
+        </div>
+        @if (_error is not null) { <div class="error-box">@_error</div> }
+    }
+</section>
+
+@code {
+    private List<Hearth.Core.Tools.RemoteHost> _hosts = [];
+    private Hearth.Core.Tools.RemoteHost _new = new();
+    private readonly Dictionary<string, string> _status = [];
+    private string? _error;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync() => _hosts = (await Store.GetAsync()).RemoteHosts.ToList();
+
+    private async Task Save(Action<List<Hearth.Core.Tools.RemoteHost>> change)
+    {
+        var s = await Store.GetAsync();
+        change(s.RemoteHosts);
+        await Store.SaveAsync(s);
+        _hosts = s.RemoteHosts.ToList();
+    }
+
+    private async Task Add()
+    {
+        _error = Hearth.Core.Tools.Ssh.Validate(_new);
+        if (_error is not null) return;
+        if (_hosts.Any(h => h.Name.Equals(_new.Name, StringComparison.OrdinalIgnoreCase))) { _error = "There's already a computer with that name."; return; }
+        var host = _new;
+        host.Target = host.Target.Trim();
+        await Save(l => l.Add(host));
+        _new = new();
+        await Test(host);
+    }
+
+    private Task Remove(Hearth.Core.Tools.RemoteHost host) => Save(l => l.RemoveAll(h => h.Id == host.Id));
+
+    private async Task Test(Hearth.Core.Tools.RemoteHost host)
+    {
+        _busy = true;
+        _status[host.Id] = "Testing…";
+        StateHasChanged();
+        try
+        {
+            var (code, output) = await Hearth.Core.Tools.Ssh.RunAsync(host, "uname -sn 2>/dev/null || ver", TimeSpan.FromSeconds(20), CancellationToken.None);
+            _status[host.Id] = code == 0 ? $"✓ Connected: {output.Trim()}" : $"Couldn't connect: {output.Trim()}";
+        }
+        catch (Exception ex) { _status[host.Id] = ex.Message; }
+        finally { _busy = false; }
+    }
+}

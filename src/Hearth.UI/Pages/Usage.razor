@@ -1,0 +1,193 @@
+@page "/usage"
+@inherits StatefulComponent
+@implements IDisposable
+@inject UsageStore UsageLog
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <h2 class="topbar-title">Usage</h2>
+    <span class="spacer"></span>
+    <div class="seg-mini" role="group" aria-label="Period">
+        @foreach (var d in new[] { 1, 7, 30, 90 })
+        {
+            var days = d;
+            <button class="@(_days == days ? "on" : "")" @onclick="() => SetDays(days)">@(days == 1 ? "Today" : $"{days} days")</button>
+        }
+    </div>
+</header>
+
+<div class="settings usage">
+    <div class="metric-row">
+        <div class="metric"><span>Estimated cost</span><b>@Money(_rows.Sum(r => r.Cost ?? 0))</b>
+            @if (_rows.Any(r => r.Subscription)) { <small>+ @_rows.Count(r => r.Subscription) calls on your Claude subscription</small> }</div>
+        <div class="metric"><span>Tokens</span><b>@Tokens(_rows.Sum(r => (long)r.InputTokens + r.OutputTokens))</b>
+            <small>@Tokens(_rows.Sum(r => (long)r.InputTokens)) in · @Tokens(_rows.Sum(r => (long)r.OutputTokens)) out</small></div>
+        <div class="metric"><span>Model time</span><b>@Duration(_rows.Sum(r => r.Milliseconds))</b><small>@_rows.Count calls</small></div>
+        <div class="metric"><span>Typical reply</span><b>@(_replies.Count == 0 ? "—" : Duration(Median(_replies.Select(r => r.TotalMs))))</b>
+            <small>@(_replies.Count == 0 ? "no replies timed yet" : $"first words in {Duration(Median(_replies.Where(r => r.FirstTokenMs is not null).Select(r => r.FirstTokenMs!.Value)))} · {_replies.Count} {(_replies.Count == 1 ? "reply" : "replies")}")</small></div>
+        <div class="metric"><span>Local share</span><b>@LocalShare</b><small>of tokens ran on your own hardware</small></div>
+    </div>
+
+    @if (_rows.Count == 0)
+    {
+        <section class="card"><p class="muted">No model calls in this period yet. Every reply, routine, task and background job is counted here.</p></section>
+    }
+    else
+    {
+        <section class="card">
+            <h3 class="section-title">By day <span class="muted small">tokens · bar colour = cost</span></h3>
+            <div class="day-bars">
+                @foreach (var day in Days())
+                {
+                    var tokens = day.rows.Sum(r => (long)r.InputTokens + r.OutputTokens);
+                    var cost = day.rows.Sum(r => r.Cost ?? 0);
+                    <div class="day-bar" title="@day.date.ToString("ddd MMM d"): @Tokens(tokens) tokens, @Money(cost)">
+                        <div class="bar-fill @(cost > 0 ? "paid" : "")" style="height:@(MaxDayTokens == 0 ? 0 : Math.Max(2, tokens * 100 / MaxDayTokens))%"></div>
+                        <span>@(Days().Count() > 14 ? (day.date.Day % 5 == 0 ? day.date.Day.ToString() : "") : day.date.ToString("ddd"))</span>
+                    </div>
+                }
+            </div>
+        </section>
+
+        <div class="usage-grid">
+            @Breakdown("By bot", _rows.GroupBy(r => r.BotId is { } id ? State.BotById(id)?.Name ?? "Deleted bot" : "Hearth"))
+            @Breakdown("By model", _rows.GroupBy(r => $"{r.Model} · {r.Provider}"))
+            @Breakdown("By kind of work", _rows.GroupBy(r => r.Source))
+        </div>
+
+        @if (_replies.Count > 0)
+        {
+            <section class="card">
+                <h3 class="section-title">Speed and answer checks <span class="muted small">typical (median) times · checks only run after research</span></h3>
+                <div class="usage-grid two">
+                    @Speed("By model", _replies.GroupBy(r => $"{r.Model} · {r.Provider}"))
+                    @Speed("By bot", _replies.GroupBy(r => r.BotId is { } id ? State.BotById(id)?.Name ?? "Deleted bot" : "Hearth"))
+                </div>
+            </section>
+        }
+
+        <section class="card">
+            <h3 class="section-title">Most expensive chats and runs</h3>
+            @foreach (var g in _rows.Where(r => r.ConversationId is not null).GroupBy(r => r.ConversationId!)
+                         .OrderByDescending(g => g.Sum(r => r.Cost ?? 0)).ThenByDescending(g => g.Sum(r => (long)r.InputTokens + r.OutputTokens)).Take(8))
+            {
+                <a class="usage-row" href="c/@g.Key">
+                    <span class="grow">@(_titles.GetValueOrDefault(g.Key) ?? "Chat")<br />
+                        <span class="muted small">@g.Count() calls · @Duration(g.Sum(r => r.Milliseconds)) · @string.Join(", ", g.Select(r => r.Source).Distinct())</span></span>
+                    <span class="usage-num">@Tokens(g.Sum(r => (long)r.InputTokens + r.OutputTokens))</span>
+                    <span class="usage-num">@Money(g.Sum(r => r.Cost ?? 0))</span>
+                </a>
+            }
+        </section>
+        <p class="muted small">Costs are estimates from the published per-token prices (Claude API) or the prices you set on a model server. Claude Code calls are covered by your Claude subscription. Servers that don't report tokens are estimated at about four characters per token.</p>
+    }
+</div>
+
+@code {
+    private int _days = 7;
+    private List<UsageRecord> _rows = [];
+    private List<ReplyRecord> _replies = [];
+    private Dictionary<string, string> _titles = [];
+
+    [Inject] private ConversationStore Conversations { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        UsageLog.Recorded += OnRecorded;
+        UsageLog.ReplyRecorded += OnRecorded;
+        await LoadAsync();
+    }
+
+    private async Task SetDays(int d) { _days = d; await LoadAsync(); }
+
+    private async Task LoadAsync()
+    {
+        var since = _days == 1 ? new DateTimeOffset(DateTime.Today) : new DateTimeOffset(DateTime.Today.AddDays(1 - _days));
+        _rows = await UsageLog.SinceAsync(since);
+        _replies = (await UsageLog.RepliesSinceAsync(since)).Where(r => !r.Failed).ToList();
+        _titles = (await Conversations.ListAsync()).ToDictionary(c => c.Id, c => c.Title);
+    }
+
+    private void OnRecorded() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+
+    private IEnumerable<(DateTime date, List<UsageRecord> rows)> Days()
+    {
+        var start = DateTime.Today.AddDays(1 - Math.Max(_days, 1));
+        for (var d = start; d <= DateTime.Today; d = d.AddDays(1))
+        {
+            var day = d;
+            yield return (day, _rows.Where(r => r.Time.Date == day).ToList());
+        }
+    }
+
+    private long MaxDayTokens => Days().Select(d => d.rows.Sum(r => (long)r.InputTokens + r.OutputTokens)).DefaultIfEmpty(0).Max();
+
+    private string LocalShare
+    {
+        get
+        {
+            var total = _rows.Sum(r => (long)r.InputTokens + r.OutputTokens);
+            var local = _rows.Where(r => r.ProviderKind is "Ollama" or "OpenAICompatible" && (r.Cost ?? 0) == 0).Sum(r => (long)r.InputTokens + r.OutputTokens);
+            return total == 0 ? "—" : $"{local * 100 / total}%";
+        }
+    }
+
+    private RenderFragment Breakdown(string title, IEnumerable<IGrouping<string, UsageRecord>> groups) => __builder =>
+    {
+        var list = groups.Select(g => (name: g.Key, tokens: g.Sum(r => (long)r.InputTokens + r.OutputTokens), cost: g.Sum(r => r.Cost ?? 0),
+                ms: g.Sum(r => r.Milliseconds), calls: g.Count()))
+            .OrderByDescending(x => x.cost).ThenByDescending(x => x.tokens).ToList();
+        var max = list.Select(x => x.tokens).DefaultIfEmpty(1).Max();
+        <section class="card">
+            <h3 class="section-title">@title</h3>
+            @foreach (var x in list)
+            {
+                <div class="usage-row">
+                    <span class="grow">@x.name<br /><span class="muted small">@x.calls calls · @Duration(x.ms)</span>
+                        <span class="usage-bar"><span style="width:@(max == 0 ? 0 : x.tokens * 100 / max)%"></span></span></span>
+                    <span class="usage-num">@Tokens(x.tokens)</span>
+                    <span class="usage-num">@Money(x.cost)</span>
+                </div>
+            }
+        </section>
+    };
+
+    private RenderFragment Speed(string title, IEnumerable<IGrouping<string, ReplyRecord>> groups) => __builder =>
+    {
+        <div>
+            <h4 class="muted small">@title</h4>
+            @foreach (var g in groups.OrderByDescending(g => g.Count()))
+            {
+                var ran = g.Count(r => r.CheckRan);
+                var fixedCount = g.Count(r => r.CheckFixed);
+                var firsts = g.Where(r => r.FirstTokenMs is not null).Select(r => r.FirstTokenMs!.Value).ToList();
+                <div class="usage-row">
+                    <span class="grow">@g.Key<br />
+                        <span class="muted small">@g.Count() @(g.Count() == 1 ? "reply" : "replies") · @g.Average(r => r.ToolCalls).ToString("0.#") tools each
+                            @if (ran > 0) { <text> · check fixed @fixedCount of @ran (@(fixedCount * 100 / ran)%)</text> }</span></span>
+                    <span class="usage-num" title="Typical time to the first words">@(firsts.Count == 0 ? "—" : Duration(Median(firsts)))</span>
+                    <span class="usage-num" title="Typical time to the finished reply">@Duration(Median(g.Select(r => r.TotalMs)))</span>
+                </div>
+            }
+        </div>
+    };
+
+    private static long Median(IEnumerable<long> values)
+    {
+        var v = values.OrderBy(x => x).ToList();
+        return v.Count == 0 ? 0 : v.Count % 2 == 1 ? v[v.Count / 2] : (v[v.Count / 2 - 1] + v[v.Count / 2]) / 2;
+    }
+
+    private static string Money(decimal v) => v == 0 ? "$0" : v < 0.01m ? "<$0.01" : v.ToString("$#,0.00");
+    private static string Tokens(long t) => t >= 1_000_000 ? $"{t / 1_000_000.0:0.#}M" : t >= 1000 ? $"{t / 1000.0:0.#}k" : t.ToString();
+    private static string Duration(long ms) => ms >= 3_600_000 ? $"{ms / 3_600_000.0:0.#} h" : ms >= 60_000 ? $"{ms / 60_000.0:0.#} min" : $"{ms / 1000.0:0.#} s";
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    public override void Dispose()
+    {
+        UsageLog.Recorded -= OnRecorded;
+        UsageLog.ReplyRecorded -= OnRecorded;
+        base.Dispose();
+    }
+}

@@ -1,0 +1,89 @@
+@implements IDisposable
+@inject ISandboxDesktops Sandboxes
+@inject NavigationManager Nav
+
+<div class="sandbox">
+    <div class="row">
+        <span class="grow muted small">@(_info?.Status ?? "Checking…")</span>
+        @if (_info?.Running == true)
+        {
+            <button class="btn ghost" @onclick="Stop" disabled="@_busy">Stop</button>
+        }
+        else if (_problem is null)
+        {
+            <button class="btn ghost" @onclick="Start" disabled="@_busy">@(_busy ? "Starting… (first time builds it, a few minutes)" : "Start it now")</button>
+        }
+        @if (_problem is null)
+        {
+            <button class="btn danger" @onclick="Reset" disabled="@_busy" title="Deletes its desktop, files and sign-ins">Reset</button>
+        }
+    </div>
+    @if (_error is not null) { <div class="error-box">@_error</div> }
+    @if (_info is { Running: true, ViewUrl: { } url })
+    {
+        @if (IsLocal)
+        {
+            <iframe class="sandbox-view" src="@url" title="Live view of the bot's desktop"></iframe>
+            <span class="muted small">Live view — you can click and type in it too, e.g. to sign in to a site for the bot.</span>
+        }
+        else if (_shot is not null)
+        {
+            <img class="sandbox-view" src="data:@_shot.MimeType;base64,@_shot.Base64" alt="The bot's desktop" />
+            <span class="muted small">Snapshot, refreshed every few seconds. The interactive view opens on the computer running Hearth.</span>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string BotId { get; set; } = "";
+
+    private SandboxInfo? _info;
+    private string? _problem;
+    private string? _error;
+    private bool _busy;
+    private ImageAttachment? _shot;
+    private Timer? _timer;
+
+    private bool IsLocal => new Uri(Nav.BaseUri).Host is "localhost" or "127.0.0.1" or "[::1]";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Sandboxes.Changed += OnChanged;
+        await LoadAsync();
+        if (!IsLocal) _timer = new Timer(_ => InvokeAsync(RefreshShotAsync), null, 0, 4000);
+    }
+
+    private async Task LoadAsync()
+    {
+        _problem = await Sandboxes.ProblemAsync();
+        _info = await Sandboxes.InfoAsync(BotId);
+    }
+
+    private async Task RefreshShotAsync()
+    {
+        if (_info?.Running != true || _busy) return;
+        try { _shot = await Sandboxes.ScreenshotAsync(BotId); StateHasChanged(); }
+        catch { /* stopped meanwhile */ }
+    }
+
+    private void OnChanged() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+
+    private async Task Run(Func<Task> work)
+    {
+        _busy = true;
+        _error = null;
+        try { await work(); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; await LoadAsync(); }
+    }
+
+    private Task Start() => Run(() => Sandboxes.StartAsync(BotId));
+    private Task Stop() => Run(() => Sandboxes.StopAsync(BotId));
+    private Task Reset() => Run(() => Sandboxes.ResetAsync(BotId));
+
+    public void Dispose()
+    {
+        Sandboxes.Changed -= OnChanged;
+        _timer?.Dispose();
+    }
+}

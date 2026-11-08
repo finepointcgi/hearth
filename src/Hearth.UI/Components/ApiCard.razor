@@ -1,0 +1,91 @@
+@inject SettingsStore Settings
+@inject OpenAiApi Api
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<section class="card">
+    <div class="row">
+        <span class="conn-logo"><Icon Name="code" Size="20" /></span>
+        <span class="grow"><b>API for other apps</b><br />
+            <span class="muted small">Use Hearth and your bots from other apps (Open WebUI, scripts, anything that speaks the OpenAI API) and from code editors.</span></span>
+        <label class="check"><input type="checkbox" class="switch" role="switch" checked="@_s.Enabled" @onchange="Toggle" /></label>
+    </div>
+    @if (_s.Enabled)
+    {
+        <div class="sub">
+            <label>Address <span class="row"><input class="grow" value="@BaseUrl" readonly /><button class="btn ghost small" @onclick="() => Copy(BaseUrl)">Copy</button></span></label>
+            <label>API key (like a password: anyone with it can use your bots)
+                <span class="row">
+                    <input class="grow" type="@(_show ? "text" : "password")" value="@_s.Key" readonly autocomplete="off" />
+                    <button class="btn ghost small" @onclick="() => _show = !_show">@(_show ? "Hide" : "Show")</button>
+                    <button class="btn ghost small" @onclick="() => Copy(_s.Key ?? string.Empty)">Copy</button>
+                    <button class="btn ghost small" @onclick="NewKey">New key</button>
+                </span>
+            </label>
+            <div class="muted small">Models: @string.Join(" · ", _models.Select(m => m.id))</div>
+            <p class="muted small">Each request is a fresh run as that bot, with its instructions, memory, skills and tools. Nobody is there to approve things, so tools that need approval don't run, and no chat is kept.</p>
+            <details class="advanced">
+                <summary>Use it from a code editor (Zed and other ACP editors)</summary>
+                <p class="muted small">Hearth's installer puts the editor bridge at <code>~/.hearth/acp/hearth-acp.dll</code>. In Zed's settings.json add:</p>
+                <pre class="small">@ZedConfig</pre>
+            </details>
+            <details class="advanced">
+                <summary>Try it from a terminal</summary>
+                <pre class="small">@Curl</pre>
+            </details>
+        </div>
+    }
+</section>
+
+@code {
+    private ApiSettings _s = new();
+    private List<(string id, string description)> _models = [];
+    private bool _show;
+
+    private string BaseUrl => Nav.BaseUri.TrimEnd('/') + "/v1";
+
+    private string ZedConfig => $$"""
+        "agent_servers": {
+          "Hearth": {
+            "command": "dotnet",
+            "args": ["{{Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)}}/.hearth/acp/hearth-acp.dll"],
+            "env": {
+              "HEARTH_URL": "{{Nav.BaseUri.TrimEnd('/')}}",
+              "HEARTH_API_KEY": "(your key)",
+              "HEARTH_MODEL": "{{(_models.FirstOrDefault(m => m.id.EndsWith("/engineer")).id ?? "hearth")}}"
+            }
+          }
+        }
+        """;
+
+    private string Curl => $$"""
+        curl {{BaseUrl}}/chat/completions \
+          -H "Authorization: Bearer $HEARTH_API_KEY" -H "Content-Type: application/json" \
+          -d '{"model": "hearth", "messages": [{"role": "user", "content": "Hello"}]}'
+        """;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _s = (await Settings.GetAsync()).Api;
+        _models = await Api.ModelsAsync();
+    }
+
+    private async Task Toggle(ChangeEventArgs e)
+    {
+        var settings = await Settings.GetAsync();
+        settings.Api.Enabled = (bool)e.Value!;
+        if (settings.Api.Enabled && string.IsNullOrEmpty(settings.Api.Key)) settings.Api.Key = ApiSettings.NewKey();
+        await Settings.SaveAsync(settings);
+        _s = settings.Api;
+    }
+
+    private async Task NewKey()
+    {
+        var settings = await Settings.GetAsync();
+        settings.Api.Key = ApiSettings.NewKey();
+        await Settings.SaveAsync(settings);
+        _s = settings.Api;
+    }
+
+    private async Task Copy(string text) => await JS.InvokeVoidAsync("hearth.copy", text);
+}

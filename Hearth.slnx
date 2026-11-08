@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Hearth.Acp/Hearth.Acp.csproj" />
+    <Project Path="src/Hearth.App/Hearth.App.csproj" />
+    <Project Path="src/Hearth.Computer/Hearth.Computer.csproj" />
+    <Project Path="src/Hearth.Core/Hearth.Core.csproj" />
+    <Project Path="src/Hearth.Desktop/Hearth.Desktop.csproj" />
+    <Project Path="src/Hearth.UI/Hearth.UI.csproj" />
+    <Project Path="src/Hearth.Web/Hearth.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Hearth.Core.Tests/Hearth.Core.Tests.csproj" />
+  </Folder>
+</Solution>

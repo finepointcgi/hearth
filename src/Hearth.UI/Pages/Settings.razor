@@ -1,0 +1,457 @@
+@page "/settings"
+@inject Hearth.Core.Services.AudioTranscriber Transcriber
+@inject IHttpClientFactory HttpFactory
+@inject ProjectContext Soul
+@inject SettingsStore Store
+@inject IServiceProvider Services
+@inherits StatefulComponent
+@inject ILlmClientFactory Factory
+@inject ConversationStore Conversations
+@inject PlatformInfo Platform
+@inject ImageGenService ImageGen
+@inject SpeechService Speech
+@inject ISpeechOutput SpeechOut
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <h2 class="topbar-title">Settings</h2>
+    <span class="spacer"></span>
+    @if (_saved) { <span class="ok-text">Saved ✓</span> }
+    <button class="btn primary" @onclick="Save">Save</button>
+</header>
+
+@if (_s is not null)
+{
+<div class="settings">
+    <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="@(_tab == "models")" class="tab @(_tab == "models" ? "on" : "")" @onclick='() => _tab = "models"'><Icon Name="server" Size="16" /> Models</button>
+        <button role="tab" aria-selected="@(_tab == "web")" class="tab @(_tab == "web" ? "on" : "")" @onclick='() => _tab = "web"'><Icon Name="globe" Size="16" /> Web and images</button>
+        <button role="tab" aria-selected="@(_tab == "voice")" class="tab @(_tab == "voice" ? "on" : "")" @onclick='() => _tab = "voice"'><Icon Name="mic" Size="16" /> Voice</button>
+        <button role="tab" aria-selected="@(_tab == "daily")" class="tab @(_tab == "daily" ? "on" : "")" @onclick='() => _tab = "daily"'><Icon Name="clock" Size="16" /> Daily</button>
+        <button role="tab" aria-selected="@(_tab == "data")" class="tab @(_tab == "data" ? "on" : "")" @onclick='() => _tab = "data"'><Icon Name="hard-drive-download" Size="16" /> Data</button>
+        @if (Services.GetService<AccountStore>() is not null)
+        {
+            <button role="tab" aria-selected="@(_tab == "accounts")" class="tab @(_tab == "accounts" ? "on" : "")" @onclick='() => _tab = "accounts"'><Icon Name="users" Size="16" /> Accounts</button>
+        }
+    </div>
+    @if (_tab == "models")
+    {
+    <section class="card">
+        <h3>Model servers</h3>
+        @if (Services.GetService<ICurrentUser>()?.Account is { IsOwner: false } && Services.GetService<AccountStore>()?.Owner is { } owner)
+        {
+            <p class="notice small">Model servers are shared from @owner.Name's account: changes they make there replace this list.</p>
+        }
+        <p class="muted">Hearth talks to LLMs running on your own machines. Pick the active server; phones and tablets should point at your computer's LAN IP (running on @Platform.Name).</p>
+
+        @foreach (var p in _s.Providers)
+        {
+            var provider = p;
+            <div class="provider @(provider.Id == _s.ActiveProviderId || (_s.ActiveProviderId is null && provider == _s.Providers[0]) ? "active" : "")">
+                <div class="row">
+                    <label class="radio"><input type="radio" name="active" checked="@(provider == _s.ActiveProvider)" @onchange="() => _s.ActiveProviderId = provider.Id" /> Active</label>
+                    <input class="grow" @bind="provider.Name" placeholder="Name" />
+                    <select @bind="provider.Kind">
+                        <option value="@ProviderKind.Ollama">Ollama</option>
+                        <option value="@ProviderKind.OpenAICompatible">OpenAI-compatible</option>
+                        <option value="@ProviderKind.Anthropic">Claude (Anthropic API)</option>
+                        <option value="@ProviderKind.ClaudeCode" disabled="@(!Platform.CanRunProcesses)">Claude Code (local CLI)@(Platform.CanRunProcesses ? "" : " — desktop only")</option>
+                    </select>
+                    <button class="icon-btn" title="Remove" disabled="@(_s.Providers.Count == 1)" @onclick="() => _s.Providers.Remove(provider)">🗑</button>
+                </div>
+                <div class="row">
+                    <input class="grow" @bind="provider.BaseUrl" placeholder="@AddressHint(provider.Kind)" title="@AddressHint(provider.Kind)" />
+                    @if (provider.Kind != ProviderKind.ClaudeCode)
+                    {
+                        <input class="grow" type="password" @bind="provider.ApiKey" placeholder="@(provider.Kind == ProviderKind.Anthropic ? "Anthropic API key (sk-ant-…)" : "API key (optional for local servers)")" />
+                    }
+                </div>
+                @if (provider.Kind is ProviderKind.Anthropic or ProviderKind.OpenAICompatible)
+                {
+                    <details class="advanced">
+                        <summary>More API keys@(provider.ExtraApiKeys.Count > 0 ? $" ({provider.ExtraApiKeys.Count} saved)" : "")</summary>
+                        <p class="muted small">Calls take turns across all the keys, and when one hits a rate limit or runs out of quota the request moves on to the next. Paste one key per line; saving replaces the list (leave empty to keep it). Stored encrypted.</p>
+                        <textarea rows="3" placeholder="@(provider.ExtraApiKeys.Count > 0 ? "saved — paste keys to replace them" : "one key per line")" autocomplete="off" spellcheck="false"
+                                  @onchange="e => SetExtraKeys(provider, e.Value?.ToString())"></textarea>
+                        @if (provider.ExtraApiKeys.Count > 0) { <button class="btn ghost small" @onclick="() => provider.ExtraApiKeys.Clear()">Remove extra keys</button> }
+                    </details>
+                }
+                <div class="muted small">@KindHelp(provider.Kind)</div>
+                <div class="row">
+                    <input class="grow" @bind="provider.DefaultModel" placeholder="Default model (optional)" />
+                    <button class="btn ghost" @onclick="() => Test(provider)">Test connection</button>
+                </div>
+                <label class="small">Context window (tokens)
+                    <input type="number" min="0" step="1024" @bind="provider.ContextTokens" style="width:9rem" placeholder="@ContextWindow.WindowFor(new ProviderProfile { Kind = provider.Kind }, _s)" />
+                    <span class="muted">How much the model can read at once. Longer chats are summarised to fit. Leave empty for the default.</span>
+                </label>
+                @if (provider.Kind == ProviderKind.OpenAICompatible)
+                {
+                    <details class="advanced">
+                        <summary>Prices for cost estimates (cloud servers only)</summary>
+                        <div class="row">
+                            <label>Input $ per million tokens <input type="number" step="0.01" min="0" @bind="provider.InputPricePerMillion" style="width:8rem" /></label>
+                            <label>Output $ per million tokens <input type="number" step="0.01" min="0" @bind="provider.OutputPricePerMillion" style="width:8rem" /></label>
+                        </div>
+                        <span class="muted small">Leave empty for servers on your own hardware (counted as free). Claude API prices are built in.</span>
+                    </details>
+                }
+                @if (_tests.TryGetValue(provider.Id, out var result))
+                {
+                    <div class="@(result.ok ? "ok-text" : "error-box")">@result.msg</div>
+                }
+            </div>
+        }
+        <div class="row">
+            <button class="btn ghost" @onclick="AddOllama">＋ Ollama</button>
+            <button class="btn ghost" @onclick="AddLmStudio">＋ LM Studio</button>
+            <button class="btn ghost" @onclick="AddLlamaCpp">＋ llama.cpp</button>
+        </div>
+        <div class="row">
+            <span class="muted small">Cloud &amp; other:</span>
+            @if (Platform.CanRunProcesses)
+            {
+                <button class="btn ghost" @onclick="AddClaudeCode">＋ Claude Code</button>
+            }
+            <button class="btn ghost" @onclick="AddClaudeApi">＋ Claude API</button>
+            <button class="btn ghost" @onclick="AddOpenAI">＋ OpenAI</button>
+            <button class="btn ghost" @onclick="AddOpenRouter">＋ OpenRouter</button>
+            <button class="btn ghost" @onclick="AddGroq">＋ Groq</button>
+            <button class="btn ghost" @onclick="AddCustom">＋ Other OpenAI-compatible</button>
+        </div>
+    </section>
+    <section class="card">
+        <h3>Backup servers</h3>
+        <p class="muted">If the active server can't be reached, Hearth retries with these, in order, and tells you which one answered. Each backup uses its own default model.</p>
+        @foreach (var p in _s.Providers.Where(p => p != _s.ActiveProvider))
+        {
+            var provider = p;
+            var on = _s.FallbackProviderIds.Contains(provider.Id);
+            <label class="check">
+                <input type="checkbox" checked="@on" @onchange="e => ToggleFallback(provider.Id, (bool)e.Value!)" />
+                <span>@provider.Name @if (on) { <span class="badge">#@(_s.FallbackProviderIds.IndexOf(provider.Id) + 1)</span> }
+                    @if (string.IsNullOrWhiteSpace(provider.DefaultModel) && provider.Kind != ProviderKind.ClaudeCode) { <span class="muted small"> — set a default model so it knows what to use</span> }</span>
+            </label>
+        }
+    </section>
+    <section class="card">
+        <h3>Generation</h3>
+        <label>Temperature: <b>@_s.Temperature.ToString("0.00")</b>
+            <input type="range" min="0" max="2" step="0.05" @bind="_s.Temperature" @bind:event="oninput" />
+        </label>
+        <div class="row">
+            <label class="grow">Max reply tokens (0 = unlimited)<input type="number" min="0" @bind="_s.MaxTokens" /></label>
+            <label class="grow">Context length (Ollama num_ctx, 0 = default)<input type="number" min="0" step="1024" @bind="_s.ContextLength" /></label>
+        </div>
+        <label class="check"><input type="checkbox" @bind="_s.ContinueCutOffReplies" /> Continue replies that hit the length limit (up to twice) instead of stopping mid-sentence</label>
+        <label>Check answers against their sources
+            <select @bind="_s.CheckAnswers">
+                <option value="@AnswerCheck.AfterResearch">After research (web pages, documents, email)</option>
+                <option value="@AnswerCheck.AnyTools">After any tool use</option>
+                <option value="@AnswerCheck.Off">Off</option>
+            </select>
+            <span class="muted small">The model re-reads its answer against what the tools returned and fixes anything unsupported before you see it. One or two extra turns.</span>
+        </label>
+        <label>Default personality
+            <select @bind="_s.DefaultPersonaId">
+                @foreach (var p in Personas.All)
+                {
+                    <option value="@p.Id">@p.Emoji @p.Name — @p.Description</option>
+                }
+            </select>
+        </label>
+        <label>Custom instructions (added to every system prompt)
+            <textarea rows="4" @bind="_s.CustomSystemPrompt" placeholder="e.g. I'm a C# developer. Prefer metric units."></textarea>
+        </label>
+        <label>Personality (SOUL.md)
+            <textarea rows="5" value="@_soul" @onchange="SaveSoul" placeholder="How Hearth and your bots should sound, e.g. Direct and warm. Short answers first, details after. No filler or flattery. Light humour is fine."></textarea>
+            <span class="muted small">Every bot follows this voice on top of its own role. Saved as SOUL.md in Hearth's data folder (the same file other agents like Hermes and OpenClaw use). Saved as you leave the box.</span>
+        </label>
+        <label class="check"><input type="checkbox" @bind="_s.ShowThinking" /> Show thinking from reasoning models</label>
+        <label class="check"><input type="checkbox" @bind="_s.AutoTitle" /> Auto-name chats with the model</label>
+        <label class="check"><input type="checkbox" @bind="_s.TakeInitiative" /> Bots take initiative</label>
+        <p class="muted small">Bots act on clear next steps instead of asking first, schedule their own follow-ups (they come back to the chat later with what they found) and hand big jobs to background tasks. Anything that changes things still follows your Permissions.</p>
+    </section>
+    }
+    @if (_tab == "models")
+    {
+    <ModelRoutingCard />
+    }
+    @if (_tab == "web")
+    {
+    <section class="card">
+        <h3>DeepSearch (optional)</h3>
+        <p class="muted">Point at a self-hosted <a href="https://docs.searxng.org" target="_blank" rel="noopener">SearXNG</a> instance with the JSON format enabled. Searches go to your instance, not to a third-party API.</p>
+        <div class="row">
+            <input class="grow" @bind="_s.SearxngUrl" placeholder="http://localhost:8080" />
+            <label>Results <input type="number" min="1" max="15" @bind="_s.SearchResultCount" style="width:5rem" /></label>
+        </div>
+    </section>
+    <section class="card">
+        <h3>Image generation</h3>
+        <p class="muted">Use your local Stable Diffusion server. Then ask for a picture, or type <code>/imagine a red fox in snow</code>.</p>
+        <div class="row">
+            <select @bind="_s.ImageGen.Backend">
+                <option value="@ImageBackend.None">Off</option>
+                <option value="@ImageBackend.Automatic1111">AUTOMATIC1111 / Forge</option>
+                <option value="@ImageBackend.ComfyUI">ComfyUI</option>
+            </select>
+            <input class="grow" @bind="_s.ImageGen.Url" placeholder="http://localhost:7860 or http://localhost:8188" />
+        </div>
+        @if (_s.ImageGen.Backend != ImageBackend.None)
+        {
+            <div class="row">
+                <input class="grow" @bind="_s.ImageGen.Model" list="img-models" placeholder="@(_s.ImageGen.Backend == ImageBackend.ComfyUI ? "Checkpoint (required), e.g. sd_xl_base_1.0.safetensors" : "Checkpoint (optional)")" />
+                <datalist id="img-models">
+                    @foreach (var m in _imageModels) { <option value="@m"></option> }
+                </datalist>
+                <button class="btn ghost" @onclick="LoadImageModels">Test & list models</button>
+            </div>
+            <div class="row">
+                <label>Width <input type="number" step="64" @bind="_s.ImageGen.Width" style="width:6rem" /></label>
+                <label>Height <input type="number" step="64" @bind="_s.ImageGen.Height" style="width:6rem" /></label>
+                <label>Steps <input type="number" @bind="_s.ImageGen.Steps" style="width:5rem" /></label>
+                <label>CFG <input type="number" step="0.5" @bind="_s.ImageGen.CfgScale" style="width:5rem" /></label>
+            </div>
+            <label>Negative prompt <input @bind="_s.ImageGen.NegativePrompt" /></label>
+            @if (_imageTest is not null) { <div class="@(_imageTest.StartsWith("✓") ? "ok-text" : "error-box")">@_imageTest</div> }
+        }
+    </section>
+    }
+    @if (_tab == "voice")
+    {
+    <section class="card">
+        <h3>Voice</h3>
+        <p class="muted">
+            🎙 Dictation uses your device's speech recognition when available@(Platform.IsMobile ? " (on-device)" : "").
+            Point it at a Whisper server for private, high-quality transcription everywhere. 🔊 Read-aloud uses system voices or a TTS server.
+        </p>
+        <label>Language <input @bind="_s.Voice.Language" placeholder="en-US" style="width:8rem" /></label>
+        <div class="row">
+            <label class="grow">Speech-to-text server (OpenAI-compatible, optional)
+                <input @bind="_s.Voice.SttUrl" placeholder="http://localhost:8000 (speaches / faster-whisper-server)" />
+            </label>
+            <label class="grow">STT model <input @bind="_s.Voice.SttModel" /></label>
+        </div>
+        <div class="row">
+            <label class="grow">Text-to-speech server (OpenAI-compatible, optional)
+                <input @bind="_s.Voice.TtsUrl" placeholder="http://localhost:8880 (Kokoro-FastAPI)" />
+            </label>
+            <label>TTS model <input @bind="_s.Voice.TtsModel" style="width:8rem" /></label>
+            <label>Voice <input @bind="_s.Voice.TtsVoice" style="width:8rem" /></label>
+        </div>
+        <div class="row">
+            <label class="check grow"><input type="checkbox" @bind="_s.Voice.AutoReadAloud" /> Read replies aloud automatically</label>
+            <button class="btn ghost" @onclick="TestVoice">🔊 Test voice</button>
+        </div>
+        @if (_voiceTest is not null) { <div class="error-box">@_voiceTest</div> }
+    </section>
+
+    <section class="card">
+        <h3>Voice memos and recordings</h3>
+        <p class="muted small">Drop an audio file into a chat, or send a voice note in Telegram, and Hearth transcribes it, then the bot summarizes it and lists action items. Uses the speech-to-text server above when set, otherwise whisper.cpp on this computer (private and offline).</p>
+        <div class="row">
+            <span class="grow small">@(_transcription is { } t ? (t.ready ? "✅ Ready: " : "⚠ Not set up: ") + t.how : "Checking…")</span>
+            @if (_transcription is { ready: false })
+            {
+                <button class="btn ghost" @onclick="SetUpTranscription" disabled="@(_settingUp is not null)">@(_settingUp ?? "Set up local transcription")</button>
+            }
+        </div>
+        <span class="muted small">Setting up installs whisper.cpp with Homebrew and downloads an English speech model (about 148 MB) into Hearth's data folder.</span>
+    </section>
+    }
+    @if (_tab == "accounts")
+    {
+    <AccountsCard />
+    }
+    @if (_tab == "daily")
+    {
+    <BriefingCard />
+    <CheckInCard />
+    <SelfCheckCard />
+    }
+    @if (_tab == "data")
+    {
+    <section class="card danger">
+        <h3>Data</h3>
+        <p class="muted">Chats are stored as JSON files on this device.</p>
+        @if (_confirmDelete)
+        {
+            <div class="row">
+                <span>Delete all chats permanently?</span>
+                <button class="btn danger" @onclick="DeleteAll">Yes, delete</button>
+                <button class="btn ghost" @onclick="() => _confirmDelete = false">Cancel</button>
+            </div>
+        }
+        else
+        {
+            <button class="btn danger" @onclick="() => _confirmDelete = true">Delete all chats</button>
+        }
+    </section>
+    }
+</div>
+}
+
+@code {
+    private static void SetExtraKeys(ProviderProfile provider, string? text)
+    {
+        var keys = (text ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct().ToList();
+        if (keys.Count > 0) provider.ExtraApiKeys = keys;
+    }
+
+    private string _soul = "";
+
+    private async Task SaveSoul(ChangeEventArgs e)
+    {
+        _soul = e.Value?.ToString() ?? "";
+        await Soul.SaveSoulAsync(_soul);
+    }
+
+    private string _tab = "models";
+
+    private AppSettings? _s;
+    private bool _saved;
+    private bool _confirmDelete;
+    private readonly Dictionary<string, (bool ok, string msg)> _tests = [];
+
+    private (bool ready, string how)? _transcription;
+    private string? _settingUp;
+
+    private async Task SetUpTranscription()
+    {
+        try
+        {
+            var progress = new Progress<string>(m => { _settingUp = m; InvokeAsync(StateHasChanged); });
+            _settingUp = "Starting…";
+            await Transcriber.SetUpLocalAsync(HttpFactory, progress, CancellationToken.None);
+        }
+        catch (Exception ex) { _voiceTest = ex.Message; }
+        finally
+        {
+            _settingUp = null;
+            _transcription = await Transcriber.StatusAsync();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _transcription = await Transcriber.StatusAsync();
+        _s = SettingsCopy.Of(await Store.GetAsync());
+        _s.ActiveProviderId ??= _s.ActiveProvider.Id;
+        _soul = await Soul.SoulAsync() ?? "";
+    }
+
+    private void Add(ProviderKind kind, string name, string url)
+        => _s!.Providers.Add(new ProviderProfile { Kind = kind, Name = name, BaseUrl = url });
+
+    private List<string> _imageModels = [];
+    private string? _imageTest;
+    private string? _voiceTest;
+
+    private async Task LoadImageModels()
+    {
+        try
+        {
+            _imageModels = await ImageGen.ListModelsAsync(_s!.ImageGen, CancellationToken.None);
+            _imageTest = $"✓ Connected, {_imageModels.Count} checkpoint(s)";
+            if (string.IsNullOrWhiteSpace(_s.ImageGen.Model) && _imageModels.Count > 0) _s.ImageGen.Model = _imageModels[0];
+        }
+        catch (Exception ex) { _imageTest = ex.Message; }
+    }
+
+    private async Task TestVoice()
+    {
+        _voiceTest = null;
+        try { await SpeechOut.SpeakAsync(_s!, "Hi! This is how I sound when I read replies aloud."); }
+        catch (Exception ex) { _voiceTest = ex.Message; }
+    }
+
+    private void AddOllama() => Add(ProviderKind.Ollama, "Ollama", "http://localhost:11434");
+    private void AddLmStudio() => Add(ProviderKind.OpenAICompatible, "LM Studio", "http://localhost:1234/v1");
+    private void AddLlamaCpp() => Add(ProviderKind.OpenAICompatible, "llama.cpp", "http://localhost:8080/v1");
+    private void AddClaudeCode() => Add(ProviderKind.ClaudeCode, "Claude Code", "");
+    private void AddClaudeApi() => Add(ProviderKind.Anthropic, "Claude API", "https://api.anthropic.com");
+    private void AddOpenAI() => Add(ProviderKind.OpenAICompatible, "OpenAI", "https://api.openai.com/v1");
+    private void AddOpenRouter() => Add(ProviderKind.OpenAICompatible, "OpenRouter", "https://openrouter.ai/api/v1");
+    private void AddGroq() => Add(ProviderKind.OpenAICompatible, "Groq", "https://api.groq.com/openai/v1");
+    private void AddCustom() => Add(ProviderKind.OpenAICompatible, "Custom", "https://");
+
+    private static string AddressHint(ProviderKind kind) => kind switch
+    {
+        ProviderKind.Ollama => "http://localhost:11434",
+        ProviderKind.Anthropic => "https://api.anthropic.com",
+        ProviderKind.ClaudeCode => "Path to the claude program (blank = find it automatically)",
+        _ => "Base URL, e.g. http://localhost:1234/v1 or https://api.openai.com/v1",
+    };
+
+    private static string KindHelp(ProviderKind kind) => kind switch
+    {
+        ProviderKind.Anthropic => "Claude models through the Anthropic API — pay per use with an API key. Supports tools, images and thinking.",
+        ProviderKind.ClaudeCode => "Runs the Claude Code CLI on this computer with its existing login (your Claude subscription). Run `claude` in a terminal once to sign in. Tools, images and thinking work; each reply starts the CLI, so it's a little slower.",
+        ProviderKind.OpenAICompatible => "Anything that speaks the OpenAI /v1/chat/completions API: LM Studio, llama.cpp, vLLM, Jan, LocalAI, OpenAI, OpenRouter, Groq, Together, Mistral…",
+        _ => "Local models served by Ollama.",
+    };
+
+    private async Task Test(ProviderProfile p)
+    {
+        _tests[p.Id] = (true, "Testing…");
+        try
+        {
+            var models = await Factory.Create(p).ListModelsAsync();
+            _tests[p.Id] = (true, models.Count == 0
+                ? "Connected, but no models found."
+                : $"Connected ✓ {models.Count} model(s): {string.Join(", ", models.Take(6).Select(m => m.Id))}{(models.Count > 6 ? "…" : "")}");
+        }
+        catch (Exception ex)
+        {
+            _tests[p.Id] = (false, ex.Message);
+        }
+    }
+
+    private void ToggleFallback(string id, bool on)
+    {
+        _s!.FallbackProviderIds.Remove(id);
+        if (on) _s.FallbackProviderIds.Add(id);
+    }
+
+    private async Task Save()
+    {
+        if (_s is null) return;
+        foreach (var p in _s.Providers) p.BaseUrl = p.BaseUrl.Trim();
+        // Only what this page edits: everything else (cards on this page that save themselves, other pages,
+        // approvals) may have changed since it opened and must not be overwritten with the old copy.
+        var current = SettingsCopy.Of(await Store.GetAsync());
+        var mine = SettingsCopy.Of(_s);
+        current.Providers = mine.Providers;
+        current.ActiveProviderId = mine.ActiveProviderId;
+        current.FallbackProviderIds = mine.FallbackProviderIds;
+        current.AutoTitle = mine.AutoTitle;
+        current.ContextLength = mine.ContextLength;
+        current.ContinueCutOffReplies = mine.ContinueCutOffReplies;
+        current.CheckAnswers = mine.CheckAnswers;
+        current.CustomSystemPrompt = mine.CustomSystemPrompt;
+        current.DefaultPersonaId = mine.DefaultPersonaId;
+        current.ImageGen = mine.ImageGen;
+        current.MaxTokens = mine.MaxTokens;
+        current.SearchResultCount = mine.SearchResultCount;
+        current.SearxngUrl = mine.SearxngUrl;
+        current.ShowThinking = mine.ShowThinking;
+        current.TakeInitiative = mine.TakeInitiative;
+        current.Temperature = mine.Temperature;
+        current.Voice = mine.Voice;
+        await Store.SaveAsync(current);
+        State.PersonaId = _s.DefaultPersonaId;
+        _saved = true;
+        StateHasChanged();
+        await Task.Delay(2000);
+        _saved = false;
+    }
+
+    private async Task DeleteAll()
+    {
+        await Conversations.DeleteAllAsync();
+        _confirmDelete = false;
+    }
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+}

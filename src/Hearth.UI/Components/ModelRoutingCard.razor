@@ -1,0 +1,82 @@
+@using Hearth.Core.Llm
+@inject SettingsStore SettingsStore
+@inject ILlmClientFactory Factory
+
+<section class="card">
+    <h3>Automatic model choice</h3>
+    <p class="muted small">Send everyday messages to a fast model (local, free, private) and hard work (research, analysis, writing documents, code, long or multi-part requests, attachments) to a strong one. Decided on the spot from each message, with no extra model call; the reason shows in the reply's details. Bots with their own model or server keep theirs.</p>
+    <label class="check"><input type="checkbox" @bind="_r.Enabled" /> Choose the model for each message automatically</label>
+    @foreach (var (label, strong) in new[] { ("Fast model", false), ("Strong model", true) })
+    {
+        var isStrong = strong;
+        <div class="row">
+            <b style="min-width:7rem">@label</b>
+            <select value="@(isStrong ? _r.StrongProviderId : _r.FastProviderId)" @onchange="e => SetProvider(isStrong, e.Value?.ToString())">
+                <option value="">(choose a server)</option>
+                @foreach (var p in _providers) { <option value="@p.Id">@p.Name</option> }
+            </select>
+            <select class="grow" value="@(isStrong ? _r.StrongModel : _r.FastModel)" @onchange="e => SetModel(isStrong, e.Value?.ToString() ?? string.Empty)">
+                <option value="">(choose a model)</option>
+                @foreach (var m in ModelsFor(isStrong ? _r.StrongProviderId : _r.FastProviderId)) { <option value="@m">@m</option> }
+                @if ((isStrong ? _r.StrongModel : _r.FastModel) is { Length: > 0 } cur && !ModelsFor(isStrong ? _r.StrongProviderId : _r.FastProviderId).Contains(cur)) { <option value="@cur">@cur</option> }
+            </select>
+        </div>
+    }
+    <div class="row end">
+        @if (_message is not null) { <span class="muted small grow">@_message</span> }
+        <button class="btn primary" @onclick="Save">Save</button>
+    </div>
+</section>
+
+@code {
+    private ModelRoutingSettings _r = new();
+    private List<ProviderProfile> _providers = [];
+    private readonly Dictionary<string, List<string>> _models = [];
+    private string? _message;
+
+    private void SetModel(bool strong, string model) { if (strong) _r.StrongModel = model; else _r.FastModel = model; }
+
+    private List<string> ModelsFor(string? providerId) => providerId is null ? [] : _models.GetValueOrDefault(providerId) ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var s = await SettingsStore.GetAsync();
+        _providers = s.Providers.ToList();
+        _r = new ModelRoutingSettings
+        {
+            Enabled = s.ModelRouting.Enabled, FastProviderId = s.ModelRouting.FastProviderId, FastModel = s.ModelRouting.FastModel,
+            StrongProviderId = s.ModelRouting.StrongProviderId, StrongModel = s.ModelRouting.StrongModel,
+        };
+        foreach (var id in new[] { _r.FastProviderId, _r.StrongProviderId }.OfType<string>().Distinct()) await LoadAsync(id);
+    }
+
+    private async Task LoadAsync(string id)
+    {
+        if (_models.ContainsKey(id) || _providers.FirstOrDefault(p => p.Id == id) is not { } p) return;
+        try { _models[id] = (await Factory.Create(p).ListModelsAsync()).Select(m => m.Id).ToList(); }
+        catch { _models[id] = string.IsNullOrWhiteSpace(p.DefaultModel) ? [] : [p.DefaultModel]; }
+    }
+
+    private async Task SetProvider(bool strong, string? id)
+    {
+        id = string.IsNullOrEmpty(id) ? null : id;
+        if (strong) { _r.StrongProviderId = id; _r.StrongModel = ""; } else { _r.FastProviderId = id; _r.FastModel = ""; }
+        if (id is not null)
+        {
+            await LoadAsync(id);
+            var def = _providers.First(p => p.Id == id).DefaultModel;
+            var pick = !string.IsNullOrWhiteSpace(def) ? def : ModelsFor(id).FirstOrDefault() ?? "";
+            if (strong) _r.StrongModel = pick; else _r.FastModel = pick;
+        }
+    }
+
+    private async Task Save()
+    {
+        if (_r.Enabled && (_r.FastProviderId is null || _r.StrongProviderId is null || _r.FastModel.Length == 0 || _r.StrongModel.Length == 0))
+        { _message = "Choose a server and model for both, or turn it off."; return; }
+        var s = await SettingsStore.GetAsync();
+        s.ModelRouting = _r;
+        await SettingsStore.SaveAsync(s);
+        _message = _r.Enabled ? $"On: everyday → {_r.FastModel}, hard work → {_r.StrongModel}." : "Off: the chat's model picker decides.";
+    }
+}

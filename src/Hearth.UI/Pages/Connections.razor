@@ -1,0 +1,319 @@
+@page "/connections"
+@inherits StatefulComponent
+@inject Hearth.Core.Services.Google.GoogleAuth Google
+@inject Hearth.Core.Services.Google.SheetsClient Sheets
+@inject SettingsStore Store
+@inject PlatformInfo Platform
+@inject IJSRuntime JS
+
+<header class="topbar">
+    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <h2 class="topbar-title">Connections</h2>
+</header>
+
+<div class="settings">
+    <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="@(_tab == "phone")" class="tab @(_tab == "phone" ? "on" : "")" @onclick='() => _tab = "phone"'><Icon Name="monitor" Size="16" /> Phone</button>
+        <button role="tab" aria-selected="@(_tab == "chat")" class="tab @(_tab == "chat" ? "on" : "")" @onclick='() => _tab = "chat"'><Icon Name="message-circle" Size="16" /> Chat apps</button>
+        <button role="tab" aria-selected="@(_tab == "google")" class="tab @(_tab == "google" ? "on" : "")" @onclick='() => _tab = "google"'><Icon Name="calendar" Size="16" /> Google</button>
+        <button role="tab" aria-selected="@(_tab == "microsoft")" class="tab @(_tab == "microsoft" ? "on" : "")" @onclick='() => _tab = "microsoft"'><Icon Name="folder" Size="16" /> Microsoft</button>
+        <button role="tab" aria-selected="@(_tab == "email")" class="tab @(_tab == "email" ? "on" : "")" @onclick='() => _tab = "email"'><Icon Name="mail" Size="16" /> Email</button>
+        <button role="tab" aria-selected="@(_tab == "more")" class="tab @(_tab == "more" ? "on" : "")" @onclick='() => _tab = "more"'><Icon Name="plug" Size="16" /> More</button>
+    </div>
+    @if (_tab == "phone")
+    {
+    <PhoneCard />
+    <PhoneAccess />
+    <NotificationsCard />
+    }
+    @if (_tab == "chat")
+    {
+    <ChannelCard Channel="telegram" />
+    <ChannelCard Channel="discord" />
+    <ChannelCard Channel="slack" />
+    <ChannelCard Channel="signal" />
+    @if (OperatingSystem.IsMacOS())
+    {
+        <ChannelCard Channel="imessage" />
+    }
+
+    }
+    @if (_tab == "google")
+    {
+    <section class="card">
+        <div class="row">
+            <span class="conn-logo">📊</span>
+            <span class="grow">
+                <b>Google</b> <span class="muted small">Sheets · Gmail · Calendar</span><br />
+                <span class="muted small">Let bots work with your spreadsheets, email and calendar — and react when something changes.</span>
+            </span>
+            @if (_conn.Mode != Hearth.Core.Services.Google.GoogleAuthMode.None)
+            {
+                <span class="ok-text">● Connected</span>
+            }
+        </div>
+
+        @if (_conn.Mode != Hearth.Core.Services.Google.GoogleAuthMode.None)
+        {
+            <div class="notice">
+                Connected @(_conn.Mode == Hearth.Core.Services.Google.GoogleAuthMode.OAuth ? "as" : "with service account") <b>@(_conn.Email ?? "your Google account")</b>
+                @if (_conn.ConnectedAt is { } at) { <span class="muted small"> · since @at.ToString("MMM d")</span> }
+                @if (_conn.Mode == Hearth.Core.Services.Google.GoogleAuthMode.ServiceAccount)
+                {
+                    <br /><span class="small">Share each spreadsheet with this email (Share → Editor) so bots can see it.</span>
+                }
+            </div>
+            <div class="row">
+                <button class="btn ghost" @onclick="Test" disabled="@_busy">List my spreadsheets</button>
+                <button class="btn danger" @onclick="Disconnect" disabled="@_busy">Disconnect</button>
+            </div>
+            @if (_sheets is not null)
+            {
+                @foreach (var s in _sheets)
+                {
+                    <div class="memory-row">
+                        <span class="grow">📄 @s.Title</span>
+                        <span class="muted small">@s.Modified?.ToString("MMM d")</span>
+                        @if (s.Url is not null) { <a class="small" href="@s.Url" target="_blank" rel="noopener">Open</a> }
+                    </div>
+                }
+                @if (_sheets.Count == 0) { <p class="muted">No spreadsheets visible yet.</p> }
+            }
+        }
+        else
+        {
+            <div class="seg">
+                <button class="@(_mode == 0 ? "on" : "")" @onclick="() => _mode = 0">
+                    <b>Sign in with Google</b><span class="muted small">Bots can use any sheet your account can open</span>
+                </button>
+                <button class="@(_mode == 1 ? "on" : "")" @onclick="() => _mode = 1">
+                    <b>Service account key</b><span class="muted small">Works on any device; share sheets with it</span>
+                </button>
+            </div>
+
+            @if (_mode == 0)
+            {
+                <details class="steps" open>
+                    <summary>One-time setup (about 3 minutes)</summary>
+                    <ol>
+                        <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and create a project (any name).</li>
+                        <li>Enable the <a href="https://console.cloud.google.com/apis/library/sheets.googleapis.com" target="_blank" rel="noopener">Google Sheets API</a> and the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">Google Drive API</a>.</li>
+                        <li>Go to <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">Google Auth Platform</a> → set it up as <b>External</b>, and under <b>Audience → Test users</b> add your own Gmail address.</li>
+                        <li><a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Clients</a> → <b>Create client</b> → type <b>Desktop app</b>. Copy the client ID and secret here.</li>
+                    </ol>
+                </details>
+                <div class="row">
+                    <input class="grow" @bind="_clientId" placeholder="Client ID (….apps.googleusercontent.com)" autocomplete="off" />
+                    <input class="grow" type="password" @bind="_clientSecret" placeholder="Client secret" autocomplete="off" />
+                </div>
+                <div class="row">
+                    <button class="btn primary" @onclick="SignIn" disabled="@(_busy || string.IsNullOrWhiteSpace(_clientId) || string.IsNullOrWhiteSpace(_clientSecret))">
+                        @(_busy ? "Waiting for Google…" : "Sign in with Google")
+                    </button>
+                    @if (_authUrl is not null)
+                    {
+                        <a class="small" href="@_authUrl" target="_blank" rel="noopener">Browser didn't open? Click here.</a>
+                    }
+                </div>
+                @if (Platform.IsMobile)
+                {
+                    <span class="muted small">On phones, use a service account key instead (sign-in needs a browser on the same computer as Hearth).</span>
+                }
+                <span class="muted small">Google will warn that the app isn't verified — that's your own project; choose Continue.</span>
+            }
+            else
+            {
+                <details class="steps" open>
+                    <summary>One-time setup</summary>
+                    <ol>
+                        <li>In <a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a>, enable the Sheets and Drive APIs for a project.</li>
+                        <li><a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener">Service accounts</a> → Create → open it → <b>Keys → Add key → JSON</b>.</li>
+                        <li>Paste the downloaded file's contents below, then share your spreadsheets with the service account's email.</li>
+                    </ol>
+                </details>
+                <textarea rows="6" @bind="_keyJson" placeholder='{ "type": "service_account", "client_email": "…", "private_key": "…" }'></textarea>
+                <button class="btn primary" @onclick="ConnectKey" disabled="@(_busy || string.IsNullOrWhiteSpace(_keyJson))">Connect</button>
+            }
+        }
+        @if (_error is not null) { <div class="error-box">@_error</div> }
+        @if (_message is not null) { <div class="ok-text">@_message</div> }
+    </section>
+
+    @if (_s is not null)
+    {
+        <section class="card">
+            <h3>What bots can use</h3>
+            <label class="check"><input type="checkbox" @bind="_s.Google.SheetsEnabled" @bind:after="Save" /> <span>📊 <b>Sheets</b> — find, read, write, append, create spreadsheets</span></label>
+            <label class="check"><input type="checkbox" @bind="_s.Google.GmailEnabled" @bind:after="Save" /> <span>📧 <b>Gmail</b> — search, read, draft, send and organize email (sign-in only, not service accounts)</span></label>
+            <label class="check"><input type="checkbox" @bind="_s.Google.CalendarEnabled" @bind:after="Save" /> <span>📅 <b>Calendar</b> — check your schedule, add and remove events</span></label>
+            <label class="check"><input type="checkbox" @bind="_s.Google.DocsEnabled" @bind:after="Save" /> <span>📄 <b>Docs &amp; Drive</b> — find and read any file in your Drive, and write new Google Docs</span></label>
+            <label class="check"><input type="checkbox" @bind="_s.Google.ContactsEnabled" @bind:after="Save" /> <span>👥 <b>Contacts</b> — look up names, emails and phone numbers (read-only; sign-in only)</span></label>
+            @if (_missing.Count > 0 && _conn.Mode == Hearth.Core.Services.Google.GoogleAuthMode.OAuth)
+            {
+                <div class="notice">
+                    Hearth doesn't have access to @string.Join(" and ", _missing) yet.
+                    <button class="btn primary small" @onclick="Regrant" disabled="@_busy">Reconnect to grant access</button>
+                </div>
+            }
+            <hr class="sep" />
+            <label class="check"><input type="checkbox" @bind="_s.Google.AutoApproveEdits" @bind:after="Save" /> Let bots change things without asking (sheets, drafts, labels, events)</label>
+            <label class="check"><input type="checkbox" @bind="_s.Google.AutoApproveSend" @bind:after="Save" /> Let bots <b>send email</b> without asking</label>
+            <p class="muted small">
+                Reading never asks. Each bot also has its own switches for these (Bots → a bot → Abilities). To react to changes, give a bot a routine with the trigger
+                <b>"A Google Sheet changes"</b>, <b>"New email arrives"</b> or <b>"A calendar event is coming up"</b>.
+            </p>
+        </section>
+    }
+
+    }
+    @if (_tab == "microsoft")
+    {
+    <MicrosoftCard />
+    }
+    @if (_tab == "email")
+    {
+    <InboxCard />
+    }
+    @if (_tab == "more")
+    {
+    <ApiCard />
+    <WebhooksCard />
+    <section class="card">
+        <h3>More connections</h3>
+        <p class="muted">Anything with an MCP server (GitHub, Notion, Slack, Home Assistant, databases…) can be added on <a href="tools">Tools & MCP</a>.</p>
+    </section>
+    }
+</div>
+
+@code {
+    private string _tab = "phone";
+
+    private Hearth.Core.Services.Google.GoogleConnection _conn = new();
+    private AppSettings? _s;
+    private int _mode;
+    private string _clientId = "";
+    private string _clientSecret = "";
+    private string _keyJson = "";
+    private string? _authUrl;
+    private string? _error;
+    private string? _message;
+    private bool _busy;
+    private List<Hearth.Core.Services.Google.SpreadsheetRef>? _sheets;
+    private List<string> _missing = [];
+
+    private async Task RefreshMissingAsync()
+    {
+        _missing = [];
+        if (_s is null || _conn.Mode == Hearth.Core.Services.Google.GoogleAuthMode.None) return;
+        if (_s.Google.SheetsEnabled && !await Google.HasScopeAsync(Hearth.Core.Services.Google.GoogleAuth.SheetsScope)) _missing.Add("Sheets");
+        if (_s.Google.GmailEnabled && !await Google.HasScopeAsync(Hearth.Core.Services.Google.GoogleAuth.GmailScope)) _missing.Add("Gmail");
+        if (_s.Google.CalendarEnabled && !await Google.HasScopeAsync(Hearth.Core.Services.Google.GoogleAuth.CalendarScope)) _missing.Add("Calendar");
+        if (_s.Google.DocsEnabled && !await Google.HasScopeAsync(Hearth.Core.Services.Google.GoogleAuth.DriveReadScope)) _missing.Add("Docs & Drive");
+        if (_s.Google.ContactsEnabled && !await Google.HasScopeAsync(Hearth.Core.Services.Google.GoogleAuth.ContactsScope)) _missing.Add("Contacts");
+    }
+
+    private async Task Regrant()
+    {
+        _error = _message = null;
+        _busy = true;
+        try
+        {
+            var (url, completed) = await Google.ReconnectAsync();
+            _authUrl = url;
+            if (!Platform.CanRunProcesses) await JS.InvokeVoidAsync("open", url, "_blank");
+            StateHasChanged();
+            _message = $"Reconnected as {await completed}.";
+            _authUrl = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; await RefreshMissingAsync(); }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _conn = await Google.GetAsync();
+        _clientId = _conn.ClientId ?? "";
+        _s = SettingsCopy.Of(await Store.GetAsync());
+        Google.Changed += OnGoogleChanged;
+        await RefreshMissingAsync();
+    }
+
+    private async void OnGoogleChanged()
+    {
+        _conn = await Google.GetAsync();
+        await RefreshMissingAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SignIn()
+    {
+        _error = _message = null;
+        _busy = true;
+        try
+        {
+            var (url, completed) = await Google.StartSignInAsync(_clientId, _clientSecret);
+            _authUrl = url;
+            if (!Platform.CanRunProcesses) await JS.InvokeVoidAsync("open", url, "_blank");
+            StateHasChanged();
+            var who = await completed;
+            _message = $"Connected as {who}.";
+            _clientSecret = "";
+            _authUrl = null;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ConnectKey()
+    {
+        _error = _message = null;
+        _busy = true;
+        try
+        {
+            var email = await Google.ConnectServiceAccountAsync(_keyJson);
+            _message = $"Connected. Now share your spreadsheets with {email}.";
+            _keyJson = "";
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task Test()
+    {
+        _error = null;
+        _busy = true;
+        try { _sheets = await Sheets.FindAsync(null, 15, CancellationToken.None); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task Disconnect()
+    {
+        await Google.DisconnectAsync();
+        _sheets = null;
+        _message = "Disconnected. To fully revoke access, also remove it at myaccount.google.com/permissions.";
+    }
+
+    private async Task Save()
+    {
+        if (_s is null) return;
+        var current = SettingsCopy.Of(await Store.GetAsync());
+        current.Google.SheetsEnabled = _s.Google.SheetsEnabled;
+        current.Google.GmailEnabled = _s.Google.GmailEnabled;
+        current.Google.CalendarEnabled = _s.Google.CalendarEnabled;
+        current.Google.DocsEnabled = _s.Google.DocsEnabled;
+        current.Google.ContactsEnabled = _s.Google.ContactsEnabled;
+        current.Google.AutoApproveEdits = _s.Google.AutoApproveEdits;
+        current.Google.AutoApproveSend = _s.Google.AutoApproveSend;
+        await Store.SaveAsync(current);
+        await RefreshMissingAsync();
+    }
+
+    private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }
+
+    public override void Dispose()
+    {
+        Google.Changed -= OnGoogleChanged;
+        base.Dispose();
+    }
+}
