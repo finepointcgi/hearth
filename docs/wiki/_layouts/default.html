@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if page.url == "/" %}{{ site.title }}{% else %}{{ page.title }} · {{ site.title }}{% endif %}</title>
+  <meta name="description" content="{{ site.description }}">
+  <link rel="stylesheet" href="{{ '/assets/wiki.css' | relative_url }}">
+</head>
+<body>
+{%- capture sidebar %}{% include _Sidebar.md %}{% endcapture -%}
+{%- assign home = '/' | relative_url -%}
+{%- assign base = site.baseurl | append: '/' -%}
+{%- assign nav = sidebar | markdownify
+    | replace: '.md"', '.html"'
+    | replace: 'href="Home.html"', 'href="@HOME@"'
+    | replace: 'href="', 'href="@BASE@'
+    | replace: '@BASE@@HOME@', home
+    | replace: '@BASE@', base -%}
+<header class="top">
+  <button class="menu" aria-label="Show pages" aria-expanded="false" aria-controls="nav">☰</button>
+  <a class="brand" href="{{ home }}">🔥 {{ site.title }}</a>
+  <a class="repo" href="https://github.com/{{ site.github.repository_nwo | default: 'finepointcgi/hearth' }}">GitHub</a>
+</header>
+<div class="shell">
+  <nav id="nav" class="nav">{{ nav }}</nav>
+  <main class="page">
+    {{ content }}
+    <footer class="foot">
+      <a href="https://github.com/{{ site.github.repository_nwo | default: 'finepointcgi/hearth' }}/blob/main/docs/wiki/{{ page.path }}">Edit this page on GitHub</a>
+    </footer>
+  </main>
+</div>
+<script>
+  // Highlight the current page in the sidebar; toggle the sidebar on phones.
+  (function () {
+    var here = location.pathname.replace(/index\.html$/, '');
+    document.querySelectorAll('.nav a').forEach(function (a) {
+      if (new URL(a.href, location.href).pathname.replace(/index\.html$/, '') === here) a.setAttribute('aria-current', 'page');
+    });
+    var btn = document.querySelector('.menu'), nav = document.getElementById('nav');
+    btn.addEventListener('click', function () {
+      var open = nav.classList.toggle('open');
+      btn.setAttribute('aria-expanded', open);
+    });
+  })();
+</script>
+</body>
+</html>

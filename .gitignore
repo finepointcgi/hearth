@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 # Live eval output
 eval/answers/
+
+# Docs site build output (docs/wiki → GitHub Pages)
+_site/

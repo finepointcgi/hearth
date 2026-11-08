@@ -1,0 +1,25 @@
+# GitHub Pages site for the wiki (built by .github/workflows/pages.yml).
+# The pages stay plain Markdown with relative links, so they read the same on GitHub and in a GitHub wiki.
+title: Hearth Wiki
+description: User guide and admin guide for Hearth.
+includes_dir: .            # lets the layout include _Sidebar.md
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+plugins:
+  - jekyll-relative-links           # Bots.md → Bots.html
+  - jekyll-optional-front-matter    # pages need no front matter
+  - jekyll-titles-from-headings     # page title = first heading
+relative_links:
+  enabled: true
+titles_from_headings:
+  enabled: true
+  strip_title: false
+defaults:
+  - scope: { path: "" }
+    values: { layout: default }
+  - scope: { path: "Home.md" }
+    values: { permalink: / }
+exclude:
+  - README.md

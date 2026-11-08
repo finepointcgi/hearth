@@ -5,7 +5,7 @@ tools, MCP, memory, documents, image generation, voice) that runs on **your own 
 LM Studio, llama.cpp, vLLM, Jan, LocalAI — or on **Claude** (through Claude Code or the Anthropic API) and any
 OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq…). Written in C# / Blazor with one shared UI across every platform.
 
-📖 **[Read the wiki](docs/wiki/Home.md)**: a full user guide and admin guide with screenshots, from first install to
+📖 **[Read the docs](https://finepointcgi.github.io/hearth/)** ([also in this repo](docs/wiki/Home.md)): a full user guide and admin guide with screenshots, from first install to
 permissions, hosting, backups and troubleshooting.
 
 | Platform | Project | Tech |
