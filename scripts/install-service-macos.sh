@@ -69,8 +69,8 @@ if [[ $DRY == 1 ]]; then
 fi
 
 echo "Building Hearth…"
-"$DOTNET" publish "$REPO/src/Hearth.Web/Hearth.Web.csproj" -c Release -o "$APP_DIR" --nologo -v quiet
-"$DOTNET" publish "$REPO/src/Hearth.Acp/Hearth.Acp.csproj" -c Release -o "$HOME/.hearth/acp" --nologo -v quiet  # editor bridge (Connections → More → API)
+"$DOTNET" publish "$REPO/src/Hearth.Web/Hearth.Web.csproj" -c Release -o "$APP_DIR" --nologo -v quiet -clp:ErrorsOnly
+"$DOTNET" publish "$REPO/src/Hearth.Acp/Hearth.Acp.csproj" -c Release -o "$HOME/.hearth/acp" --nologo -v quiet -clp:ErrorsOnly  # editor bridge (Connections → More → API)
 mkdir -p "$LOG_DIR" "$(dirname "$PLIST")"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 # launchd needs a moment to fully unload the old job before the new one can be loaded.

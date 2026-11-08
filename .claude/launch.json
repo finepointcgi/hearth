@@ -26,6 +26,22 @@
         "--Hearth:AllowLocalProcesses=true"
       ],
       "port": 5292
+    },
+    {
+      "name": "hearth-docs",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "HEARTH_DATA_DIR=/tmp/hearth-docs-data",
+        "dotnet",
+        "run",
+        "--project",
+        "src/Hearth.Web",
+        "--urls",
+        "http://localhost:5293",
+        "--",
+        "--Hearth:AllowLocalProcesses=true"
+      ],
+      "port": 5293
     }
   ]
 }

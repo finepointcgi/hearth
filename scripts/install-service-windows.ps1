@@ -12,7 +12,7 @@ if ($Uninstall) {
   Write-Host "Hearth task removed (data untouched)."; exit 0
 }
 
-dotnet publish "$Repo\src\Hearth.Web\Hearth.Web.csproj" -c Release -o $AppDir --nologo -v quiet
+dotnet publish "$Repo\src\Hearth.Web\Hearth.Web.csproj" -c Release -o $AppDir --nologo -v quiet -clp:ErrorsOnly
 $bind = if ($Password) { "0.0.0.0" } else { "127.0.0.1" }   # no password = this PC only
 $taskArgs = "`"$AppDir\Hearth.Web.dll`" --urls http://${bind}:$Port"
 if (-not $NoLocalTools) { $taskArgs += " --Hearth:AllowLocalProcesses=true" }

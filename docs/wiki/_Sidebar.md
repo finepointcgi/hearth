@@ -1,0 +1,31 @@
+**[Hearth Wiki](Home.md)**
+
+**User guide**
+- [Getting started](Getting-Started.md)
+- [Tour of the interface](Tour-of-the-Interface.md)
+- [Chatting](Chatting.md)
+- [Bots and teams](Bots.md)
+- [Routines and triggers](Routines-and-Triggers.md)
+- [Inbox and tasks](Inbox-and-Tasks.md)
+- [Code sessions](Code-Sessions.md)
+- [Other agents](Other-Agents.md)
+- [Skills](Skills.md)
+- [Memory and teaching](Memory-and-Teaching.md)
+- [Documents and files](Documents-and-Files.md)
+- [Voice and images](Voice-and-Images.md)
+- [Daily](Daily.md)
+- [Phone and notifications](Phone-and-Notifications.md)
+- [Chat apps](Chat-Apps.md)
+- [Google, Microsoft, email](Google-Microsoft-and-Email.md)
+
+**Admin guide**
+- [Installation and hosting](Admin-Installation-and-Hosting.md)
+- [Model servers](Admin-Model-Servers.md)
+- [Security and permissions](Admin-Security-and-Permissions.md)
+- [Tools and MCP](Admin-Tools-and-MCP.md)
+- [Bot computer](Admin-Bot-Computer.md)
+- [API and webhooks](Admin-API-and-Webhooks.md)
+- [Backup and restore](Admin-Backup-and-Restore.md)
+- [Monitoring and cost](Admin-Monitoring.md)
+- [Troubleshooting](Troubleshooting.md)
+- [Updating screenshots](Maintaining-the-Docs.md)
