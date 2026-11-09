@@ -12,14 +12,7 @@
 </header>
 
 <div class="settings">
-    <div class="tabs" role="tablist">
-        <button role="tab" aria-selected="@(_tab == "phone")" class="tab @(_tab == "phone" ? "on" : "")" @onclick='() => _tab = "phone"'><Icon Name="monitor" Size="16" /> Phone</button>
-        <button role="tab" aria-selected="@(_tab == "chat")" class="tab @(_tab == "chat" ? "on" : "")" @onclick='() => _tab = "chat"'><Icon Name="message-circle" Size="16" /> Chat apps</button>
-        <button role="tab" aria-selected="@(_tab == "google")" class="tab @(_tab == "google" ? "on" : "")" @onclick='() => _tab = "google"'><Icon Name="calendar" Size="16" /> Google</button>
-        <button role="tab" aria-selected="@(_tab == "microsoft")" class="tab @(_tab == "microsoft" ? "on" : "")" @onclick='() => _tab = "microsoft"'><Icon Name="folder" Size="16" /> Microsoft</button>
-        <button role="tab" aria-selected="@(_tab == "email")" class="tab @(_tab == "email" ? "on" : "")" @onclick='() => _tab = "email"'><Icon Name="mail" Size="16" /> Email</button>
-        <button role="tab" aria-selected="@(_tab == "more")" class="tab @(_tab == "more" ? "on" : "")" @onclick='() => _tab = "more"'><Icon Name="plug" Size="16" /> More</button>
-    </div>
+    <TabBar Label="Connections" Tabs="ConnectionTabs" @bind-Value="_tab" />
     @if (_tab == "phone")
     {
     <PhoneCard />
@@ -186,6 +179,12 @@
 </div>
 
 @code {
+    private static readonly TabBar.Item[] ConnectionTabs =
+    [
+        new("phone", "Phone", "monitor"), new("chat", "Chat apps", "message-circle"), new("google", "Google", "calendar"),
+        new("microsoft", "Microsoft", "folder"), new("email", "Email", "mail"), new("more", "More", "plug"),
+    ];
+
     private string _tab = "phone";
 
     private Hearth.Core.Services.Google.GoogleConnection _conn = new();

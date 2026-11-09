@@ -30,15 +30,7 @@
 {
 <div class="settings">
     @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
-    <div class="tabs" role="tablist" aria-label="Bot settings">
-        @foreach (var (id, label, icon, badge) in Tabs())
-        {
-            var tab = id;
-            <button role="tab" aria-selected="@(_tab == tab)" class="tab @(_tab == tab ? "on" : "")" @onclick="() => _tab = tab">
-                <Icon Name="@icon" Size="16" /> @label @if (badge is not null) { <span class="tab-badge">@badge</span> }
-            </button>
-        }
-    </div>
+    <TabBar Label="Bot settings" Tabs="@(Tabs().Select(t => new TabBar.Item(t.id, t.label, t.icon, t.badge)).ToList())" @bind-Value="_tab" />
 
     @if (_tab == "profile")
     {

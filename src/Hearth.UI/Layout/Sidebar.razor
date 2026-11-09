@@ -21,13 +21,13 @@
             @if (code)
             {
                 <a class="new-chat" href="code" @onclick="Close"><Icon Name="terminal" /> New code session</a>
-                <label class="search-box"><Icon Name="search" Size="16" /><MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Search sessions" @bind-Value="_filter" Immediate="true" aria-label="Search code sessions" /></label>
+                <label class="search-box"><Icon Name="search" Size="16" /><MudTextField Variant="Variant.Text" Underline="false" Placeholder="Search sessions" @bind-Value="_filter" Immediate="true" aria-label="Search code sessions" /></label>
             }
             else
             {
                 <button class="new-chat" @onclick="NewChat"><Icon Name="message-square-plus" /> New chat</button>
                 <div class="search-row">
-                    <label class="search-box"><Icon Name="search" Size="16" /><MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Search chats" @bind-Value="_filter" Immediate="true" aria-label="Search chats" /></label>
+                    <label class="search-box"><Icon Name="search" Size="16" /><MudTextField Variant="Variant.Text" Underline="false" Placeholder="Search chats" @bind-Value="_filter" Immediate="true" aria-label="Search chats" /></label>
                     <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="group-by" Value="@(GroupBy)" ValueChanged="Ev.Change<string>(SetGroupBy)" title="Group chats by" aria-label="Group chats by" T="string">
                         <MudSelectItem Value="@("time")">By time</MudSelectItem>
                         <MudSelectItem Value="@("person")">By person</MudSelectItem>

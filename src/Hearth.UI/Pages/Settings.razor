@@ -26,7 +26,7 @@
 <div class="settings @(Searching ? "searching" : "")" @ref="_container">
     <div class="settings-search" role="search">
         <Icon Name="search" Size="16" />
-        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Search" Placeholder="Search settings" aria-label="Search settings" @bind-Value="_query" Immediate="true" @bind-Value:after="QueryChanged" OnKeyDown="SearchKey" />
+        <MudTextField Variant="Variant.Text" Underline="false" InputType="InputType.Search" Placeholder="Search settings" Class="grow" aria-label="Search settings" @bind-Value="_query" Immediate="true" @bind-Value:after="QueryChanged" OnKeyDown="SearchKey" />
         @if (Searching)
         {
             <MudIconButton Size="Size.Small" title="Clear search" aria-label="Clear search" OnClick="ClearSearch"><Icon Name="x" Size="16" /></MudIconButton>
@@ -53,18 +53,7 @@
             </div>
         }
     }
-    <div class="tabs" role="tablist">
-        <button role="tab" aria-selected="@(_tab == "models")" class="tab @(_tab == "models" ? "on" : "")" @onclick='() => _tab = "models"'><Icon Name="server" Size="16" /> Models</button>
-        <button role="tab" aria-selected="@(_tab == "web")" class="tab @(_tab == "web" ? "on" : "")" @onclick='() => _tab = "web"'><Icon Name="globe" Size="16" /> Web and images</button>
-        <button role="tab" aria-selected="@(_tab == "appearance")" class="tab @(_tab == "appearance" ? "on" : "")" @onclick='() => _tab = "appearance"'><Icon Name="palette" Size="16" /> Appearance</button>
-        <button role="tab" aria-selected="@(_tab == "voice")" class="tab @(_tab == "voice" ? "on" : "")" @onclick='() => _tab = "voice"'><Icon Name="mic" Size="16" /> Voice</button>
-        <button role="tab" aria-selected="@(_tab == "daily")" class="tab @(_tab == "daily" ? "on" : "")" @onclick='() => _tab = "daily"'><Icon Name="clock" Size="16" /> Daily</button>
-        <button role="tab" aria-selected="@(_tab == "data")" class="tab @(_tab == "data" ? "on" : "")" @onclick='() => _tab = "data"'><Icon Name="hard-drive-download" Size="16" /> Data</button>
-        @if (Services.GetService<AccountStore>() is not null)
-        {
-            <button role="tab" aria-selected="@(_tab == "accounts")" class="tab @(_tab == "accounts" ? "on" : "")" @onclick='() => _tab = "accounts"'><Icon Name="users" Size="16" /> Accounts</button>
-        }
-    </div>
+    <TabBar Label="Settings sections" Tabs="SettingsTabs" @bind-Value="_tab" />
     @if (Show("models"))
     {
     <MudPaper Class="card" Elevation="0">
@@ -163,9 +152,10 @@
     </MudPaper>
     <MudPaper Class="card" Elevation="0">
         <h3>Generation</h3>
-        <label>Temperature: <b>@_s.Temperature.ToString("0.00")</b>
-            <input type="range" min="0" max="2" step="0.05" @bind="_s.Temperature" @bind:event="oninput" />
-        </label>
+        <div class="slider-field">
+            <span class="field-label">Temperature <b>@_s.Temperature.ToString("0.00")</b></span>
+            <MudSlider T="double" @bind-Value="_s.Temperature" Min="0" Max="2" Step="0.05" Color="Color.Primary" Immediate="true" />
+        </div>
         <div class="row">
             <MudNumericField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.MaxTokens" Label="Max reply tokens (0 = unlimited)" />
             <MudNumericField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.ContextLength" Label="Context length (Ollama num_ctx, 0 = default)" />
@@ -325,6 +315,13 @@
     }
 
     private string _tab = "models";
+
+    private IReadOnlyList<TabBar.Item> SettingsTabs =>
+    [
+        new("models", "Models", "server"), new("web", "Web and images", "globe"), new("appearance", "Appearance", "palette"),
+        new("voice", "Voice", "mic"), new("daily", "Daily", "clock"), new("data", "Data", "hard-drive-download"),
+        .. Services.GetService<AccountStore>() is null ? Array.Empty<TabBar.Item>() : [new("accounts", "Accounts", "users")],
+    ];
 
     // Search: while there's a query every tab's cards are shown and hearth.js hides the ones that don't match.
     private string _query = "";

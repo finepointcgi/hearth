@@ -41,7 +41,7 @@
         </nav>
     }
     <div class="row">
-        <label class="search-box grow"><Icon Name="search" Size="16" /><MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Search files" @bind-Value="_filter" Immediate="true" /></label>
+        <label class="search-box grow"><Icon Name="search" Size="16" /><MudTextField Variant="Variant.Text" Underline="false" Placeholder="Search files" @bind-Value="_filter" Immediate="true" /></label>
         <div class="seg-mini" role="group" aria-label="Kind">
             @foreach (var k in new[] { "All", "Images", "Documents", "Data", "Code" })
             {
