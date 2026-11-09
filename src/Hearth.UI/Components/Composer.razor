@@ -97,23 +97,23 @@
                     <div class="options-menu" role="menu">
                         <label class="option-row" title="@ToolsTitle">
                             <Icon Name="wrench" Size="16" /><span class="grow-text">Tools<small>Search, files, memory, skills, MCP…</small></span>
-                            <input type="checkbox" class="switch" role="switch" checked="@State.UseTools" @onchange="ToggleTools" />
+                            <MudSwitch T="bool" Color="Color.Primary" Class="switch" role="switch" Value="@(State.UseTools)" ValueChanged="Ev.Change<bool>(ToggleTools)" />
                         </label>
                         <label class="option-row">
                             <Icon Name="lightbulb" Size="16" /><span class="grow-text">Think first<small>For reasoning models</small></span>
-                            <input type="checkbox" class="switch" role="switch" checked="@State.Think" @onchange="ToggleThink" />
+                            <MudSwitch T="bool" Color="Color.Primary" Class="switch" role="switch" Value="@(State.Think)" ValueChanged="Ev.Change<bool>(ToggleThink)" />
                         </label>
                         <label class="option-row @(State.CanSearch ? "" : "unavailable")" title="@(State.CanSearch ? "" : "Set a SearXNG URL in Settings to enable")">
                             <Icon Name="globe" Size="16" /><span class="grow-text">DeepSearch<small>@(State.CanSearch ? "Research the web before answering" : "Needs a SearXNG URL in Settings")</small></span>
-                            <input type="checkbox" class="switch" role="switch" checked="@State.DeepSearch" disabled="@(!State.CanSearch)" @onchange="ToggleSearch" />
+                            <MudSwitch T="bool" Color="Color.Primary" Class="switch" role="switch" Value="@(State.DeepSearch)" Disabled="@(!State.CanSearch)" ValueChanged="Ev.Change<bool>(ToggleSearch)" />
                         </label>
                         @if (Members.Count == 0)
                         {
                             <label class="option-row">
                                 <Icon Name="sparkles" Size="16" /><span class="grow-text">Personality</span>
-                                <select @bind="State.PersonaId">
-                                    @foreach (var p in Personas.All) { <option value="@p.Id">@p.Name</option> }
-                                </select>
+                                <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="State.PersonaId">
+                                    @foreach (var p in Personas.All) { <MudSelectItem Value="@(p.Id)">@p.Name</MudSelectItem> }
+                                </MudSelect>
                             </label>
                         }
                     </div>
@@ -131,11 +131,11 @@
             }
             @if (Busy)
             {
-                <button class="send stop" title="Stop" aria-label="Stop" @onclick="OnStop"><Icon Name="square" Size="13" Stroke="2.5" /></button>
+                <button class="send stop" title="Stop" aria-label="Stop" @onclick="OnStop"><Icon Name="square" Size="13" /></button>
             }
             else
             {
-                <button class="send" title="Send" disabled="@(!CanSend)" @onclick="Submit" aria-label="Send"><Icon Name="arrow-up" Size="18" Stroke="2.25" /></button>
+                <button class="send" title="Send" disabled="@(!CanSend)" @onclick="Submit" aria-label="Send"><Icon Name="arrow-up" Size="18" /></button>
             }
         </div>
     </div>

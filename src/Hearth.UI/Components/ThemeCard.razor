@@ -1,0 +1,94 @@
+@* Settings → Appearance: light/dark mode, colour theme and accent. Changes apply and save right away. *@
+@inject SettingsStore Store
+@inject IJSRuntime JS
+
+<MudPaper Class="card theme-card" Elevation="0">
+    <h3>Theme</h3>
+    <p class="muted small">How Hearth looks on every device you use it on. Changes apply and save straight away.</p>
+
+    <div class="theme-field">
+        <span class="theme-label">Mode <small class="muted">Light, dark, or follow this device's setting</small></span>
+        <div class="segmented" role="radiogroup" aria-label="Light or dark mode">
+            @foreach (var (id, label, icon) in Modes)
+            {
+                var mode = id;
+                <button role="radio" aria-checked="@(_t.Mode == mode)" class="@(_t.Mode == mode ? "on" : "")" @onclick="() => SetMode(mode)">
+                    <Icon Name="@icon" Size="15" /> @label
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="theme-field">
+        <span class="theme-label">Colour theme <small class="muted">Background, panels and accent colour</small></span>
+        <div class="theme-grid" role="radiogroup" aria-label="Colour theme">
+            @foreach (var p in ThemeCatalog.All)
+            {
+                var palette = p;
+                var dark = palette.Swatch(light: false);
+                var light = palette.Swatch(light: true);
+                <button role="radio" aria-checked="@(_t.Palette == palette.Id)" class="theme-option @(_t.Palette == palette.Id ? "on" : "")"
+                        title="@palette.Description" @onclick="() => SetPalette(palette.Id)">
+                    <span class="theme-swatch" aria-hidden="true">
+                        <span style="background:@dark.bg"><i style="background:@dark.panel"></i><b style="background:@dark.accent"></b></span>
+                        <span style="background:@light.bg"><i style="background:@light.panel"></i><b style="background:@light.accent"></b></span>
+                    </span>
+                    <span class="theme-name">@palette.Name<small>@palette.Description</small></span>
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="theme-field">
+        <span class="theme-label">Accent colour <small class="muted">Buttons, links and highlights. Overrides the theme's own accent.</small></span>
+        <div class="row">
+            @foreach (var c in AccentChoices)
+            {
+                var colour = c;
+                <button class="accent-chip @(string.Equals(_t.Accent, colour, StringComparison.OrdinalIgnoreCase) ? "on" : "")" style="background:@colour"
+                        title="@colour" aria-label="Accent @colour" @onclick="() => SetAccent(colour)"></button>
+            }
+            <label class="accent-custom" title="Pick any colour">
+                <input type="color" value="@(_t.Accent ?? "#6366f1")" @onchange="e => SetAccent(e.Value?.ToString())" aria-label="Custom accent colour" />
+                Custom…
+            </label>
+            @if (_t.Accent is not null)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => SetAccent(null)">Use the theme's accent</MudButton>
+            }
+        </div>
+    </div>
+</MudPaper>
+
+@code {
+    private static readonly (string id, string label, string icon)[] Modes =
+        [("system", "System", "laptop"), ("light", "Light", "sun"), ("dark", "Dark", "moon")];
+
+    private static readonly string[] AccentChoices =
+        ["#6366f1", "#2f80ed", "#0ea5a4", "#1f9d61", "#d9a21b", "#ea6a1f", "#e0457b", "#8b5cf6"];
+
+    private ThemeSettings _t = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var t = (await Store.GetAsync()).Theme;
+        _t = new ThemeSettings { Mode = t.Mode, Palette = t.Palette, Accent = t.Accent, Chosen = t.Chosen };
+    }
+
+    private Task SetMode(string mode) { _t.Mode = mode; return Apply(); }
+    private Task SetPalette(string id) { _t.Palette = id; return Apply(); }
+    private Task SetAccent(string? hex)
+    {
+        _t.Accent = ThemeCatalog.IsHex(hex) ? hex!.ToLowerInvariant() : null;
+        return Apply();
+    }
+
+    private async Task Apply()
+    {
+        _t.Chosen = true;
+        try { await JS.InvokeVoidAsync("hearth.applyTheme", ThemeCatalog.ForJs(_t)); } catch (JSDisconnectedException) { }
+        var settings = SettingsCopy.Of(await Store.GetAsync());
+        settings.Theme = new ThemeSettings { Mode = _t.Mode, Palette = _t.Palette, Accent = _t.Accent, Chosen = true };
+        await Store.SaveAsync(settings);
+    }
+}

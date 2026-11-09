@@ -1,7 +1,7 @@
 @inject SettingsStore Settings
 @inject EventWebhooks Hooks
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <div class="row">
         <span class="conn-logo"><Icon Name="zap" Size="20" /></span>
         <span class="grow"><b>Outgoing webhooks</b><br />
@@ -12,34 +12,33 @@
         var hook = h;
         <div class="sub">
             <div class="row">
-                <input @bind="hook.Name" @bind:after="Save" style="width:9rem" placeholder="Name" />
-                <input class="grow" @bind="hook.Url" @bind:after="Save" placeholder="https://… (receives a JSON POST)" />
-                <label class="check"><input type="checkbox" class="switch" role="switch" @bind="hook.Enabled" @bind:after="Save" /></label>
-                <button class="icon-btn" title="Remove webhook" aria-label="Remove webhook" @onclick="() => Remove(hook)"><Icon Name="trash-2" Size="15" /></button>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="hook.Name" @bind-Value:after="Save" Style="width:9rem" Placeholder="Name" />
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="hook.Url" @bind-Value:after="Save" Placeholder="https://… (receives a JSON POST)" />
+                <MudSwitch T="bool" Color="Color.Primary" role="switch" @bind-Value="hook.Enabled" @bind-Value:after="Save" Class="check"></MudSwitch>
+                <MudIconButton Size="Size.Small" title="Remove webhook" aria-label="Remove webhook" OnClick="() => Remove(hook)"><Icon Name="trash-2" Size="15" /></MudIconButton>
             </div>
             <div class="row small">
                 @foreach (var (key, label) in EventWebhooks.Events)
                 {
                     var k = key;
-                    <label class="check"><input type="checkbox" checked="@(hook.Events.Count == 0 || hook.Events.Contains(k))" @onchange="e => ToggleEvent(hook, k, (bool)e.Value!)" /> @label</label>
+                    <MudSwitch T="bool" Color="Color.Primary" Value="@(hook.Events.Count == 0 || hook.Events.Contains(k))" ValueChanged="(bool v) => ToggleEvent(hook, k, v)" Class="check">@label</MudSwitch>
                 }
             </div>
             <div class="row">
-                <input class="grow" type="password" autocomplete="off" @bind="_secrets[hook.Id]" @bind:after="() => SaveSecret(hook)"
-                       placeholder="@(string.IsNullOrEmpty(hook.Secret) ? "Signing secret (optional): adds X-Hearth-Signature: sha256=HMAC" : "Secret saved — type to replace")" />
-                <button class="btn ghost small" @onclick="() => Test(hook)" disabled="@string.IsNullOrWhiteSpace(hook.Url)">Send test</button>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" InputType="InputType.Password" @bind-Value="_secrets[hook.Id]" @bind-Value:after="() => SaveSecret(hook)" Placeholder="@(string.IsNullOrEmpty(hook.Secret) ? "Signing secret (optional): adds X-Hearth-Signature: sha256=HMAC" : "Secret saved — type to replace")" />
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Test(hook)" Disabled="@string.IsNullOrWhiteSpace(hook.Url)">Send test</MudButton>
             </div>
             @if (Hooks.LastResult.TryGetValue(hook.Id, out var last)) { <div class="muted small">Last: @last</div> }
         </div>
     }
-    <button class="btn ghost" @onclick="Add">Add webhook</button>
+    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Add">Add webhook</MudButton>
     <details class="advanced">
         <summary>What gets sent</summary>
         <pre class="small">POST your-url   (Content-Type: application/json, X-Hearth-Event: task)
 { "event": "task", "title": "Task: …", "text": "🏁 Done: …", "conversationId": "…",
   "link": "https://…/c/…", "at": "2026-11-05T09:30:00-05:00", "taskId": "…", "state": "Done" }</pre>
     </details>
-</section>
+</MudPaper>
 
 @code {
     private List<OutgoingWebhook> _hooks = [];

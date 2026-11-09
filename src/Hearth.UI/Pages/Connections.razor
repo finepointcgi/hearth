@@ -7,19 +7,12 @@
 @inject IJSRuntime JS
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Connections</h2>
 </header>
 
 <div class="settings">
-    <div class="tabs" role="tablist">
-        <button role="tab" aria-selected="@(_tab == "phone")" class="tab @(_tab == "phone" ? "on" : "")" @onclick='() => _tab = "phone"'><Icon Name="monitor" Size="16" /> Phone</button>
-        <button role="tab" aria-selected="@(_tab == "chat")" class="tab @(_tab == "chat" ? "on" : "")" @onclick='() => _tab = "chat"'><Icon Name="message-circle" Size="16" /> Chat apps</button>
-        <button role="tab" aria-selected="@(_tab == "google")" class="tab @(_tab == "google" ? "on" : "")" @onclick='() => _tab = "google"'><Icon Name="calendar" Size="16" /> Google</button>
-        <button role="tab" aria-selected="@(_tab == "microsoft")" class="tab @(_tab == "microsoft" ? "on" : "")" @onclick='() => _tab = "microsoft"'><Icon Name="folder" Size="16" /> Microsoft</button>
-        <button role="tab" aria-selected="@(_tab == "email")" class="tab @(_tab == "email" ? "on" : "")" @onclick='() => _tab = "email"'><Icon Name="mail" Size="16" /> Email</button>
-        <button role="tab" aria-selected="@(_tab == "more")" class="tab @(_tab == "more" ? "on" : "")" @onclick='() => _tab = "more"'><Icon Name="plug" Size="16" /> More</button>
-    </div>
+    <TabBar Label="Connections" Tabs="ConnectionTabs" @bind-Value="_tab" />
     @if (_tab == "phone")
     {
     <PhoneCard />
@@ -40,7 +33,7 @@
     }
     @if (_tab == "google")
     {
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <div class="row">
             <span class="conn-logo">📊</span>
             <span class="grow">
@@ -55,17 +48,17 @@
 
         @if (_conn.Mode != Hearth.Core.Services.Google.GoogleAuthMode.None)
         {
-            <div class="notice">
+            <MudAlert Severity="Severity.Info" Variant="Variant.Text" Dense="true" Class="hearth-alert notice">
                 Connected @(_conn.Mode == Hearth.Core.Services.Google.GoogleAuthMode.OAuth ? "as" : "with service account") <b>@(_conn.Email ?? "your Google account")</b>
                 @if (_conn.ConnectedAt is { } at) { <span class="muted small"> · since @at.ToString("MMM d")</span> }
                 @if (_conn.Mode == Hearth.Core.Services.Google.GoogleAuthMode.ServiceAccount)
                 {
                     <br /><span class="small">Share each spreadsheet with this email (Share → Editor) so bots can see it.</span>
                 }
-            </div>
+            </MudAlert>
             <div class="row">
-                <button class="btn ghost" @onclick="Test" disabled="@_busy">List my spreadsheets</button>
-                <button class="btn danger" @onclick="Disconnect" disabled="@_busy">Disconnect</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Test" Disabled="@_busy">List my spreadsheets</MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="Disconnect" Disabled="@_busy">Disconnect</MudButton>
             </div>
             @if (_sheets is not null)
             {
@@ -103,13 +96,13 @@
                     </ol>
                 </details>
                 <div class="row">
-                    <input class="grow" @bind="_clientId" placeholder="Client ID (….apps.googleusercontent.com)" autocomplete="off" />
-                    <input class="grow" type="password" @bind="_clientSecret" placeholder="Client secret" autocomplete="off" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_clientId" Placeholder="Client ID (….apps.googleusercontent.com)" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" InputType="InputType.Password" @bind-Value="_clientSecret" Placeholder="Client secret" />
                 </div>
                 <div class="row">
-                    <button class="btn primary" @onclick="SignIn" disabled="@(_busy || string.IsNullOrWhiteSpace(_clientId) || string.IsNullOrWhiteSpace(_clientSecret))">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SignIn" Disabled="@(_busy || string.IsNullOrWhiteSpace(_clientId) || string.IsNullOrWhiteSpace(_clientSecret))">
                         @(_busy ? "Waiting for Google…" : "Sign in with Google")
-                    </button>
+                    </MudButton>
                     @if (_authUrl is not null)
                     {
                         <a class="small" href="@_authUrl" target="_blank" rel="noopener">Browser didn't open? Click here.</a>
@@ -131,38 +124,38 @@
                         <li>Paste the downloaded file's contents below, then share your spreadsheets with the service account's email.</li>
                     </ol>
                 </details>
-                <textarea rows="6" @bind="_keyJson" placeholder='{ "type": "service_account", "client_email": "…", "private_key": "…" }'></textarea>
-                <button class="btn primary" @onclick="ConnectKey" disabled="@(_busy || string.IsNullOrWhiteSpace(_keyJson))">Connect</button>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="6" @bind-Value="_keyJson" Placeholder='{ "type": "service_account", "client_email": "…", "private_key": "…" }' />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ConnectKey" Disabled="@(_busy || string.IsNullOrWhiteSpace(_keyJson))">Connect</MudButton>
             }
         }
-        @if (_error is not null) { <div class="error-box">@_error</div> }
+        @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
         @if (_message is not null) { <div class="ok-text">@_message</div> }
-    </section>
+    </MudPaper>
 
     @if (_s is not null)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>What bots can use</h3>
-            <label class="check"><input type="checkbox" @bind="_s.Google.SheetsEnabled" @bind:after="Save" /> <span>📊 <b>Sheets</b> — find, read, write, append, create spreadsheets</span></label>
-            <label class="check"><input type="checkbox" @bind="_s.Google.GmailEnabled" @bind:after="Save" /> <span>📧 <b>Gmail</b> — search, read, draft, send and organize email (sign-in only, not service accounts)</span></label>
-            <label class="check"><input type="checkbox" @bind="_s.Google.CalendarEnabled" @bind:after="Save" /> <span>📅 <b>Calendar</b> — check your schedule, add and remove events</span></label>
-            <label class="check"><input type="checkbox" @bind="_s.Google.DocsEnabled" @bind:after="Save" /> <span>📄 <b>Docs &amp; Drive</b> — find and read any file in your Drive, and write new Google Docs</span></label>
-            <label class="check"><input type="checkbox" @bind="_s.Google.ContactsEnabled" @bind:after="Save" /> <span>👥 <b>Contacts</b> — look up names, emails and phone numbers (read-only; sign-in only)</span></label>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Google.SheetsEnabled" @bind-Value:after="Save" Class="check"><span>📊 <b>Sheets</b> — find, read, write, append, create spreadsheets</span></MudSwitch>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Google.GmailEnabled" @bind-Value:after="Save" Class="check"><span>📧 <b>Gmail</b> — search, read, draft, send and organize email (sign-in only, not service accounts)</span></MudSwitch>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Google.CalendarEnabled" @bind-Value:after="Save" Class="check"><span>📅 <b>Calendar</b> — check your schedule, add and remove events</span></MudSwitch>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Google.DocsEnabled" @bind-Value:after="Save" Class="check"><span>📄 <b>Docs &amp; Drive</b> — find and read any file in your Drive, and write new Google Docs</span></MudSwitch>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Google.ContactsEnabled" @bind-Value:after="Save" Class="check"><span>👥 <b>Contacts</b> — look up names, emails and phone numbers (read-only; sign-in only)</span></MudSwitch>
             @if (_missing.Count > 0 && _conn.Mode == Hearth.Core.Services.Google.GoogleAuthMode.OAuth)
             {
-                <div class="notice">
+                <MudAlert Severity="Severity.Info" Variant="Variant.Text" Dense="true" Class="hearth-alert notice">
                     Hearth doesn't have access to @string.Join(" and ", _missing) yet.
-                    <button class="btn primary small" @onclick="Regrant" disabled="@_busy">Reconnect to grant access</button>
-                </div>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="Regrant" Disabled="@_busy">Reconnect to grant access</MudButton>
+                </MudAlert>
             }
             <hr class="sep" />
-            <label class="check"><input type="checkbox" @bind="_s.Google.AutoApproveEdits" @bind:after="Save" /> Let bots change things without asking (sheets, drafts, labels, events)</label>
-            <label class="check"><input type="checkbox" @bind="_s.Google.AutoApproveSend" @bind:after="Save" /> Let bots <b>send email</b> without asking</label>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Google.AutoApproveEdits" @bind-Value:after="Save" Class="check" Label="Let bots change things without asking (sheets, drafts, labels, events)" />
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Google.AutoApproveSend" @bind-Value:after="Save" Class="check">Let bots <b>send email</b> without asking</MudSwitch>
             <p class="muted small">
                 Reading never asks. Each bot also has its own switches for these (Bots → a bot → Abilities). To react to changes, give a bot a routine with the trigger
                 <b>"A Google Sheet changes"</b>, <b>"New email arrives"</b> or <b>"A calendar event is coming up"</b>.
             </p>
-        </section>
+        </MudPaper>
     }
 
     }
@@ -178,14 +171,20 @@
     {
     <ApiCard />
     <WebhooksCard />
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>More connections</h3>
         <p class="muted">Anything with an MCP server (GitHub, Notion, Slack, Home Assistant, databases…) can be added on <a href="tools">Tools & MCP</a>.</p>
-    </section>
+    </MudPaper>
     }
 </div>
 
 @code {
+    private static readonly TabBar.Item[] ConnectionTabs =
+    [
+        new("phone", "Phone", "monitor"), new("chat", "Chat apps", "message-circle"), new("google", "Google", "calendar"),
+        new("microsoft", "Microsoft", "folder"), new("email", "Email", "mail"), new("more", "More", "plug"),
+    ];
+
     private string _tab = "phone";
 
     private Hearth.Core.Services.Google.GoogleConnection _conn = new();

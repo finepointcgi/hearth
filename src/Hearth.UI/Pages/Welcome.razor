@@ -21,7 +21,7 @@
 
     @if (_step == 1)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Connect a model</h3>
             <p class="muted small">Hearth runs on models you choose. These were found on this computer:</p>
             @if (_scanning) { <p class="muted small">Looking for model servers…</p> }
@@ -31,7 +31,7 @@
                 <div class="usage-row">
                     <span class="needs-icon"><Icon Name="server" Size="16" /></span>
                     <span class="grow"><b>@cand.Profile.Name</b><br /><span class="muted small">@cand.Profile.BaseUrl · @cand.Models model@(cand.Models == 1 ? "" : "s")</span></span>
-                    <button class="btn primary small" @onclick="() => Use(cand.Profile)">Use this</button>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => Use(cand.Profile)">Use this</MudButton>
                 </div>
             }
             @if (!_scanning && _found.Count == 0)
@@ -39,31 +39,31 @@
                 <p class="small">Nothing found yet. Install <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> (then <code>ollama pull llama3.2</code>),
                     LM Studio or oMLX, and scan again, or connect a server elsewhere below.</p>
             }
-            <div class="row"><button class="btn ghost small" @onclick="ScanAsync" disabled="@_scanning"><Icon Name="refresh-cw" Size="15" /> Scan again</button></div>
+            <div class="row"><MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="ScanAsync" Disabled="@_scanning"><Icon Name="refresh-cw" Size="15" /> Scan again</MudButton></div>
 
             <details class="steps" open="@(!_scanning && _found.Count == 0)">
                 <summary>Use a server on another computer, or Claude</summary>
                 <div class="row">
-                    <select @bind="_kind">
-                        <option value="@ProviderKind.OpenAICompatible">OpenAI-compatible (oMLX, LM Studio, vLLM, OpenRouter…)</option>
-                        <option value="@ProviderKind.Ollama">Ollama</option>
-                        <option value="@ProviderKind.ClaudeCode">Claude Code (your Claude subscription)</option>
-                    </select>
+                    <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_kind">
+                        <MudSelectItem Value="@(ProviderKind.OpenAICompatible)">OpenAI-compatible (oMLX, LM Studio, vLLM, OpenRouter…)</MudSelectItem>
+                        <MudSelectItem Value="@(ProviderKind.Ollama)">Ollama</MudSelectItem>
+                        <MudSelectItem Value="@(ProviderKind.ClaudeCode)">Claude Code (your Claude subscription)</MudSelectItem>
+                    </MudSelect>
                     @if (_kind != ProviderKind.ClaudeCode)
                     {
-                        <input class="grow" @bind="_url" placeholder="http://10.0.0.20:8000/v1" />
-                        <input type="password" @bind="_key" placeholder="API key (if needed)" autocomplete="off" style="width:12rem" />
+                        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_url" Placeholder="http://10.0.0.20:8000/v1" />
+                        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" @bind-Value="_key" Placeholder="API key (if needed)" Style="width:12rem" />
                     }
-                    <button class="btn primary" @onclick="TestCustom" disabled="@_testing">@(_testing ? "Testing…" : "Test and use")</button>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="TestCustom" Disabled="@_testing">@(_testing ? "Testing…" : "Test and use")</MudButton>
                 </div>
-                @if (_error is not null) { <div class="error-box">@_error</div> }
+                @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
             </details>
-        </section>
-        <div class="row end"><button class="btn ghost" @onclick="() => _step = 2">Skip for now</button></div>
+        </MudPaper>
+        <div class="row end"><MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _step = 2">Skip for now</MudButton></div>
     }
     else if (_step == 2)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Meet your bots</h3>
             <p class="muted small">Bots are AI teammates with their own role, abilities and memory. Start with a ready-made team, or one bot.</p>
             <button class="setup-choice" @onclick="AddTeam">
@@ -80,16 +80,16 @@
                     </button>
                 }
             </div>
-            @if (_error is not null) { <div class="error-box">@_error</div> }
-        </section>
+            @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
+        </MudPaper>
         <div class="row end">
-            <button class="btn ghost" @onclick="() => _step = 1">Back</button>
-            <button class="btn ghost" @onclick="() => _step = 3">Skip</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _step = 1">Back</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _step = 3">Skip</MudButton>
         </div>
     }
     else
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Take Hearth with you</h3>
             <p class="muted small">Use your bots from your phone, get notified when they need you, and chat from the apps you already use.</p>
             <a class="setup-choice" href="connections">
@@ -102,10 +102,10 @@
                 <span class="grow"><b>Telegram, Slack, Discord, Signal or iMessage</b><br /><span class="muted small">Message your bots from your chat apps</span></span>
                 <Icon Name="chevron-right" />
             </a>
-        </section>
+        </MudPaper>
         <div class="row end">
-            <button class="btn ghost" @onclick="() => _step = 2">Back</button>
-            <button class="btn primary" @onclick="Finish">Start using Hearth</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _step = 2">Back</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Finish">Start using Hearth</MudButton>
         </div>
     }
 </div>

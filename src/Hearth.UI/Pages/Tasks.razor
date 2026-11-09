@@ -8,27 +8,27 @@
 @inject FollowUpRunner FollowUpRunner
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Tasks</h2>
 </header>
 
 <div class="settings">
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <p class="muted">Give a bot a goal that takes real work — research, planning, filling in a sheet, sorting your inbox. It makes a plan, works through it in the background (even if you close Hearth, it picks up again), asks you only when it needs a decision, and reports back here and on Telegram.</p>
-        <textarea rows="3" @bind="_goal" placeholder="e.g. Research the 5 best standing desks under $600, compare them in a Google Sheet, and recommend one"></textarea>
+        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="3" @bind-Value="_goal" Placeholder="e.g. Research the 5 best standing desks under $600, compare them in a Google Sheet, and recommend one" />
         <div class="row">
-            <select @bind="_botId">
-                <option value="">💬 Hearth</option>
-                @foreach (var b in State.Bots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
-            </select>
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_botId">
+                <MudSelectItem Value="@("")">💬 Hearth</MudSelectItem>
+                @foreach (var b in State.Bots) { <MudSelectItem Value="@(b.Id)">@b.Emoji @b.Name</MudSelectItem> }
+            </MudSelect>
             <span class="spacer"></span>
-            <button class="btn primary" @onclick="Start" disabled="@string.IsNullOrWhiteSpace(_goal)">Start task</button>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Start" Disabled="@string.IsNullOrWhiteSpace(_goal)">Start task</MudButton>
         </div>
-    </section>
+    </MudPaper>
 
     @foreach (var group in _tasks.GroupBy(t => t.State is TaskState.Running or TaskState.WaitingForYou or TaskState.Paused).OrderByDescending(g => g.Key))
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>@(group.Key ? "Active" : "Finished")</h3>
             @foreach (var t in group)
             {
@@ -45,13 +45,13 @@
                     @if (t.Plan.Count > 0) { <span class="progress"><span style="width:@(100 * t.DoneSteps / t.Plan.Count)%"></span></span> }
                 </a>
             }
-        </section>
+        </MudPaper>
     }
-    @if (_tasks.Count == 0) { <section class="card"><p class="muted">No tasks yet.</p></section> }
+    @if (_tasks.Count == 0) { <MudPaper Class="card" Elevation="0"><p class="muted">No tasks yet.</p></MudPaper> }
 
     @if (_followUps.Count > 0)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Follow-ups</h3>
             <p class="muted small">Bots scheduled these to come back to a chat on their own. They post only when there's something new.</p>
             @foreach (var f in _followUps)
@@ -65,12 +65,12 @@
                             @(bot is null ? "Hearth" : bot.Name) · @FollowUpTool.Describe(f.DueAt, DateTimeOffset.Now)@(f.Repeat is null ? "" : $" · {f.Repeat}")@(f.LastResult is null ? "" : $" · last time: {f.LastResult}")
                         </span>
                     </span>
-                    <a class="btn ghost small" href="c/@f.ConversationId">Open chat</a>
-                    <button class="btn ghost small" @onclick="() => RunNow(f)" disabled="@_runningNow">Run now</button>
-                    <button class="icon-btn" title="Cancel follow-up" aria-label="Cancel follow-up" @onclick="() => Cancel(f.Id)"><Icon Name="trash-2" Size="15" /></button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="@($"c/{f.ConversationId}")">Open chat</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => RunNow(f)" Disabled="@_runningNow">Run now</MudButton>
+                    <MudIconButton Size="Size.Small" title="Cancel follow-up" aria-label="Cancel follow-up" OnClick="() => Cancel(f.Id)"><Icon Name="trash-2" Size="15" /></MudIconButton>
                 </div>
             }
-        </section>
+        </MudPaper>
     }
 </div>
 

@@ -8,85 +8,82 @@
 @inject IJSRuntime JS
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Memory</h2>
 </header>
 
 <div class="settings">
-    <section class="card">
-        <label class="check"><input type="checkbox" checked="@State.Settings.MemoryEnabled" @onchange="ToggleEnabled" /> Let Hearth remember things about me across chats</label>
+    <MudPaper Class="card" Elevation="0">
+        <MudSwitch T="bool" Color="Color.Primary" Value="@(State.Settings.MemoryEnabled)" ValueChanged="Ev.Change<bool>(ToggleEnabled)" Class="check" Label="Let Hearth remember things about me across chats" />
         @if (State.Settings.MemoryEnabled)
         {
-            <label class="check"><input type="checkbox" checked="@State.Settings.MemoryAutoLearn" @onchange="ToggleAutoLearn" /> Learn automatically in regular chats (bots have their own setting)</label>
+            <MudSwitch T="bool" Color="Color.Primary" Value="@(State.Settings.MemoryAutoLearn)" ValueChanged="Ev.Change<bool>(ToggleAutoLearn)" Class="check" Label="Learn automatically in regular chats (bots have their own setting)" />
         }
         @if (State.Settings.MemoryEnabled)
         {
-            <label class="check"><input type="checkbox" checked="@State.Settings.RecallByMeaning" @onchange="ToggleMeaning" />
-                <span>Recall by meaning — find memories and past chats even when the words differ ("my car" finds "the Subaru loan")</span></label>
+            <MudSwitch T="bool" Color="Color.Primary" Value="@(State.Settings.RecallByMeaning)" ValueChanged="Ev.Change<bool>(ToggleMeaning)" Class="check"><span>Recall by meaning — find memories and past chats even when the words differ ("my car" finds "the Subaru loan")</span></MudSwitch>
             @if (_stats is { } st)
             {
                 <p class="muted small">
                     🗄 @st.Provider · @st.Facts facts (@st.FactsEmbedded with meaning) · @st.Chats chats, @st.ChatMessages messages indexed
                     (@st.MessagesEmbedded with meaning) · search: @st.Recall
                     <br />Stored in <code>@st.Location</code>
-                    <button class="btn ghost small" @onclick="Export">⬇ Export (.json)</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="Export">⬇ Export (.json)</MudButton>
                 </p>
             }
         }
         <p class="muted">Memories are stored on this device and included in every chat (so they go to whichever model provider is active). With tools on, the model saves and forgets memories itself; you can also edit them here.</p>
         <div class="row">
-            <input class="grow" @bind="_new" @onkeydown="AddOnEnter" placeholder="Add a memory, e.g. I live in Denver and use metric units" />
-            <button class="btn primary" @onclick="Add" disabled="@(string.IsNullOrWhiteSpace(_new))">Add</button>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_new" OnKeyDown="AddOnEnter" Placeholder="Add a memory, e.g. I live in Denver and use metric units" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Add" Disabled="@(string.IsNullOrWhiteSpace(_new))">Add</MudButton>
         </div>
-    </section>
+    </MudPaper>
 
     @if (State.Settings.MemoryEnabled)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <div class="row">
                 <h3 class="grow">Your profile</h3>
-                <button class="btn ghost" @onclick="Fold" disabled="@(_tidying || Recent.Count == 0)" title="Fold the recent memories into your profile now (it also happens overnight)">@(_tidying ? "Thinking…" : "⤵ Update from new memories")</button>
-                <button class="btn ghost" @onclick="Tidy" disabled="@_tidying">🧹 Tidy up</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Fold" Disabled="@(_tidying || Recent.Count == 0)" title="Fold the recent memories into your profile now (it also happens overnight)">@(_tidying ? "Thinking…" : "⤵ Update from new memories")</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Tidy" Disabled="@_tidying">🧹 Tidy up</MudButton>
             </div>
             <p class="muted small">A short summary of you that every chat starts with (bots that use shared memory too). Each night Hearth folds new memories into it and moves them to long-term storage.@(_profileInfo is { ConsolidatedAt: { } at } ? $" Last updated {at:MMM d, h:mm tt}." : "")</p>
-            <textarea rows="9" @bind="_profile" placeholder="Nothing yet — click Tidy up now, or write a few sentences about yourself."></textarea>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="9" @bind-Value="_profile" Placeholder="Nothing yet — click Tidy up now, or write a few sentences about yourself." />
             <div class="row end">
-                @if (_profileInfo?.PreviousText is not null) { <button class="btn ghost" @onclick="UndoProfile" title="Put back the profile from before the last automatic update">↶ Undo last update</button> }
-                <button class="btn ghost" @onclick="SaveProfile">Save profile</button>
+                @if (_profileInfo?.PreviousText is not null) { <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="UndoProfile" title="Put back the profile from before the last automatic update">↶ Undo last update</MudButton> }
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="SaveProfile">Save profile</MudButton>
             </div>
             @if (_tidyMessage is not null) { <div class="muted small">@_tidyMessage</div> }
-        </section>
+        </MudPaper>
 
         @if (_cleanup is { } c)
         {
-            <section class="card">
+            <MudPaper Class="card" Elevation="0">
                 <h3>Suggested tidy-up</h3>
                 <p class="muted small">Untick anything you want to keep as it is, then apply.</p>
                 @if (c.Profile is not null)
                 {
-                    <label class="check"><input type="checkbox" @bind="_keepProfile" /> <span><b>Update your profile to:</b><br /><span class="small">@c.Profile</span></span></label>
+                    <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_keepProfile" Class="check"><span><b>Update your profile to:</b><br /><span class="small">@c.Profile</span></span></MudSwitch>
                 }
                 @foreach (var m in c.Merges)
                 {
                     var merge = m;
-                    <label class="check"><input type="checkbox" checked="@(!_skipMerges.Contains(merge))" @onchange="e => Toggle(_skipMerges, merge, (bool)e.Value!)" />
-                        <span><b>Combine</b> <span class="muted small">@string.Join(" · ", merge.Ids.Select(Text))</span><br />→ @merge.Text</span></label>
+                    <MudSwitch T="bool" Color="Color.Primary" Value="@(!_skipMerges.Contains(merge))" ValueChanged="(bool v) => Toggle(_skipMerges, merge, v)" Class="check"><span><b>Combine</b> <span class="muted small">@string.Join(" · ", merge.Ids.Select(Text))</span><br />→ @merge.Text</span></MudSwitch>
                 }
                 @foreach (var d in c.Drops)
                 {
                     var drop = d;
-                    <label class="check"><input type="checkbox" checked="@(!_skipDrops.Contains(drop))" @onchange="e => Toggle(_skipDrops, drop, (bool)e.Value!)" />
-                        <span><b>Remove</b> “@Text(drop.Id)” <span class="muted small">— @drop.Reason</span></span></label>
+                    <MudSwitch T="bool" Color="Color.Primary" Value="@(!_skipDrops.Contains(drop))" ValueChanged="(bool v) => Toggle(_skipDrops, drop, v)" Class="check"><span><b>Remove</b> “@Text(drop.Id)” <span class="muted small">— @drop.Reason</span></span></MudSwitch>
                 }
                 <div class="row end">
-                    <button class="btn ghost" @onclick="Discard">Discard</button>
-                    <button class="btn primary" @onclick="Apply">Apply</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Discard">Discard</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Apply">Apply</MudButton>
                 </div>
-            </section>
+            </MudPaper>
         }
     }
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Recent memories <span class="muted small">(@Recent.Count, in every reply)</span></h3>
         <p class="muted small">New things Hearth learned. Once they're folded into your profile they move to long-term storage.</p>
         @foreach (var m in Recent) { @Row(m) }
@@ -102,10 +99,10 @@
         }
         @if (_items.Count > 0)
         {
-            <button class="btn danger" @onclick="() => Store.ClearAsync()">Forget everything</button>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="() => Store.ClearAsync()">Forget everything</MudButton>
         }
-    </section>
-    <section class="card">
+    </MudPaper>
+    <MudPaper Class="card" Elevation="0">
         <h3>People &amp; companies <span class="muted small">(@_people.Count)</span></h3>
         <p class="muted small">Who's who in your life and work: recruiters, colleagues, companies. Bots add notes as they learn and look people up with who_is before writing to, calling or discussing them.</p>
         @foreach (var e in _people)
@@ -119,16 +116,16 @@
                     <div class="memory-row">
                         <span class="grow">@note.Text</span>
                         <span class="muted small">@note.At.ToString("MMM d")</span>
-                        <button class="icon-btn" title="Delete note" @onclick="() => People.DeleteNoteAsync(entity.Id, note)">🗑</button>
+                        <MudIconButton Size="Size.Small" title="Delete note" OnClick="() => People.DeleteNoteAsync(entity.Id, note)">🗑</MudIconButton>
                     </div>
                 }
-                <button class="btn ghost small" @onclick="() => People.DeleteAsync(entity.Id)">Forget @entity.Name</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => People.DeleteAsync(entity.Id)">Forget @entity.Name</MudButton>
             </details>
         }
         @if (_people.Count == 0) { <p class="muted small">No one yet. Mention people and companies in chats and bots will keep notes.</p> }
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>What's going on in your life <span class="muted small">(@_threads.Count(t => !t.Done) open)</span></h3>
         <p class="muted small">The ongoing things your lead bot keeps up with — a job search, a move, a project — and brings up when it fits ("How did the interview go?"). Bots add to these as you talk; you can too.</p>
         @foreach (var t in _threads)
@@ -141,21 +138,21 @@
                     <div class="memory-row"><span class="grow">@u.Text</span><span class="muted small">@u.At.ToString("MMM d")</span></div>
                 }
                 <div class="row">
-                    <input class="grow" placeholder="What's new?" @bind="_threadNews[thread.Id]" @onkeydown="e => ThreadKey(e, thread)" />
-                    <button class="btn ghost small" @onclick="() => AddThreadNews(thread)">Add</button>
-                    <button class="btn ghost small" @onclick="() => Companion.SetDoneAsync(thread.Id, !thread.Done)">@(thread.Done ? "Reopen" : "Done")</button>
-                    <button class="icon-btn" title="Delete thread" aria-label="Delete thread" @onclick="() => Companion.RemoveThreadAsync(thread.Id)">🗑</button>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" Placeholder="What's new?" @bind-Value="_threadNews[thread.Id]" OnKeyDown="e => ThreadKey(e, thread)" />
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => AddThreadNews(thread)">Add</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Companion.SetDoneAsync(thread.Id, !thread.Done)">@(thread.Done ? "Reopen" : "Done")</MudButton>
+                    <MudIconButton Size="Size.Small" title="Delete thread" aria-label="Delete thread" OnClick="() => Companion.RemoveThreadAsync(thread.Id)">🗑</MudIconButton>
                 </div>
             </details>
         }
         <div class="row">
-            <input class="grow" placeholder="New thread, e.g. Job search" @bind="_newThread" />
-            <input class="grow" placeholder="Where it stands" @bind="_newThreadNews" @onkeydown="NewThreadKey" />
-            <button class="btn primary small" @onclick="AddThread" disabled="@(_newThread.Trim().Length < 2 || _newThreadNews.Trim().Length < 3)">Add</button>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" Placeholder="New thread, e.g. Job search" @bind-Value="_newThread" />
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" Placeholder="Where it stands" @bind-Value="_newThreadNews" OnKeyDown="NewThreadKey" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="AddThread" Disabled="@(_newThread.Trim().Length < 2 || _newThreadNews.Trim().Length < 3)">Add</MudButton>
         </div>
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>How your bots are with you</h3>
         <p class="muted small">What each bot has picked up about how to talk with you: your humor, what you're dealing with, how you like answers. It shapes their tone. Delete anything that's off.</p>
         @foreach (var (key, notes) in _vibes.Where(v => v.Value.Count > 0))
@@ -170,17 +167,17 @@
                     <div class="memory-row">
                         <span class="grow">@note.Text</span>
                         <span class="muted small">@note.At.ToString("MMM d")</span>
-                        <button class="icon-btn" title="Delete note" @onclick="() => Companion.RemoveNoteAsync(botKey == Hearth.Core.Services.Companion.PlainKey ? null : botKey, note.Id)">🗑</button>
+                        <MudIconButton Size="Size.Small" title="Delete note" OnClick="() => Companion.RemoveNoteAsync(botKey == Hearth.Core.Services.Companion.PlainKey ? null : botKey, note.Id)">🗑</MudIconButton>
                     </div>
                 }
             </details>
         }
         @if (_vibes.All(v => v.Value.Count == 0)) { <p class="muted small">Nothing yet — it builds up as you talk.</p> }
-    </section>
+    </MudPaper>
 
     @if (State.Bots.Count > 0)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Each bot's own memory</h3>
             <p class="muted">Bots also keep notes of their own. Open a bot to see, teach or edit what it remembers.</p>
             @foreach (var b in State.Bots)
@@ -191,7 +188,7 @@
                     <span class="muted small">@(_botCounts.GetValueOrDefault(b.Id)) memories@(b.Memory.Enabled ? (b.Memory.AutoLearn ? " · learning" : "") : " · off")</span>
                 </a>
             }
-        </section>
+        </MudPaper>
     }
 </div>
 

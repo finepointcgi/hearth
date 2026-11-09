@@ -3,17 +3,17 @@
 
 @if (Platform.CanUseComputer)
 {
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <h3>Bring over another agent</h3>
     <p class="muted small">Skills, memories and the personality file (SOUL.md) from Hermes, OpenClaw, Claude Code or Codex on this computer, or from any folder. You see everything first; imported skills wait for your review like any other import.</p>
     <div class="row">
         @foreach (var s in _sources)
         {
             var src = s;
-            <button class="btn ghost" @onclick="() => Preview(src)" disabled="@_busy">@src.Name</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => Preview(src)" Disabled="@_busy">@src.Name</MudButton>
         }
-        <input class="grow" @bind="_folder" placeholder="…or a folder, e.g. ~/my-agent" />
-        <button class="btn ghost" @onclick="PreviewFolder" disabled="@(_busy || string.IsNullOrWhiteSpace(_folder))">Look</button>
+        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_folder" Placeholder="…or a folder, e.g. ~/my-agent" />
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="PreviewFolder" Disabled="@(_busy || string.IsNullOrWhiteSpace(_folder))">Look</MudButton>
     </div>
     @if (_sources.Count == 0) { <p class="muted small">No other agents found in your home folder.</p> }
     @if (_message is not null) { <p class="muted small">@_message</p> }
@@ -24,46 +24,43 @@
             <b>@p.Source.Name</b> <span class="muted small">@p.Source.Root</span>
             @if (p.Soul is not null)
             {
-                <label class="check"><input type="checkbox" @bind="_takeSoul" /> Use its personality (SOUL.md) for Hearth <span class="muted small">— replaces yours</span></label>
+                <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_takeSoul" Class="check">Use its personality (SOUL.md) for Hearth <span class="muted small">— replaces yours</span></MudSwitch>
                 <details class="advanced"><summary>Show SOUL.md</summary><pre class="small">@p.Soul</pre></details>
             }
             @if (p.Memories.Count > 0)
             {
                 <div class="row"><b class="grow">Memories (@p.Memories.Count new)</b>
-                    <button class="btn ghost small" @onclick="() => { _facts = p.Memories.ToHashSet(); }">All</button>
-                    <button class="btn ghost small" @onclick="() => _facts.Clear()">None</button></div>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => { _facts = p.Memories.ToHashSet(); }">All</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _facts.Clear()">None</MudButton></div>
                 @foreach (var f in p.Memories)
                 {
                     var fact = f;
-                    <label class="check small"><input type="checkbox" checked="@_facts.Contains(fact)" @onchange="e => Toggle(_facts, fact, (bool)e.Value!)" /> @fact</label>
+                    <MudSwitch T="bool" Color="Color.Primary" Value="@(_facts.Contains(fact))" ValueChanged="(bool v) => Toggle(_facts, fact, v)" Class="check small">@fact</MudSwitch>
                 }
             }
             @if (p.Skills.Count > 0)
             {
                 <div class="row"><b class="grow">Skills (@p.Skills.Count)</b>
-                    <input placeholder="Filter" @bind="_filter" @bind:event="oninput" style="width:10rem" />
-                    <button class="btn ghost small" @onclick="SelectSafe">All without warnings</button>
-                    <button class="btn ghost small" @onclick="() => _skills.Clear()">None</button></div>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Filter" @bind-Value="_filter" Immediate="true" Style="width:10rem" />
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="SelectSafe">All without warnings</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _skills.Clear()">None</MudButton></div>
                 <div class="import-list">
                     @foreach (var s in p.Skills.Where(Matches))
                     {
                         var skill = s;
-                        <label class="check small">
-                            <input type="checkbox" checked="@_skills.Contains(skill.Path)" @onchange="e => Toggle(_skills, skill.Path, (bool)e.Value!)" />
-                            <span><b>@skill.Name</b>@(skill.Exists ? " (you have one by this name; it'll be added as a copy)" : "") — <span class="muted">@skill.Description</span>
-                                @foreach (var w in skill.Warnings) { <br /><span class="tiny-error">⚠ @w</span> }</span>
-                        </label>
+                        <MudSwitch T="bool" Color="Color.Primary" Value="@(_skills.Contains(skill.Path))" ValueChanged="(bool v) => Toggle(_skills, skill.Path, v)" Class="check small"><span><b>@skill.Name</b>@(skill.Exists ? " (you have one by this name; it'll be added as a copy)" : "") — <span class="muted">@skill.Description</span>
+                                @foreach (var w in skill.Warnings) { <br /><span class="tiny-error">⚠ @w</span> }</span></MudSwitch>
                     }
                 </div>
             }
             @if (p.Skills.Count == 0 && p.Memories.Count == 0 && p.Soul is null) { <p class="muted small">Nothing new to bring over.</p> }
             <div class="row">
                 <span class="grow muted small">@_skills.Count skills · @_facts.Count memories@(_takeSoul ? " · personality" : "")</span>
-                <button class="btn primary" @onclick="Import" disabled="@(_busy || (_skills.Count == 0 && _facts.Count == 0 && !_takeSoul))">Import selected</button>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Import" Disabled="@(_busy || (_skills.Count == 0 && _facts.Count == 0 && !_takeSoul))">Import selected</MudButton>
             </div>
         </div>
     }
-</section>
+</MudPaper>
 }
 
 @code {

@@ -4,7 +4,7 @@
 @inject AppState State
 @inject IHttpClientFactory Http
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <div class="row">
         <span class="conn-logo">📞</span>
         <span class="grow">
@@ -25,51 +25,47 @@
         </ol>
     </details>
 
-    <label class="check"><input type="checkbox" @bind="_config.Enabled" /> Phone calls on</label>
+    <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_config.Enabled" Class="check" Label="Phone calls on" />
     <div class="row">
-        <label class="grow">Account SID <input @bind="_config.AccountSid" placeholder="AC…" autocomplete="off" /></label>
-        <label class="grow">Auth Token <input type="password" @bind="_token" placeholder="@(_hasToken ? "saved (type to replace)" : "paste from the Twilio Console")" autocomplete="new-password" /></label>
+        <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_config.AccountSid" Placeholder="AC…" Label="Account SID" />
+        <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" @bind-Value="_token" Placeholder="@(_hasToken ? "saved (type to replace)" : "paste from the Twilio Console")" Label="Auth Token" />
     </div>
     <div class="row">
-        <label class="grow">Twilio number <input @bind="_config.Number" placeholder="+13135550100" /></label>
-        <label class="grow">Public https address <input @bind="_config.PublicUrl" placeholder="https://your-mac.tailnet.ts.net" /></label>
+        <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_config.Number" Placeholder="+13135550100" Label="Twilio number" />
+        <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_config.PublicUrl" Placeholder="https://your-mac.tailnet.ts.net" Label="Public https address" />
     </div>
     <div class="row">
-        <label class="grow">Answers calls
-            <select @bind="_answerBot">
-                <option value="">Hearth</option>
-                @foreach (var b in State.Bots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
-            </select>
-        </label>
-        <label class="grow">Who may call in <input @bind="_callers" placeholder="your cell, e.g. +13135550123 (comma-separated)" /></label>
+        <MudSelect Class="grow" Label="Answers calls" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_answerBot">
+                <MudSelectItem Value="@("")">Hearth</MudSelectItem>
+                @foreach (var b in State.Bots) { <MudSelectItem Value="@(b.Id)">@b.Emoji @b.Name</MudSelectItem> }
+            </MudSelect>
+        <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_callers" Placeholder="your cell, e.g. +13135550123 (comma-separated)" Label="Who may call in" />
     </div>
     <span class="muted small">Calls from any other number hear "this line is private" and are hung up, so strangers can't use your bots.</span>
     <details class="advanced">
         <summary>Voice</summary>
         <div class="row">
-            <label>Language <input @bind="_config.Language" style="width:7rem" /></label>
-            <label>Speech provider
-                <select @bind="_config.TtsProvider">
-                    <option value="">Twilio's default</option>
-                    <option value="Google">Google</option>
-                    <option value="Amazon">Amazon</option>
-                    <option value="ElevenLabs">ElevenLabs</option>
-                </select>
-            </label>
-            <label class="grow">Voice <input @bind="_config.Voice" placeholder="provider's default" /></label>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_config.Language" Style="width:7rem" Label="Language" />
+            <MudSelect Label="Speech provider" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_config.TtsProvider">
+                    <MudSelectItem Value="@("")">Twilio's default</MudSelectItem>
+                    <MudSelectItem Value="@("Google")">Google</MudSelectItem>
+                    <MudSelectItem Value="@("Amazon")">Amazon</MudSelectItem>
+                    <MudSelectItem Value="@("ElevenLabs")">ElevenLabs</MudSelectItem>
+                </MudSelect>
+            <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_config.Voice" Placeholder="provider's default" Label="Voice" />
         </div>
     </details>
 
     <div class="row end">
         @if (_message is not null) { <span class="muted small grow">@_message</span> }
-        <button class="btn ghost" @onclick="Check" disabled="@_checking">@(_checking ? "Checking…" : "Check")</button>
-        <button class="btn primary" @onclick="Save">Save</button>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Check" Disabled="@_checking">@(_checking ? "Checking…" : "Check")</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
     </div>
     @if (Phone.Active.Count > 0)
     {
         <div class="muted small">On a call now: @string.Join(", ", Phone.Active.Select(c => (c.Outbound ? "→ " : "← ") + c.Number))</div>
     }
-</section>
+</MudPaper>
 
 @code {
     private PhoneConfig _config = new();

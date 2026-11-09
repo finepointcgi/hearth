@@ -3,23 +3,23 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <div class="row">
         <span class="conn-logo"><Icon Name="code" Size="20" /></span>
         <span class="grow"><b>API for other apps</b><br />
             <span class="muted small">Use Hearth and your bots from other apps (Open WebUI, scripts, anything that speaks the OpenAI API) and from code editors.</span></span>
-        <label class="check"><input type="checkbox" class="switch" role="switch" checked="@_s.Enabled" @onchange="Toggle" /></label>
+        <MudSwitch T="bool" Color="Color.Primary" role="switch" Value="@(_s.Enabled)" ValueChanged="Ev.Change<bool>(Toggle)" Class="check"></MudSwitch>
     </div>
     @if (_s.Enabled)
     {
         <div class="sub">
-            <label>Address <span class="row"><input class="grow" value="@BaseUrl" readonly /><button class="btn ghost small" @onclick="() => Copy(BaseUrl)">Copy</button></span></label>
+            <label>Address <span class="row"><MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" Value="@(BaseUrl)" ReadOnly="true" /><MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Copy(BaseUrl)">Copy</MudButton></span></label>
             <label>API key (like a password: anyone with it can use your bots)
                 <span class="row">
                     <input class="grow" type="@(_show ? "text" : "password")" value="@_s.Key" readonly autocomplete="off" />
-                    <button class="btn ghost small" @onclick="() => _show = !_show">@(_show ? "Hide" : "Show")</button>
-                    <button class="btn ghost small" @onclick="() => Copy(_s.Key ?? string.Empty)">Copy</button>
-                    <button class="btn ghost small" @onclick="NewKey">New key</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _show = !_show">@(_show ? "Hide" : "Show")</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Copy(_s.Key ?? string.Empty)">Copy</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="NewKey">New key</MudButton>
                 </span>
             </label>
             <div class="muted small">Models: @string.Join(" · ", _models.Select(m => m.id))</div>
@@ -35,7 +35,7 @@
             </details>
         </div>
     }
-</section>
+</MudPaper>
 
 @code {
     private ApiSettings _s = new();

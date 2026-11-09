@@ -1,49 +1,37 @@
 @implements IDisposable
 @inject NavigationManager Nav
 @inject ApprovalCenter Approvals
-@inject IJSRuntime JS
 @inject CodeTools Code
 
 <nav class="rail" aria-label="Sections">
     <a class="rail-logo" href="" title="Hearth" aria-label="Hearth home">H</a>
-    @foreach (var s in ShellSections.All.Where(s => s.Id != "code" || Code.Available))
+    @foreach (var s in ShellSections.All.Where(s => s.Id != "settings" && (s.Id != "code" || Code.Available)))
     {
-        var section = s;
-        <a class="rail-item @(ShellSections.Current(Nav) == section.Id ? "active" : "")" href="@section.Href" title="@section.Title" aria-label="@section.Title">
-            <Icon Name="@section.Icon" Size="20" />
-            <span class="rail-label">@section.Title</span>
-            @if (section.Id == "inbox" && Approvals.Pending.Count > 0)
-            {
-                <span class="rail-badge" title="Waiting on you">@Approvals.Pending.Count</span>
-            }
-        </a>
+        @Item(s)
     }
+    @* Settings sits at the bottom of the rail (on phones it stays last in the bottom bar). *@
     <span class="rail-spacer"></span>
-    <button class="rail-item theme-toggle" title="Theme: @_theme (click to change)" aria-label="Change theme" @onclick="CycleTheme">
-        <Icon Name="@(_theme switch { "light" => "sun", "dark" => "moon", _ => "laptop" })" Size="18" />
-    </button>
+    @foreach (var s in ShellSections.All.Where(s => s.Id == "settings"))
+    {
+        @Item(s)
+    }
 </nav>
 
 @code {
-    private string _theme = "system";
+    private RenderFragment Item(ShellSection section) => @<a class="rail-item @(ShellSections.Current(Nav) == section.Id ? "active" : "")" href="@section.Href" title="@section.Title" aria-label="@section.Title">
+        <Icon Name="@section.Icon" Size="20" />
+        <span class="rail-label">@section.Title</span>
+        @if (section.Id == "inbox" && Approvals.Pending.Count > 0)
+        {
+            <span class="rail-badge" title="Waiting on you">@Approvals.Pending.Count</span>
+        }
+    </a>;
 
     protected override void OnInitialized()
     {
         Nav.LocationChanged += OnChange;
         Approvals.Requested += OnApproval;
         Approvals.Resolved += OnResolved;
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender) return;
-        try { _theme = await JS.InvokeAsync<string>("hearth.getTheme"); StateHasChanged(); } catch { /* prerendering */ }
-    }
-
-    private async Task CycleTheme()
-    {
-        _theme = _theme switch { "system" => "light", "light" => "dark", _ => "system" };
-        await JS.InvokeVoidAsync("hearth.setTheme", _theme);
     }
 
     private void OnChange(object? s, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);

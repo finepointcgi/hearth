@@ -2,31 +2,31 @@
 @inject SettingsStore SettingsStore
 @inject ILlmClientFactory Factory
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <h3>Automatic model choice</h3>
     <p class="muted small">Send everyday messages to a fast model (local, free, private) and hard work (research, analysis, writing documents, code, long or multi-part requests, attachments) to a strong one. Decided on the spot from each message, with no extra model call; the reason shows in the reply's details. Bots with their own model or server keep theirs.</p>
-    <label class="check"><input type="checkbox" @bind="_r.Enabled" /> Choose the model for each message automatically</label>
+    <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_r.Enabled" Class="check" Label="Choose the model for each message automatically" />
     @foreach (var (label, strong) in new[] { ("Fast model", false), ("Strong model", true) })
     {
         var isStrong = strong;
         <div class="row">
             <b style="min-width:7rem">@label</b>
-            <select value="@(isStrong ? _r.StrongProviderId : _r.FastProviderId)" @onchange="e => SetProvider(isStrong, e.Value?.ToString())">
-                <option value="">(choose a server)</option>
-                @foreach (var p in _providers) { <option value="@p.Id">@p.Name</option> }
-            </select>
-            <select class="grow" value="@(isStrong ? _r.StrongModel : _r.FastModel)" @onchange="e => SetModel(isStrong, e.Value?.ToString() ?? string.Empty)">
-                <option value="">(choose a model)</option>
-                @foreach (var m in ModelsFor(isStrong ? _r.StrongProviderId : _r.FastProviderId)) { <option value="@m">@m</option> }
-                @if ((isStrong ? _r.StrongModel : _r.FastModel) is { Length: > 0 } cur && !ModelsFor(isStrong ? _r.StrongProviderId : _r.FastProviderId).Contains(cur)) { <option value="@cur">@cur</option> }
-            </select>
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(isStrong ? _r.StrongProviderId : _r.FastProviderId)" ValueChanged="(string v) => SetProvider(isStrong, v)" T="string">
+                <MudSelectItem Value="@("")">(choose a server)</MudSelectItem>
+                @foreach (var p in _providers) { <MudSelectItem Value="@(p.Id)">@p.Name</MudSelectItem> }
+            </MudSelect>
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="grow" Value="@(isStrong ? _r.StrongModel : _r.FastModel)" ValueChanged="(string v) => SetModel(isStrong, v ?? string.Empty)" T="string">
+                <MudSelectItem Value="@("")">(choose a model)</MudSelectItem>
+                @foreach (var m in ModelsFor(isStrong ? _r.StrongProviderId : _r.FastProviderId)) { <MudSelectItem Value="@(m)">@m</MudSelectItem> }
+                @if ((isStrong ? _r.StrongModel : _r.FastModel) is { Length: > 0 } cur && !ModelsFor(isStrong ? _r.StrongProviderId : _r.FastProviderId).Contains(cur)) { <MudSelectItem Value="@(cur)">@cur</MudSelectItem> }
+            </MudSelect>
         </div>
     }
     <div class="row end">
         @if (_message is not null) { <span class="muted small grow">@_message</span> }
-        <button class="btn primary" @onclick="Save">Save</button>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
     </div>
-</section>
+</MudPaper>
 
 @code {
     private ModelRoutingSettings _r = new();
