@@ -5,21 +5,28 @@
 
 <nav class="rail" aria-label="Sections">
     <a class="rail-logo" href="" title="Hearth" aria-label="Hearth home">H</a>
-    @foreach (var s in ShellSections.All.Where(s => s.Id != "code" || Code.Available))
+    @foreach (var s in ShellSections.All.Where(s => s.Id != "settings" && (s.Id != "code" || Code.Available)))
     {
-        var section = s;
-        <a class="rail-item @(ShellSections.Current(Nav) == section.Id ? "active" : "")" href="@section.Href" title="@section.Title" aria-label="@section.Title">
-            <Icon Name="@section.Icon" Size="20" />
-            <span class="rail-label">@section.Title</span>
-            @if (section.Id == "inbox" && Approvals.Pending.Count > 0)
-            {
-                <span class="rail-badge" title="Waiting on you">@Approvals.Pending.Count</span>
-            }
-        </a>
+        @Item(s)
+    }
+    @* Settings sits at the bottom of the rail (on phones it stays last in the bottom bar). *@
+    <span class="rail-spacer"></span>
+    @foreach (var s in ShellSections.All.Where(s => s.Id == "settings"))
+    {
+        @Item(s)
     }
 </nav>
 
 @code {
+    private RenderFragment Item(ShellSection section) => @<a class="rail-item @(ShellSections.Current(Nav) == section.Id ? "active" : "")" href="@section.Href" title="@section.Title" aria-label="@section.Title">
+        <Icon Name="@section.Icon" Size="20" />
+        <span class="rail-label">@section.Title</span>
+        @if (section.Id == "inbox" && Approvals.Pending.Count > 0)
+        {
+            <span class="rail-badge" title="Waiting on you">@Approvals.Pending.Count</span>
+        }
+    </a>;
+
     protected override void OnInitialized()
     {
         Nav.LocationChanged += OnChange;
