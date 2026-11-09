@@ -18,12 +18,14 @@ public sealed class ChannelLink
     public bool NotifyRoutines { get; set; } = true;
     /// <summary>"A bot wants to run…" with Allow/Deny buttons.</summary>
     public bool NotifyApprovals { get; set; } = true;
-    /// <summary>Background task progress (tasks started from this chat always report here).</summary>
-    public bool NotifyTasks { get; set; } = true;
+    // A new link starts quiet: approvals, routine results, and replies/progress for what you start from the chat.
+    // Everything else is opt-in (/notify on, or Connections → Chat apps).
+    /// <summary>Progress of background tasks started elsewhere (tasks started from this chat always report here).</summary>
+    public bool NotifyTasks { get; set; }
     /// <summary>Heartbeat check-ins that found something.</summary>
-    public bool NotifyHeartbeat { get; set; } = true;
+    public bool NotifyHeartbeat { get; set; }
     /// <summary>"The model server is down / back up".</summary>
-    public bool NotifyHealth { get; set; } = true;
+    public bool NotifyHealth { get; set; }
     /// <summary>Quiet hours, local HH:mm (empty = none): nothing is sent on its own then, except approval requests.</summary>
     public string QuietFrom { get; set; } = "";
     public string QuietTo { get; set; } = "";

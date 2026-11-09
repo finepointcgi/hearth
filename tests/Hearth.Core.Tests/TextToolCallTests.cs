@@ -39,6 +39,56 @@ public sealed class TextToolCallTests
     }
 
     [Fact]
+    public void ClaudeInvokeFormat()
+    {
+        var (calls, rest) = TextToolCalls.Find(
+            "Let me look.\n<invoke name=\"web_search\">\n<parameter name=\"query\">hosted deploy guide</parameter>\n<parameter name=\"count\">1</parameter>\n</invoke>", Tools);
+        var call = Assert.Single(calls);
+        Assert.Equal("web_search", call.Name);
+        Assert.Equal("{\"query\":\"hosted deploy guide\",\"count\":1}", call.ArgumentsJson);
+        Assert.Equal("Let me look.", rest);
+
+        // Wrapped in <function_calls>, two different calls.
+        var (wrapped, left) = TextToolCalls.Find(
+            "<function_calls>\n<invoke name=\"web_search\"><parameter name=\"query\">a</parameter></invoke>\n<invoke name=\"fetch_url\"><parameter name=\"url\">https://a.test</parameter></invoke>\n</function_calls>", Tools);
+        Assert.Equal(["web_search", "fetch_url"], wrapped.Select(c => c.Name));
+        Assert.Equal("", left);
+    }
+
+    [Fact]
+    public void RepeatedIdenticalCallsRunOnce()
+    {
+        var once = "<invoke name=\"web_search\">\n<parameter name=\"query\">x</parameter>\n</invoke>\n\n";
+        var (calls, _) = TextToolCalls.Find(string.Concat(Enumerable.Repeat(once, 6)), Tools);
+        Assert.Single(calls);
+    }
+
+    [Fact]
+    public void UnknownToolInInvokeIsLeftAlone()
+    {
+        var text = "<invoke name=\"read_past_chat\"><parameter name=\"id\">f10c</parameter></invoke>";
+        var (calls, rest) = TextToolCalls.Find(text, Tools);
+        Assert.Empty(calls);
+        Assert.Equal(text, rest);
+    }
+
+    [Fact]
+    public void MarkupThatNeverRanIsFoundAndRemoved()
+    {
+        Assert.True(TextToolCalls.HasMarkup("<invoke name=\"list_follow_ups\"> </invoke>"));
+        Assert.True(TextToolCalls.HasMarkup("<tool_call> <function=run_command> <parameter=command> cd /workspace"));
+        Assert.False(TextToolCalls.HasMarkup("**Due this week:** call your lender."));
+
+        // Only markup (what the heartbeat was sending): nothing left to send.
+        Assert.Equal("", TextToolCalls.WithoutMarkup(
+            "<invoke name=\"read_past_chat\">\n<parameter name=\"id\">f10c</parameter>\n</invoke>\n\n<invoke name=\"read_past_chat\">\n<parameter name=\"id\">f10c</parameter>\n</invoke>"));
+        Assert.Equal("", TextToolCalls.WithoutMarkup("<tool_call> <function=run_command> <parameter=command> cd /workspace && python3 -c \"import json"));
+        // Real words around it are kept.
+        Assert.Equal("Your lender call is due Friday.",
+            TextToolCalls.WithoutMarkup("Your lender call is due Friday.\n\n<function_calls>\n<invoke name=\"x\"></invoke>\n</function_calls>"));
+    }
+
+    [Fact]
     public void OrdinaryJsonIsLeftAlone()
     {
         var text = "Here's the config:\n```json\n{\"name\": \"my-app\", \"version\": 2}\n```";
