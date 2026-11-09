@@ -3,6 +3,12 @@
 @inject AppState State
 @inject NavigationManager Nav
 @inject SettingsStore SettingsStore
+@inject IJSRuntime JS
+
+<MudThemeProvider Theme="HearthMudTheme.Theme" IsDarkMode="_dark" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
 
 <div class="shell @(State.SidebarOpen ? "sidebar-open" : "")">
     <NavRail />
@@ -13,10 +19,10 @@
         <ErrorBoundary @ref="_boundary">
             <ChildContent>@Body</ChildContent>
             <ErrorContent Context="ex">
-                <div class="error-box page-error">
+                <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box page-error">
                     <b>Something on this page broke.</b> @ex.Message
-                    <button class="btn small" @onclick="Recover">Try again</button>
-                </div>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick="Recover">Try again</MudButton>
+                </MudAlert>
             </ErrorContent>
         </ErrorBoundary>
     </main>
@@ -47,6 +53,40 @@
             }
             else if (!Nav.Uri.Contains("/welcome")) Nav.NavigateTo("welcome");
         }
+    }
+
+    // The theme from settings (Settings → Appearance), re-applied whenever it changes, here or on another device.
+    private string? _themeKey;
+    private bool _themeChecked;
+    private bool _dark = true;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try
+        {
+            // From the store (not State.Settings, which may still be loading on the first render).
+            var theme = (await SettingsStore.GetAsync()).Theme;
+            var checkLegacy = !_themeChecked;
+            _themeChecked = true;
+            if (checkLegacy && !theme.Chosen && await JS.InvokeAsync<string>("hearth.legacyTheme") is var old && old is "light" or "dark")
+            {
+                // Carry over the light/dark choice older versions kept on this device.
+                var settings = await SettingsStore.GetAsync();
+                settings.Theme.Mode = old;
+                settings.Theme.Chosen = true;
+                await SettingsStore.SaveAsync(settings);
+                theme = settings.Theme;
+            }
+            var key = ThemeCatalog.Key(theme);
+            if (key == _themeKey) return;
+            _themeKey = key;
+            await JS.InvokeVoidAsync("hearth.applyTheme", ThemeCatalog.ForJs(theme));
+            // MudBlazor's own light/dark switch (for the few things it doesn't take from the theme variables).
+            var dark = await JS.InvokeAsync<bool>("hearth.isDark");
+            if (dark != _dark) { _dark = dark; StateHasChanged(); }
+        }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { /* prerendering */ }
     }
 
     private void CloseSidebar() { State.SidebarOpen = false; State.NotifyChanged(); }

@@ -10,22 +10,22 @@
 @inject NavigationManager Nav
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Agents</h2>
     <span class="spacer"></span>
-    <button class="btn ghost" @onclick="Refresh" disabled="@_loading">@(_loading ? "Looking…" : "Look again")</button>
+    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Refresh" Disabled="@_loading">@(_loading ? "Looking…" : "Look again")</MudButton>
 </header>
 
 <div class="settings agents-page">
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <p>Other AI agents on this computer, like Hermes and Claude Code. Give them a job here, or let your bots hand work to them.
             They work in a folder you pick, every step shows up live, and anything they want to do that their setting doesn't
             allow comes to you to approve, here or on your phone.</p>
         @if (!Hub.Available)
         {
-            <div class="error-box">@(Platform.CanRunProcesses ? "This account isn't allowed to use this computer, and other agents would act with its logins and files. The owner can allow it in Settings → Accounts." : "Agents run as programs on this computer, so they work in the desktop app or the web host with local access.")</div>
+            <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@(Platform.CanRunProcesses ? "This account isn't allowed to use this computer, and other agents would act with its logins and files. The owner can allow it in Settings → Accounts." : "Agents run as programs on this computer, so they work in the desktop app or the web host with local access.")</MudAlert>
         }
-    </section>
+    </MudPaper>
 
     @if (Platform.CanRunProcesses && !Platform.CanUseComputer)
     {
@@ -40,30 +40,24 @@
         var installed = AgentsOn(_computer);
         @if (_agents.Any(a => a.Installed) || _nodes.Values.Any(n => n.Any(a => a.Installed)))
         {
-            <section class="card">
+            <MudPaper Class="card" Elevation="0">
                 <h3><span aria-hidden="true">🚀</span> Give an agent a job</h3>
                 <div class="row">
                     @if (_hosts.Count > 0)
                     {
-                        <label>On
-                            <select value="@_computer" @onchange="PickComputer">
-                                <option value="">this computer</option>
-                                @foreach (var h in _hosts) { <option value="@h.Id">@h.Name</option> }
-                            </select>
-                        </label>
+                        <MudSelect Label="On" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(_computer)" ValueChanged="Ev.Change<string>(PickComputer)" T="string">
+                                <MudSelectItem Value="@("")">this computer</MudSelectItem>
+                                @foreach (var h in _hosts) { <MudSelectItem Value="@(h.Id)">@h.Name</MudSelectItem> }
+                            </MudSelect>
                     }
-                    <label>Agent
-                        <select value="@_agentId" @onchange="PickAgent">
-                            @foreach (var a in installed) { <option value="@a.Def.Id">@a.Def.Icon @a.Def.Name</option> }
-                        </select>
-                    </label>
+                    <MudSelect Label="Agent" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(_agentId)" ValueChanged="Ev.Change<string>(PickAgent)" T="string">
+                            @foreach (var a in installed) { <MudSelectItem Value="@(a.Def.Id)">@a.Def.Icon @a.Def.Name</MudSelectItem> }
+                        </MudSelect>
                     @if (_jobProfiles.Count > 1)
                     {
-                        <label>Profile
-                            <select @bind="_jobProfile">
-                                @foreach (var p in _jobProfiles) { <option value="@p.Name">@p.Name</option> }
-                            </select>
-                        </label>
+                        <MudSelect Label="Profile" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_jobProfile">
+                                @foreach (var p in _jobProfiles) { <MudSelectItem Value="@(p.Name)">@p.Name</MudSelectItem> }
+                            </MudSelect>
                     }
                     <label class="grow">Folder
                         <input @bind="_folder" list="agent-folders" placeholder="@(_computer == "" ? "~/projects/my-app" : "full path there, e.g. ~/projects/my-app")" />
@@ -76,19 +70,19 @@
                 {
                     <p class="muted small">@(_computer == "" ? "No agents are installed on this computer." : _nodeErrors.TryGetValue(_computer, out var why) ? why : _nodes.ContainsKey(_computer) ? "No agents found on that computer." : "Checking that computer…")</p>
                 }
-                <textarea rows="3" @bind="_task" placeholder="What should it do? e.g. Find why the login test fails and fix it, then run the tests."></textarea>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="3" @bind-Value="_task" Placeholder="What should it do? e.g. Find why the login test fails and fix it, then run the tests." />
                 <div class="row end">
                     @if (_startError is not null) { <span class="error-text small grow">@_startError</span> }
-                    <button class="btn primary" @onclick="Start" disabled="@(_starting || string.IsNullOrWhiteSpace(_task) || string.IsNullOrWhiteSpace(_folder))">@(_starting ? "Starting…" : "Start")</button>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Start" Disabled="@(_starting || string.IsNullOrWhiteSpace(_task) || string.IsNullOrWhiteSpace(_folder))">@(_starting ? "Starting…" : "Start")</MudButton>
                 </div>
-            </section>
+            </MudPaper>
         }
 
         @foreach (var a in _agents)
         {
             var agent = a;
             var s = _settings.Agents.ByAgent.TryGetValue(agent.Def.Id, out var cfg) ? cfg : null;
-            <section class="card agent-card @(agent.Installed ? "" : "not-installed")">
+            <MudPaper Class="@($"card agent-card {(agent.Installed ? "" : "not-installed")}")" Elevation="0">
                 <div class="row">
                     <span class="agent-icon" aria-hidden="true">@agent.Def.Icon</span>
                     <span class="grow"><b>@agent.Def.Name</b>
@@ -96,29 +90,27 @@
                         <br /><span class="muted small">@agent.Def.About</span></span>
                     @if (agent.Installed)
                     {
-                        @if (agent.Def.StatusArgs is not null) { <button class="btn small ghost" @onclick="() => Status(agent)" disabled="@(_busy == agent.Def.Id)">Status</button> }
-                        @if (agent.Def.UpdateArgs is not null) { <button class="btn small ghost" @onclick="() => Update(agent)" disabled="@(_busy == agent.Def.Id)">@(_busy == agent.Def.Id && _busyWhat == "update" ? "Updating…" : "Update")</button> }
+                        @if (agent.Def.StatusArgs is not null) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Status(agent)" Disabled="@(_busy == agent.Def.Id)">Status</MudButton> }
+                        @if (agent.Def.UpdateArgs is not null) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Update(agent)" Disabled="@(_busy == agent.Def.Id)">@(_busy == agent.Def.Id && _busyWhat == "update" ? "Updating…" : "Update")</MudButton> }
                     }
                     else if (agent.Def.InstallUrl is not null)
                     {
-                        <a class="btn small ghost" href="@agent.Def.InstallUrl" target="_blank" rel="noopener">How to install</a>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="@agent.Def.InstallUrl" target="_blank" rel="noopener">How to install</MudButton>
                     }
                 </div>
                 @if (agent.Installed)
                 {
                     var c = Cfg(agent.Def.Id);
                     <div class="row agent-settings">
-                        <label class="check"><input type="checkbox" checked="@c.Enabled" @onchange="e => Set(agent.Def.Id, x => x.Enabled = (bool)e.Value!)" /> Bots can hand work to it</label>
-                        <label>Without asking, it may
-                            <select value="@c.Mode" @onchange="e => Set(agent.Def.Id, x => x.Mode = Enum.Parse<AgentMode>(e.Value!.ToString()!))">
-                                <option value="@AgentMode.Ask">only look around</option>
-                                <option value="@AgentMode.AcceptEdits">change files in the folder</option>
-                                <option value="@AgentMode.FullAuto">do anything (no asking)</option>
-                                <option value="@AgentMode.ReadOnly">nothing but look (refuse the rest)</option>
-                            </select>
-                        </label>
+                        <MudSwitch T="bool" Color="Color.Primary" Value="@(c.Enabled)" ValueChanged="(bool v) => Set(agent.Def.Id, x => x.Enabled = v)" Class="check" Label="Bots can hand work to it" />
+                        <MudSelect Label="Without asking, it may" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(c.Mode.ToString())" ValueChanged="Ev.Change<string>(e => Set(agent.Def.Id, x => x.Mode = Enum.Parse<AgentMode>(e.Value!.ToString()!)))" T="string">
+                                <MudSelectItem Value="@(AgentMode.Ask)">only look around</MudSelectItem>
+                                <MudSelectItem Value="@(AgentMode.AcceptEdits)">change files in the folder</MudSelectItem>
+                                <MudSelectItem Value="@(AgentMode.FullAuto)">do anything (no asking)</MudSelectItem>
+                                <MudSelectItem Value="@(AgentMode.ReadOnly)">nothing but look (refuse the rest)</MudSelectItem>
+                            </MudSelect>
                         <label>Stop after
-                            <input type="number" min="1" max="600" value="@c.MaxMinutes" style="width:5rem" @onchange="e => Set(agent.Def.Id, x => x.MaxMinutes = int.TryParse(e.Value?.ToString(), out var m) ? Math.Clamp(m, 1, 600) : 30)" /> min
+                            <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" Value="@(c.MaxMinutes)" Style="width:5rem" ValueChanged="(int v) => Set(agent.Def.Id, x => x.MaxMinutes = Math.Clamp(v, 1, 600))" /> min
                         </label>
                     </div>
                     @if (c.Mode == AgentMode.FullAuto) { <p class="warn-text small">It won't ask before running commands or changing files. Use it only on folders you can restore.</p> }
@@ -130,10 +122,10 @@
                 {
                     <pre class="agent-output small">@output</pre>
                 }
-            </section>
+            </MudPaper>
         }
 
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3><span aria-hidden="true">🖥️</span> Other computers</h3>
             <p class="muted small">Run agents on your other machines too (a server, a work laptop, a Mac mini). Hearth connects with your SSH
                 keys, runs the agent there, and shows its steps and approvals here as if it were local.</p>
@@ -143,7 +135,7 @@
                 <div class="node-row">
                     <div class="row">
                         <span class="grow"><b>@host.Name</b> <span class="muted small">@host.Target@(string.IsNullOrWhiteSpace(host.Notes) ? "" : $" · {host.Notes}")</span></span>
-                        <button class="btn small ghost" @onclick="() => CheckNode(host, true)" disabled="@_checking.Contains(host.Id)">@(_checking.Contains(host.Id) ? "Checking…" : "Check")</button>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => CheckNode(host, true)" Disabled="@_checking.Contains(host.Id)">@(_checking.Contains(host.Id) ? "Checking…" : "Check")</MudButton>
                     </div>
                     @if (_nodeErrors.TryGetValue(host.Id, out var err)) { <p class="error-text small">@err</p> }
                     else if (_nodes.TryGetValue(host.Id, out var there))
@@ -156,8 +148,8 @@
                             <div class="node-agent">
                                 <div class="row">
                                     <span class="grow small">@agent.Def.Icon <b>@agent.Def.Name</b> <span class="muted">@(agent.Version ?? "")</span></span>
-                                    @if (agent.Def.StatusArgs is not null) { <button class="btn small ghost" @onclick="() => NodeCommand(host, agent, agent.Def.StatusArgs, false)" disabled="@(_busy == host.Id)">Status</button> }
-                                    @if (agent.Def.UpdateArgs is not null) { <button class="btn small ghost" @onclick="() => NodeCommand(host, agent, agent.Def.UpdateArgs, true)" disabled="@(_busy == host.Id)">Update</button> }
+                                    @if (agent.Def.StatusArgs is not null) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => NodeCommand(host, agent, agent.Def.StatusArgs, false)" Disabled="@(_busy == host.Id)">Status</MudButton> }
+                                    @if (agent.Def.UpdateArgs is not null) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => NodeCommand(host, agent, agent.Def.UpdateArgs, true)" Disabled="@(_busy == host.Id)">Update</MudButton> }
                                 </div>
                                 <AgentMemoryPanel Def="agent.Def" Host="host" />
                             </div>
@@ -168,13 +160,13 @@
                 </div>
             }
             <p class="muted small">The settings above (what each agent may do without asking, time limit) apply on every computer.</p>
-        </section>
+        </MudPaper>
         <details class="card advanced">
             <summary><b>Add a computer</b></summary>
             <RemoteHostsCard Changed="HostsChanged" />
         </details>
 
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3><span aria-hidden="true">🗂️</span> Recent jobs</h3>
             @if (_runs.Count == 0) { <p class="muted small">Nothing yet. Jobs show up here, whether you started them or a bot did.</p> }
             @foreach (var r in _runs)
@@ -186,7 +178,7 @@
                         <br /><span class="muted small">@(run.NodeName is { } n ? $"{n}: " : "")@System.IO.Path.GetFileName(run.Folder.TrimEnd('/')) · @run.Started.LocalDateTime.ToString("MMM d, h:mm tt")@(run.BotId is { } b && State.BotById(b) is { } bot ? $" · from {bot.Name}" : "")</span></span>
                 </a>
             }
-        </section>
+        </MudPaper>
     }
 </div>
 

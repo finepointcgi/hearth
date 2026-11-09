@@ -4,7 +4,7 @@
 @inject UsageStore UsageLog
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Usage</h2>
     <span class="spacer"></span>
     <div class="seg-mini" role="group" aria-label="Period">
@@ -30,11 +30,11 @@
 
     @if (_rows.Count == 0)
     {
-        <section class="card"><p class="muted">No model calls in this period yet. Every reply, routine, task and background job is counted here.</p></section>
+        <MudPaper Class="card" Elevation="0"><p class="muted">No model calls in this period yet. Every reply, routine, task and background job is counted here.</p></MudPaper>
     }
     else
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3 class="section-title">By day <span class="muted small">tokens · bar colour = cost</span></h3>
             <div class="day-bars">
                 @foreach (var day in Days())
@@ -47,7 +47,7 @@
                     </div>
                 }
             </div>
-        </section>
+        </MudPaper>
 
         <div class="usage-grid">
             @Breakdown("By bot", _rows.GroupBy(r => r.BotId is { } id ? State.BotById(id)?.Name ?? "Deleted bot" : "Hearth"))
@@ -57,16 +57,16 @@
 
         @if (_replies.Count > 0)
         {
-            <section class="card">
+            <MudPaper Class="card" Elevation="0">
                 <h3 class="section-title">Speed and answer checks <span class="muted small">typical (median) times · checks only run after research</span></h3>
                 <div class="usage-grid two">
                     @Speed("By model", _replies.GroupBy(r => $"{r.Model} · {r.Provider}"))
                     @Speed("By bot", _replies.GroupBy(r => r.BotId is { } id ? State.BotById(id)?.Name ?? "Deleted bot" : "Hearth"))
                 </div>
-            </section>
+            </MudPaper>
         }
 
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3 class="section-title">Most expensive chats and runs</h3>
             @foreach (var g in _rows.Where(r => r.ConversationId is not null).GroupBy(r => r.ConversationId!)
                          .OrderByDescending(g => g.Sum(r => r.Cost ?? 0)).ThenByDescending(g => g.Sum(r => (long)r.InputTokens + r.OutputTokens)).Take(8))
@@ -78,7 +78,7 @@
                     <span class="usage-num">@Money(g.Sum(r => r.Cost ?? 0))</span>
                 </a>
             }
-        </section>
+        </MudPaper>
         <p class="muted small">Costs are estimates from the published per-token prices (Claude API) or the prices you set on a model server. Claude Code calls are covered by your Claude subscription. Servers that don't report tokens are estimated at about four characters per token.</p>
     }
 </div>

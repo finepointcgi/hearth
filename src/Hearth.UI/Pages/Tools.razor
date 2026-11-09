@@ -7,52 +7,49 @@
 @inject CodeSandbox Sandbox
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Tools</h2>
     <span class="spacer"></span>
     @if (_saved) { <span class="ok-text">Saved ✓</span> }
-    <button class="btn primary" @onclick="Save">Save</button>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
 </header>
 
 @if (_s is not null)
 {
 <div class="settings">
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Tool calling</h3>
         <p class="muted">Models that support tool calling (qwen3, llama3.1+, mistral-small, gpt-oss…) can use these. Small models may call tools poorly.</p>
-        <label class="check"><input type="checkbox" @bind="_s.Tools.EnabledByDefault" /> Tools on by default in new chats</label>
-        <label class="check"><input type="checkbox" @bind="_s.Tools.AutoApproveAll" /> Don't ask before running tools that can change things or run code</label>
-        <label>Max tool rounds per reply <input type="number" min="1" max="25" @bind="_s.Tools.MaxRounds" style="width:6rem" /></label>
-        <label class="check"><input type="checkbox" @bind="_s.Tools.PickToolsPerMessage" /> Offer each reply only the tools it's likely to need <span class="muted small">(email, calendar, documents… when the chat is about them; bots can load the rest). Much faster on local models.</span></label>
-    </section>
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Tools.EnabledByDefault" Class="check" Label="Tools on by default in new chats" />
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Tools.AutoApproveAll" Class="check" Label="Don't ask before running tools that can change things or run code" />
+        <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.Tools.MaxRounds" Style="width:6rem" Label="Max tool rounds per reply" />
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Tools.PickToolsPerMessage" Class="check">Offer each reply only the tools it's likely to need <span class="muted small">(email, calendar, documents… when the chat is about them; bots can load the rest). Much faster on local models.</span></MudSwitch>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Built-in tools</h3>
         @foreach (var (tool, reason) in _catalog)
         {
             var t = tool;
             <div class="tool-row @(reason is null ? "" : "unavailable")">
-                <label class="check grow">
-                    <input type="checkbox" checked="@(!_s.Tools.DisabledTools.Contains(t.Name))" @onchange="e => Toggle(t.Name, (bool)e.Value!)" />
-                    <span class="tool-icon">@t.Icon</span> <b>@t.DisplayName</b>
+                <MudSwitch T="bool" Color="Color.Primary" Value="@(!_s.Tools.DisabledTools.Contains(t.Name))" ValueChanged="(bool v) => Toggle(t.Name, v)" Class="check grow"><span class="tool-icon">@t.Icon</span> <b>@t.DisplayName</b>
                     @if (t.RequiresApproval && !(t.Name is "run_python" or "run_command" && Sandbox.Active(_s))) { <span class="badge">asks first</span> }
-                    else if (t.Name is "run_python" or "run_command") { <span class="badge">sandbox</span> }
-                </label>
+                    else if (t.Name is "run_python" or "run_command") { <span class="badge">sandbox</span> }</MudSwitch>
                 <span class="muted small">@(reason ?? "Ready")</span>
             </div>
         }
         @if (Platform.CanUseComputer)
         {
             <div class="sub">
-                <label class="check"><input type="checkbox" @bind="_s.Tools.PythonEnabled" /> Allow the Python tool</label>
-                <input placeholder="Python path (optional, auto-detected; only used without the sandbox)" @bind="_s.Tools.PythonPath" />
+                <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Tools.PythonEnabled" Class="check" Label="Allow the Python tool" />
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Python path (optional, auto-detected; only used without the sandbox)" @bind-Value="_s.Tools.PythonPath" />
             </div>
             <div class="sub">
                 <h4>Code sandbox</h4>
                 <p class="muted small">Python, workspace commands and project commands run in a Docker container instead of on this computer, so they don't ask first. The container has no extra privileges, limited memory, and sees only Hearth's workspace (or the one project folder it's working in). Without the sandbox, code runs on this computer and asks every time.</p>
-                <label class="check"><input type="checkbox" @bind="_s.Tools.Sandbox.Enabled" /> Run code in the sandbox</label>
-                <label class="check"><input type="checkbox" @bind="_s.Tools.Sandbox.Network" /> Internet access in the sandbox (for installing packages)</label>
-                <label>Image <input @bind="_s.Tools.Sandbox.Image" placeholder="python:3.12-slim" /></label>
+                <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Tools.Sandbox.Enabled" Class="check" Label="Run code in the sandbox" />
+                <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Tools.Sandbox.Network" Class="check" Label="Internet access in the sandbox (for installing packages)" />
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.Tools.Sandbox.Image" Placeholder="python:3.12-slim" Label="Image" />
                 <p class="muted small">
                     @if (Sandbox.DockerPath is null) { <span>Docker isn't installed, so code runs on this computer (asking first). Install Docker Desktop to use the sandbox.</span> }
                     else if (_sandboxProblem is not null) { <span class="tiny-error">@_sandboxProblem</span> }
@@ -62,12 +59,12 @@
             <div class="sub">
                 <h4>Helper agents</h4>
                 <p class="muted small">Bots can split a job into parts and hand them to temporary helpers that work at the same time (each helper is a model call running in parallel, so local servers may slow down with many).</p>
-                <label>Helpers at once (0 = off) <input type="number" min="0" max="10" @bind="_s.Tools.MaxHelpers" style="width:5rem" /></label>
+                <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.Tools.MaxHelpers" Style="width:5rem" Label="Helpers at once (0 = off)" />
             </div>
         }
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Add an integration</h3>
         <p class="muted small">Popular MCP servers, set up for you. Versions are pinned; secrets you enter are encrypted on this computer.</p>
         <div class="catalog-grid">
@@ -98,14 +95,14 @@
                 }
                 @if (adding.Fields.Count == 0) { <span class="muted small">Nothing to fill in.</span> }
                 <div class="row end">
-                    <button class="btn ghost" @onclick="() => _adding = null">Cancel</button>
-                    <button class="btn primary" disabled="@(!adding.IsComplete(_values))" @onclick="AddFromCatalog">Add @adding.Name</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _adding = null">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!adding.IsComplete(_values))" OnClick="AddFromCatalog">Add @adding.Name</MudButton>
                 </div>
             </div>
         }
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>MCP servers</h3>
         <p class="muted">
             Plug in any <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">Model Context Protocol</a> server (files, GitHub, databases, Home Assistant…).
@@ -118,38 +115,36 @@
             var status = _status.FirstOrDefault(x => x.Id == server.Id);
             <div class="provider">
                 <div class="row">
-                    <label class="check"><input type="checkbox" @bind="server.Enabled" /> On</label>
-                    <input class="grow" @bind="server.Name" placeholder="Name" />
-                    <select @bind="server.Transport">
-                        <option value="@McpTransport.Stdio">Local command (stdio)</option>
-                        <option value="@McpTransport.Http">HTTP</option>
-                    </select>
-                    <button class="icon-btn" title="Remove" aria-label="Remove" @onclick="() => _s.McpServers.Remove(server)"><Icon Name="trash-2" Size="15" /></button>
+                    <MudSwitch T="bool" Color="Color.Primary" @bind-Value="server.Enabled" Class="check" Label="On" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="server.Name" Placeholder="Name" />
+                    <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="server.Transport">
+                        <MudSelectItem Value="@(McpTransport.Stdio)">Local command (stdio)</MudSelectItem>
+                        <MudSelectItem Value="@(McpTransport.Http)">HTTP</MudSelectItem>
+                    </MudSelect>
+                    <MudIconButton Size="Size.Small" title="Remove" aria-label="Remove" OnClick="() => _s.McpServers.Remove(server)"><Icon Name="trash-2" Size="15" /></MudIconButton>
                 </div>
                 @if (server.Transport == McpTransport.Stdio)
                 {
                     <div class="row">
-                        <input class="grow" @bind="server.Command" placeholder="Command, e.g. npx" />
-                        <input class="grow" @bind="server.Arguments" placeholder="Arguments, e.g. -y @@modelcontextprotocol/server-filesystem ~/Documents" />
+                        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="server.Command" Placeholder="Command, e.g. npx" />
+                        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="server.Arguments" Placeholder="Arguments, e.g. -y @@modelcontextprotocol/server-filesystem ~/Documents" />
                     </div>
-                    <textarea rows="2" placeholder="Environment, one KEY=value per line" value="@Pairs(server.Environment)"
-                              @onchange="e => server.Environment = ParsePairs(e.Value?.ToString(), '=')"></textarea>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="2" Placeholder="Environment, one KEY=value per line" Value="@(Pairs(server.Environment))" ValueChanged="(string v) => server.Environment = ParsePairs(v, '=')" T="string" />
                 }
                 else
                 {
-                    <input @bind="server.Url" placeholder="https://host/mcp" />
-                    <textarea rows="2" placeholder="Headers, one Name: value per line (e.g. Authorization: Bearer …)" value="@Pairs(server.Headers, ": ")"
-                              @onchange="e => server.Headers = ParsePairs(e.Value?.ToString(), ':')"></textarea>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="server.Url" Placeholder="https://host/mcp" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="2" Placeholder="Headers, one Name: value per line (e.g. Authorization: Bearer …)" Value="@(Pairs(server.Headers, ": "))" ValueChanged="(string v) => server.Headers = ParsePairs(v, ':')" T="string" />
                 }
                 <div class="row">
-                    <label class="check grow"><input type="checkbox" @bind="server.AutoApprove" /> Run this server's tools without asking</label>
-                    <button class="btn ghost" @onclick="() => Connect(server)">Save & connect</button>
+                    <MudSwitch T="bool" Color="Color.Primary" @bind-Value="server.AutoApprove" Class="check grow" Label="Run this server's tools without asking" />
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => Connect(server)">Save & connect</MudButton>
                 </div>
                 @if (status is not null)
                 {
                     @if (status.Error is not null)
                     {
-                        <div class="error-box">@status.Error</div>
+                        <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@status.Error</MudAlert>
                     }
                     else if (status.Connected)
                     {
@@ -159,18 +154,18 @@
             </div>
         }
         <div class="row">
-            <button class="btn ghost" @onclick="AddServer"><Icon Name="plus" Size="16" /> Add a server by hand</button>
-            <button class="btn ghost" @onclick="() => _showImport = !_showImport">Import JSON…</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddServer"><Icon Name="plus" Size="16" /> Add a server by hand</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _showImport = !_showImport">Import JSON…</MudButton>
         </div>
         @if (_showImport)
         {
-            <textarea rows="7" @bind="_importJson" placeholder='Paste a Claude Desktop / Cursor style config: { "mcpServers": { "files": { "command": "npx", "args": ["-y", "@@modelcontextprotocol/server-filesystem", "/Users/me"] } } }'></textarea>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="7" @bind-Value="_importJson" Placeholder='Paste a Claude Desktop / Cursor style config: { "mcpServers": { "files": { "command": "npx", "args": ["-y", "@@modelcontextprotocol/server-filesystem", "/Users/me"] } } }' />
             <div class="row">
-                <button class="btn primary" @onclick="Import">Import</button>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Import">Import</MudButton>
                 @if (_importError is not null) { <span class="tiny-error">@_importError</span> }
             </div>
         }
-    </section>
+    </MudPaper>
 </div>
 }
 

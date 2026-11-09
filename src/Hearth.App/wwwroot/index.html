@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Hearth</title>
     <base href="/" />
+    <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
     <link rel="stylesheet" href="_content/Hearth.UI/hearth.css" />
+    <!-- Loads first so the saved theme is applied before anything paints. -->
+    <script src="_content/Hearth.UI/hearth.js"></script>
     <link rel="icon" href="data:,">
 </head>
 <body>
@@ -13,7 +16,7 @@
     <div id="blazor-error-ui" data-nosnippet style="display:none">
         An unhandled error has occurred. <a href="." class="reload">Reload</a>
     </div>
-    <script src="_content/Hearth.UI/hearth.js"></script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 </body>
 </html>

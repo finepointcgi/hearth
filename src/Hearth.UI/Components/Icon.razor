@@ -1,10 +1,100 @@
-@* Usage: <Icon Name="bot" />  — inherits colour; Size in px. *@
-<svg class="icon @Class" width="@Size" height="@Size" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="@Stroke"
-     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">@((MarkupString)(Icons.Paths.TryGetValue(Name, out var p) ? p : Icons.Paths["circle-alert"]))</svg>
+@* Usage: <Icon Name="bot" />  — a Material Symbols (rounded) icon; inherits colour; Size in px. *@
+<svg class="icon @Class" width="@Size" height="@Size" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">@((MarkupString)Path(Name))</svg>
 
 @code {
     [Parameter, EditorRequired] public string Name { get; set; } = "";
     [Parameter] public int Size { get; set; } = 18;
-    [Parameter] public string Stroke { get; set; } = "1.75";
     [Parameter] public string? Class { get; set; }
+
+    /// <summary>The SVG markup for an icon name (the names pages use, mapped to Material rounded icons).</summary>
+    public static string Path(string name) => Map.TryGetValue(name, out var p) ? p : MudBlazor.Icons.Material.Rounded.HelpOutline;
+
+    /// <summary>Same icon as a MudBlazor icon string (for Icon= / StartIcon= parameters).</summary>
+    public static string Mud(string name) => Path(name);
+
+    private static readonly Dictionary<string, string> Map = new()
+    {
+        ["archive-restore"] = MudBlazor.Icons.Material.Rounded.Restore,
+        ["arrow-up"] = MudBlazor.Icons.Material.Rounded.ArrowUpward,
+        ["bell"] = MudBlazor.Icons.Material.Rounded.Notifications,
+        ["bell-ring"] = MudBlazor.Icons.Material.Rounded.NotificationsActive,
+        ["book-open"] = MudBlazor.Icons.Material.Rounded.MenuBook,
+        ["bot"] = MudBlazor.Icons.Material.Rounded.SmartToy,
+        ["brain"] = MudBlazor.Icons.Material.Rounded.Psychology,
+        ["calculator"] = MudBlazor.Icons.Material.Rounded.Calculate,
+        ["calendar"] = MudBlazor.Icons.Material.Rounded.CalendarMonth,
+        ["chart-bar"] = MudBlazor.Icons.Material.Rounded.BarChart,
+        ["check"] = MudBlazor.Icons.Material.Rounded.Check,
+        ["chevron-down"] = MudBlazor.Icons.Material.Rounded.ExpandMore,
+        ["chevron-left"] = MudBlazor.Icons.Material.Rounded.ChevronLeft,
+        ["chevron-right"] = MudBlazor.Icons.Material.Rounded.ChevronRight,
+        ["circle"] = MudBlazor.Icons.Material.Rounded.RadioButtonUnchecked,
+        ["circle-alert"] = MudBlazor.Icons.Material.Rounded.Error,
+        ["circle-dot"] = MudBlazor.Icons.Material.Rounded.RadioButtonChecked,
+        ["circle-x"] = MudBlazor.Icons.Material.Rounded.Cancel,
+        ["clock"] = MudBlazor.Icons.Material.Rounded.Schedule,
+        ["code"] = MudBlazor.Icons.Material.Rounded.Code,
+        ["copy"] = MudBlazor.Icons.Material.Rounded.ContentCopy,
+        ["download"] = MudBlazor.Icons.Material.Rounded.Download,
+        ["ellipsis"] = MudBlazor.Icons.Material.Rounded.MoreHoriz,
+        ["external-link"] = MudBlazor.Icons.Material.Rounded.OpenInNew,
+        ["eye"] = MudBlazor.Icons.Material.Rounded.Visibility,
+        ["file-image"] = MudBlazor.Icons.Material.Rounded.Image,
+        ["file-text"] = MudBlazor.Icons.Material.Rounded.Description,
+        ["folder"] = MudBlazor.Icons.Material.Rounded.Folder,
+        ["folder-open"] = MudBlazor.Icons.Material.Rounded.FolderOpen,
+        ["globe"] = MudBlazor.Icons.Material.Rounded.Language,
+        ["hard-drive-download"] = MudBlazor.Icons.Material.Rounded.SaveAlt,
+        ["headphones"] = MudBlazor.Icons.Material.Rounded.Headphones,
+        ["heart-pulse"] = MudBlazor.Icons.Material.Rounded.MonitorHeart,
+        ["image"] = MudBlazor.Icons.Material.Rounded.Image,
+        ["inbox"] = MudBlazor.Icons.Material.Rounded.Inbox,
+        ["laptop"] = MudBlazor.Icons.Material.Rounded.Laptop,
+        ["layout-dashboard"] = MudBlazor.Icons.Material.Rounded.Dashboard,
+        ["library"] = MudBlazor.Icons.Material.Rounded.LocalLibrary,
+        ["lightbulb"] = MudBlazor.Icons.Material.Rounded.Lightbulb,
+        ["link"] = MudBlazor.Icons.Material.Rounded.Link,
+        ["list-checks"] = MudBlazor.Icons.Material.Rounded.Checklist,
+        ["mail"] = MudBlazor.Icons.Material.Rounded.Mail,
+        ["menu"] = MudBlazor.Icons.Material.Rounded.Menu,
+        ["message-circle"] = MudBlazor.Icons.Material.Rounded.Forum,
+        ["message-square-plus"] = MudBlazor.Icons.Material.Rounded.AddComment,
+        ["mic"] = MudBlazor.Icons.Material.Rounded.Mic,
+        ["monitor"] = MudBlazor.Icons.Material.Rounded.Monitor,
+        ["moon"] = MudBlazor.Icons.Material.Rounded.DarkMode,
+        ["mouse-pointer-click"] = MudBlazor.Icons.Material.Rounded.AdsClick,
+        ["palette"] = MudBlazor.Icons.Material.Rounded.Palette,
+        ["panel-left"] = MudBlazor.Icons.Material.Rounded.Menu,
+        ["paperclip"] = MudBlazor.Icons.Material.Rounded.AttachFile,
+        ["pencil"] = MudBlazor.Icons.Material.Rounded.Edit,
+        ["pin"] = MudBlazor.Icons.Material.Rounded.PushPin,
+        ["plug"] = MudBlazor.Icons.Material.Rounded.Extension,
+        ["plus"] = MudBlazor.Icons.Material.Rounded.Add,
+        ["puzzle"] = MudBlazor.Icons.Material.Rounded.Extension,
+        ["refresh-cw"] = MudBlazor.Icons.Material.Rounded.Refresh,
+        ["rocket"] = MudBlazor.Icons.Material.Rounded.RocketLaunch,
+        ["search"] = MudBlazor.Icons.Material.Rounded.Search,
+        ["send"] = MudBlazor.Icons.Material.Rounded.Send,
+        ["server"] = MudBlazor.Icons.Material.Rounded.Dns,
+        ["settings"] = MudBlazor.Icons.Material.Rounded.Settings,
+        ["sheet"] = MudBlazor.Icons.Material.Rounded.TableChart,
+        ["shield"] = MudBlazor.Icons.Material.Rounded.Shield,
+        ["sliders-horizontal"] = MudBlazor.Icons.Material.Rounded.Tune,
+        ["sparkles"] = MudBlazor.Icons.Material.Rounded.AutoAwesome,
+        ["square"] = MudBlazor.Icons.Material.Rounded.Stop,
+        ["sun"] = MudBlazor.Icons.Material.Rounded.LightMode,
+        ["tag"] = MudBlazor.Icons.Material.Rounded.Sell,
+        ["target"] = MudBlazor.Icons.Material.Rounded.TrackChanges,
+        ["terminal"] = MudBlazor.Icons.Material.Rounded.Terminal,
+        ["thumbs-down"] = MudBlazor.Icons.Material.Rounded.ThumbDown,
+        ["timer"] = MudBlazor.Icons.Material.Rounded.Timer,
+        ["trash-2"] = MudBlazor.Icons.Material.Rounded.Delete,
+        ["upload"] = MudBlazor.Icons.Material.Rounded.Upload,
+        ["user"] = MudBlazor.Icons.Material.Rounded.Person,
+        ["users"] = MudBlazor.Icons.Material.Rounded.Group,
+        ["volume-2"] = MudBlazor.Icons.Material.Rounded.VolumeUp,
+        ["wrench"] = MudBlazor.Icons.Material.Rounded.Build,
+        ["x"] = MudBlazor.Icons.Material.Rounded.Close,
+        ["zap"] = MudBlazor.Icons.Material.Rounded.Bolt,
+    };
 }

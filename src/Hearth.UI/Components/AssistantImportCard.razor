@@ -1,18 +1,18 @@
 @inject AssistantImport Import
 @inject IJSRuntime JS
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <h3><span aria-hidden="true">📥</span> Bring over what ChatGPT or Claude knows</h3>
     <p class="muted">Already taught another assistant about you? Bring it here so Hearth doesn't start from scratch. You pick what's kept.</p>
 
     <p class="small"><b>Quick way:</b> ask ChatGPT or Claude this, then paste its answer below.</p>
     <div class="row">
         <code class="grow small">@AssistantImport.AskOtherAssistant</code>
-        <button class="btn small ghost" @onclick="Copy">@(_copied ? "Copied" : "Copy")</button>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="Copy">@(_copied ? "Copied" : "Copy")</MudButton>
     </div>
-    <textarea rows="4" @bind="_pasted" placeholder="Paste the list here (one fact per line)"></textarea>
+    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="4" @bind-Value="_pasted" Placeholder="Paste the list here (one fact per line)" />
     <div class="row end">
-        <button class="btn ghost" @onclick="FromText" disabled="@(_busy || string.IsNullOrWhiteSpace(_pasted))">Look at it</button>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="FromText" Disabled="@(_busy || string.IsNullOrWhiteSpace(_pasted))">Look at it</MudButton>
     </div>
 
     <p class="small"><b>Thorough way:</b> upload your data export (.zip). Hearth reads what you wrote in your most recent chats and picks out
@@ -35,21 +35,21 @@
             else
             {
                 <div class="row"><b class="grow">@f.Facts.Count new from @f.Source@(f.Chats > 0 ? $" ({f.Chats} chat{(f.Chats == 1 ? "" : "s")})" : "")</b>
-                    <button class="btn ghost small" @onclick="() => _picked = f.Facts.ToHashSet()">All</button>
-                    <button class="btn ghost small" @onclick="() => _picked.Clear()">None</button></div>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _picked = f.Facts.ToHashSet()">All</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _picked.Clear()">None</MudButton></div>
                 @foreach (var x in f.Facts)
                 {
                     var fact = x;
-                    <label class="check small"><input type="checkbox" checked="@_picked.Contains(fact)" @onchange="e => Toggle(fact, (bool)e.Value!)" /> @fact</label>
+                    <MudSwitch T="bool" Color="Color.Primary" Value="@(_picked.Contains(fact))" ValueChanged="(bool v) => Toggle(fact, v)" Class="check small">@fact</MudSwitch>
                 }
                 <div class="row end">
-                    <button class="btn ghost" @onclick="() => { _found = null; _status = null; }">Cancel</button>
-                    <button class="btn primary" @onclick="Save" disabled="@(_picked.Count == 0)">Remember @_picked.Count</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => { _found = null; _status = null; }">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@(_picked.Count == 0)">Remember @_picked.Count</MudButton>
                 </div>
             }
         </div>
     }
-</section>
+</MudPaper>
 
 @code {
     private string _pasted = "";

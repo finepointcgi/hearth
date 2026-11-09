@@ -8,7 +8,7 @@
 @inject PlatformInfo Platform
 @inject SettingsStore SettingsStore
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <div class="row">
         <span class="conn-logo">📱</span>
         <span class="grow">
@@ -26,17 +26,17 @@
         var networkOn = _networkOn;
         @if (!networkOn && _https is null && Tunnel.Url is null)
         {
-            <div class="notice">
+            <MudAlert Severity="Severity.Info" Variant="Variant.Text" Dense="true" Class="hearth-alert notice">
                 Right now Hearth only listens on this computer, so your phone can't reach it. Easiest: the free Cloudflare
                 public link or the Tailscale secure link below (both work without opening Hearth to your Wi-Fi). Or turn on network access with a password
                 (anyone on your network would otherwise be able to use your bots):
                 <code class="snippet">HEARTH_PASSWORD='pick-a-strong-one' scripts/install-service-macos.sh</code>
                 <span class="muted small">(Docker: set HEARTH_PASSWORD in docker-compose and it's already on the network.)</span>
-            </div>
+            </MudAlert>
         }
         else if (!_access.SignInRequired)
         {
-            <div class="error-box">Hearth is reachable from your network <b>without a password</b>. Anyone on your Wi-Fi can use your bots. Reinstall with HEARTH_PASSWORD set.</div>
+            <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">Hearth is reachable from your network <b>without a password</b>. Anyone on your Wi-Fi can use your bots. Reinstall with HEARTH_PASSWORD set.</MudAlert>
         }
 
         @if (_urls.Count > 0)
@@ -85,12 +85,12 @@
             @if (Tunnel.Url is { } link)
             {
                 <div class="row"><span class="ok-text small grow">✓ Hearth is at <a href="@link" target="_blank" rel="noopener">@link</a></span>
-                    <button class="btn small ghost" @onclick="StopTunnel" disabled="@_busy">Stop</button></div>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="StopTunnel" Disabled="@_busy">Stop</MudButton></div>
             }
             else if (Tunnel.Starting)
             {
                 <div class="row"><span class="muted small grow">Starting… the link shows up in a few seconds.</span>
-                    <button class="btn small ghost" @onclick="StopTunnel" disabled="@_busy">Stop</button></div>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="StopTunnel" Disabled="@_busy">Stop</MudButton></div>
             }
             else if (Tunnel.CannotStart() is { } why)
             {
@@ -100,12 +100,11 @@
             else
             {
                 <div class="row"><span class="muted small grow">@(Tunnel.Problem ?? "Not running.")</span>
-                    <button class="btn small primary" @onclick="StartTunnel" disabled="@_busy">Start the public link</button></div>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="StartTunnel" Disabled="@_busy">Start the public link</MudButton></div>
             }
             @if (_remote is not null)
             {
-                <label class="check small"><input type="checkbox" checked="@_remote.SendNewLink" @onchange="e => SetSendLink((bool)e.Value!)" />
-                    Send me the new link when it changes@(_notificationsOn ? "" : " (turn on Phone notifications below first)")</label>
+                <MudSwitch T="bool" Color="Color.Primary" Value="@(_remote.SendNewLink)" ValueChanged="(bool v) => SetSendLink(v)" Class="check small">Send me the new link when it changes@(_notificationsOn ? "" : " (turn on Phone notifications below first)")</MudSwitch>
             }
         </details>
 
@@ -136,7 +135,7 @@
             else if (_lan.Count > 0) { <span class="ok-text small">✓ Over WireGuard, open http://@_lan[0]:@_port</span> }
         </details>
     }
-</section>
+</MudPaper>
 
 @code {
     private IAccessInfo? _access;

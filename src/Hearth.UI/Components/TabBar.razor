@@ -1,0 +1,27 @@
+@* A row of Material tabs that switches a string value; the page shows the matching content itself
+   (so it can, for example, show every tab's content while searching). *@
+<MudTabs Class="tab-bar" ActivePanelIndex="@Index" ActivePanelIndexChanged="Select" Elevation="0" Rounded="false"
+         ApplyEffectsToContainer="false" MinimumTabWidth="0px" Color="Color.Transparent" SliderColor="Color.Primary" aria-label="@Label">
+    @foreach (var t in Tabs)
+    {
+        <MudTabPanel Text="@t.Label" Icon="@(t.Icon is null ? null : Icon.Mud(t.Icon))" BadgeData="@t.Badge" BadgeColor="Color.Primary" />
+    }
+</MudTabs>
+
+@code {
+    public sealed record Item(string Id, string Label, string? Icon = null, string? Badge = null);
+
+    [Parameter, EditorRequired] public IReadOnlyList<Item> Tabs { get; set; } = [];
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string? Label { get; set; }
+
+    private int Index => Math.Max(0, Tabs.ToList().FindIndex(t => t.Id == Value));
+
+    private async Task Select(int index)
+    {
+        if (index < 0 || index >= Tabs.Count || Tabs[index].Id == Value) return;
+        Value = Tabs[index].Id;
+        await ValueChanged.InvokeAsync(Value);
+    }
+}

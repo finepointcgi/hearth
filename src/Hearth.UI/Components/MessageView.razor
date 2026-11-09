@@ -52,10 +52,10 @@
         @if (_editing)
         {
             <div class="edit-box">
-                <textarea @bind="_editText" rows="3"></textarea>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_editText" Lines="3" />
                 <div class="row end">
-                    <button class="btn ghost" @onclick="() => _editing = false">Cancel</button>
-                    <button class="btn primary" @onclick="SaveEdit">Save & submit</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _editing = false">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveEdit">Save & submit</MudButton>
                 </div>
             </div>
         }
@@ -132,14 +132,14 @@
                 {
                     <figure>
                         <img src="@img.DataUrl" alt="@img.FileName" />
-                        <button class="btn ghost small" @onclick="() => Download(img)">⇩ Save</button>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Download(img)">⇩ Save</MudButton>
                     </figure>
                 }
             </div>
         }
         @if (Message.Notice is not null)
         {
-            <div class="notice">ℹ @Message.Notice</div>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Text" Dense="true" Class="hearth-alert notice">ℹ @Message.Notice</MudAlert>
         }
 
         @if (Message.Checked is { } fixedBy)
@@ -158,7 +158,7 @@
         </div>
         @if (Message.Error is not null)
         {
-            <div class="error-box">⚠ @Message.Error</div>
+            <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">⚠ @Message.Error</MudAlert>
         }
         @if (Message.Used.Count > 0 && !Message.IsStreaming)
         {
@@ -205,9 +205,9 @@
                     <div class="conflict">
                         <span>⚠ “@it.Text” contradicts what it knew: “@it.ConflictText”. Which is right?</span>
                         <span class="conflict-actions">
-                            <button class="btn small" @onclick='() => Resolve(it, "new")'>The new one</button>
-                            <button class="btn small" @onclick='() => Resolve(it, "old")'>What it knew</button>
-                            <button class="btn small ghost" @onclick='() => Resolve(it, "both")'>Both are true</button>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick='() => Resolve(it, "new")'>The new one</MudButton>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick='() => Resolve(it, "old")'>What it knew</MudButton>
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick='() => Resolve(it, "both")'>Both are true</MudButton>
                         </span>
                     </div>
                 }
@@ -241,13 +241,13 @@
                 <span class="conflict-actions">
                     @if (nudge.Kind == Nudge.Routine)
                     {
-                        <button class="btn small" @onclick="MakeRoutine">⏰ Make it a routine</button>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick="MakeRoutine">⏰ Make it a routine</MudButton>
                     }
                     else
                     {
-                        <button class="btn small" @onclick="SaveAsSkill" disabled="@_savingSkill">⚡ Make it a skill</button>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick="SaveAsSkill" Disabled="@_savingSkill">⚡ Make it a skill</MudButton>
                     }
-                    <button class="btn small ghost" @onclick="DismissNudge">Not now</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="DismissNudge">Not now</MudButton>
                 </span>
             </div>
         }
@@ -256,10 +256,9 @@
             <div class="fix-box">
                 <label class="muted small" for="fix-@Message.Id">What was wrong? Hearth fixes what caused it (a memory, a skill, or a new rule).</label>
                 <div class="fix-row">
-                    <input id="fix-@Message.Id" class="input" placeholder="e.g. The report goes to Sarah, not Sam" @bind="_fixText" @bind:event="oninput"
-                           @onkeydown="FixKey" disabled="@_fixBusy" />
-                    <button class="btn small primary" @onclick="Fix" disabled="@(_fixBusy || string.IsNullOrWhiteSpace(_fixText))">@(_fixBusy ? "Fixing…" : "Fix it")</button>
-                    <button class="btn small ghost" @onclick="() => _fixing = false" disabled="@_fixBusy">Cancel</button>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" id="@($"fix-{Message.Id}")" Class="input" Placeholder="e.g. The report goes to Sarah, not Sam" @bind-Value="_fixText" Immediate="true" OnKeyDown="FixKey" Disabled="@_fixBusy" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="Fix" Disabled="@(_fixBusy || string.IsNullOrWhiteSpace(_fixText))">@(_fixBusy ? "Fixing…" : "Fix it")</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _fixing = false" Disabled="@_fixBusy">Cancel</MudButton>
                 </div>
             </div>
         }

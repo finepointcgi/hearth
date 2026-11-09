@@ -14,11 +14,9 @@
         {
             @if (_profiles.Count > 1)
             {
-                <label>Profile
-                    <select value="@_profile" @onchange="PickProfile">
-                        @foreach (var p in _profiles) { <option value="@p.Name">@p.Name@(p.Description is { } d ? $" — {d}" : "")</option> }
-                    </select>
-                </label>
+                <MudSelect Label="Profile" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(_profile)" ValueChanged="Ev.Change<string>(PickProfile)" T="string">
+                        @foreach (var p in _profiles) { <MudSelectItem Value="@(p.Name)">@p.Name@(p.Description is { } d ? $" — {d}" : "")</MudSelectItem> }
+                    </MudSelect>
             }
             @foreach (var f in _files)
             {
@@ -26,26 +24,25 @@
                 <div class="row">
                     <code class="grow small">@file.Path</code>
                     <span class="muted small">@(file.Exists ? $"{file.Bytes:N0} bytes" : "not created yet")</span>
-                    <button class="btn small ghost" @onclick="() => Open(file.Name)" disabled="@_busy">@(_open == file.Name ? "Close" : file.Exists ? "Edit" : "Create")</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Open(file.Name)" Disabled="@_busy">@(_open == file.Name ? "Close" : file.Exists ? "Edit" : "Create")</MudButton>
                 </div>
                 @if (_open == file.Name)
                 {
-                    <textarea rows="10" class="mono small" @bind="_text"></textarea>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="10" Class="mono small" @bind-Value="_text" />
                     <div class="row end">
                         <span class="muted small grow">The old version is kept as @(file.Name).hearth-backup.</span>
-                        <button class="btn small primary" @onclick="() => Save(file.Name)" disabled="@_busy">Save</button>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => Save(file.Name)" Disabled="@_busy">Save</MudButton>
                     </div>
                 }
             }
             <div class="row">
                 <span class="grow small">Copy what Hearth knows about you into @Def.MemoryFiles[0] (a marked section; doing it again replaces it).</span>
-                <button class="btn small ghost" @onclick="ShareMemories" disabled="@_busy">Share what Hearth knows</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="ShareMemories" Disabled="@_busy">Share what Hearth knows</MudButton>
             </div>
             @if (Def.Skills != SkillLink.None)
             {
-                <label class="check"><input type="checkbox" checked="@_shared" disabled="@_busy" @onchange="e => ShareSkills((bool)e.Value!)" />
-                    Share Hearth's skills with it
-                    <span class="muted small">(@(Host is null ? "linked into" : "copied to") ~/@Place.RelativeHome/@Def.SkillsDir@(Host is null ? "" : $" on {Host.Name}"), kept up to date)</span></label>
+                <MudSwitch T="bool" Color="Color.Primary" Value="@(_shared)" Disabled="@_busy" ValueChanged="(bool v) => ShareSkills(v)" Class="check">Share Hearth's skills with it
+                    <span class="muted small">(@(Host is null ? "linked into" : "copied to") ~/@Place.RelativeHome/@Def.SkillsDir@(Host is null ? "" : $" on {Host.Name}"), kept up to date)</span></MudSwitch>
             }
             @if (_message is not null) { <p class="small @(_failed ? "error-text" : "muted")">@_message</p> }
         }

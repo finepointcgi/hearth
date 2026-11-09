@@ -3,17 +3,17 @@
 @inject SelfCheck Check
 @inject SettingsStore SettingsStore
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <h3>Self-check</h3>
     <p class="muted small">Each night Hearth asks the default model quick questions: math and date tools, a unit conversion, a follow-up, a plain answer, and its own features (people notes, plans, undo, skills, contacts when connected). If more fail than last time, or replies get much slower, it reports a problem on the Activity feed and sends a phone notification if those are set up. Anything a check creates is removed afterwards.</p>
-    <label class="check"><input type="checkbox" @bind="_s.Enabled" /> Run the self-check every night</label>
-    <label class="check"><input type="checkbox" @bind="_s.Thorough" /> Thorough: also check web research with the answer check, and a team hand-off (takes several minutes)</label>
+    <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Enabled" Class="check" Label="Run the self-check every night" />
+    <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Thorough" Class="check" Label="Thorough: also check web research with the answer check, and a team hand-off (takes several minutes)" />
     <div class="row">
         <label>At <input type="time" value="@_s.Time" @onchange="e => _s.Time = e.Value?.ToString() ?? _s.Time" /></label>
         <span class="grow"></span>
         @if (_message is not null) { <span class="muted small">@_message</span> }
-        <button class="btn ghost" @onclick="RunNow" disabled="@_running">@(_running ? "Checking…" : "▶ Run now")</button>
-        <button class="btn primary" @onclick="Save">Save</button>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="RunNow" Disabled="@_running">@(_running ? "Checking…" : "▶ Run now")</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
     </div>
     @if (_history.Count > 0)
     {
@@ -33,7 +33,7 @@
             </tbody>
         </table>
     }
-</section>
+</MudPaper>
 
 @code {
     private SelfCheckSettings _s = new();

@@ -111,6 +111,8 @@ public sealed class AppSettings
     public TeamworkSettings Teamwork { get; set; } = new();
     public ComputerSettings Computer { get; set; } = new();
     public GoogleSettings Google { get; set; } = new();
+    /// <summary>How the app looks: light/dark mode, colour theme and accent.</summary>
+    public ThemeSettings Theme { get; set; } = new();
 
     [System.Text.Json.Serialization.JsonIgnore]
     public ProviderProfile ActiveProvider =>
@@ -120,6 +122,18 @@ public sealed class AppSettings
     /// <summary>The server a bot runs on: its own choice if that server still exists, otherwise the active one.</summary>
     public ProviderProfile ProviderFor(Bot? bot) =>
         bot?.ProviderId is { } id && Providers.FirstOrDefault(p => p.Id == id) is { } own ? own : ActiveProvider;
+}
+
+public sealed class ThemeSettings
+{
+    /// <summary>"system" (follow the device), "light" or "dark".</summary>
+    public string Mode { get; set; } = "system";
+    /// <summary>Built-in colour theme id (see ThemeCatalog in Hearth.UI); "hearth" is the default indigo.</summary>
+    public string Palette { get; set; } = "hearth";
+    /// <summary>Optional custom accent colour (#rrggbb) used instead of the theme's own.</summary>
+    public string? Accent { get; set; }
+    /// <summary>Set once someone picks a theme here (older per-device choices are carried over until then).</summary>
+    public bool Chosen { get; set; }
 }
 
 public sealed class ToolSettings

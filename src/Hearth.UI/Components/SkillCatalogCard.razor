@@ -1,15 +1,15 @@
 @inject SkillCatalog Catalog
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <h3>Skill catalog</h3>
     <p class="muted small">Public skill collections on GitHub. Pick one to import it; it waits for your review below (and is scanned for risky instructions) before bots can use it.</p>
     <div class="row">
         @foreach (var (name, repo, _) in SkillCatalog.Collections)
         {
             var n = name;
-            <button class="btn @(_collection == n ? "primary" : "ghost")" @onclick="() => Open(n)" disabled="@_loading">@name <span class="muted small">@repo</span></button>
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="@(_collection == n ? "primary" : "ghost")" OnClick="() => Open(n)" Disabled="@_loading">@name <span class="muted small">@repo</span></MudButton>
         }
-        @if (_skills.Count > 0) { <input class="grow" placeholder="Filter" @bind="_filter" @bind:event="oninput" @bind:after="LoadDescriptions" /> }
+        @if (_skills.Count > 0) { <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" Placeholder="Filter" @bind-Value="_filter" Immediate="true" @bind-Value:after="LoadDescriptions" /> }
     </div>
     @if (_message is not null) { <p class="muted small">@_message</p> }
     @if (_skills.Count > 0)
@@ -21,14 +21,14 @@
                 <div class="memory-row">
                     <span class="grow small"><b>@skill.Name</b>@(skill.Category.Length > 0 ? $" · {skill.Category}" : "")
                         <br /><span class="muted">@(_descriptions.GetValueOrDefault(skill.Dir) ?? "…")</span></span>
-                    <a class="btn ghost small" href="@skill.GitHubUrl" target="_blank" rel="noopener">View</a>
-                    <button class="btn ghost small" @onclick="() => Import(skill)" disabled="@(_importing.Contains(skill.Dir))">@(_done.Contains(skill.Dir) ? "Imported" : "Import")</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="@skill.GitHubUrl" target="_blank" rel="noopener">View</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Import(skill)" Disabled="@(_importing.Contains(skill.Dir))">@(_done.Contains(skill.Dir) ? "Imported" : "Import")</MudButton>
                 </div>
             }
         </div>
         <div class="muted small">@Filtered.Count() skills@(Filtered.Count() > Visible.Count ? $" (showing {Visible.Count}; filter to narrow)" : "")</div>
     }
-</section>
+</MudPaper>
 
 @code {
     private string? _collection, _message;
