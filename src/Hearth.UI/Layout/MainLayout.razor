@@ -5,6 +5,11 @@
 @inject SettingsStore SettingsStore
 @inject IJSRuntime JS
 
+<MudThemeProvider Theme="HearthMudTheme.Theme" IsDarkMode="_dark" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
 <div class="shell @(State.SidebarOpen ? "sidebar-open" : "")">
     <NavRail />
     <Sidebar />
@@ -53,6 +58,7 @@
     // The theme from settings (Settings → Appearance), re-applied whenever it changes, here or on another device.
     private string? _themeKey;
     private bool _themeChecked;
+    private bool _dark = true;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -75,6 +81,9 @@
             if (key == _themeKey) return;
             _themeKey = key;
             await JS.InvokeVoidAsync("hearth.applyTheme", ThemeCatalog.ForJs(theme));
+            // MudBlazor's own light/dark switch (for the few things it doesn't take from the theme variables).
+            var dark = await JS.InvokeAsync<bool>("hearth.isDark");
+            if (dark != _dark) { _dark = dark; StateHasChanged(); }
         }
         catch (JSDisconnectedException) { }
         catch (InvalidOperationException) { /* prerendering */ }

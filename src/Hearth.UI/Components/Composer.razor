@@ -131,11 +131,11 @@
             }
             @if (Busy)
             {
-                <button class="send stop" title="Stop" aria-label="Stop" @onclick="OnStop"><Icon Name="square" Size="13" Stroke="2.5" /></button>
+                <button class="send stop" title="Stop" aria-label="Stop" @onclick="OnStop"><Icon Name="square" Size="13" /></button>
             }
             else
             {
-                <button class="send" title="Send" disabled="@(!CanSend)" @onclick="Submit" aria-label="Send"><Icon Name="arrow-up" Size="18" Stroke="2.25" /></button>
+                <button class="send" title="Send" disabled="@(!CanSend)" @onclick="Submit" aria-label="Send"><Icon Name="arrow-up" Size="18" /></button>
             }
         </div>
     </div>

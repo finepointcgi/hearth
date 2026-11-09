@@ -37,12 +37,36 @@ const hearthTheme = (function () {
       root.style.setProperty(name, value);
       applied.push(name);
     }
+    syncMud();
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.content = getComputedStyle(root).getPropertyValue("--bg").trim() || meta.content;
   }
 
+  // MudBlazor mixes some colours as rgba(var(--mud-palette-x-rgb), alpha): give it "r,g,b" versions of the theme's
+  // colours (hearth.css points the rest of MudBlazor's palette straight at Hearth's variables).
+  const MUD_RGB = { primary: "--accent", secondary: "--brand", tertiary: "--ok", info: "--brand", success: "--ok",
+    warning: "--warn", error: "--danger", dark: "--text", "text-primary": "--text", divider: "--line" };
+  let ctx = null;
+  function rgbOf(value) {
+    try {
+      ctx = ctx || document.createElement("canvas").getContext("2d");
+      ctx.fillStyle = "#000"; ctx.fillStyle = value;
+      const c = ctx.fillStyle;
+      if (c[0] === "#") { const n = parseInt(c.slice(1, 7), 16); return `${n >> 16 & 255},${n >> 8 & 255},${n & 255}`; }
+      const m = c.match(/[\d.]+/g);
+      return m ? m.slice(0, 3).map((x) => Math.round(+x)).join(",") : null;
+    } catch { return null; }
+  }
+  function syncMud() {
+    const css = getComputedStyle(root);
+    for (const [name, v] of Object.entries(MUD_RGB)) {
+      const rgb = rgbOf(css.getPropertyValue(v).trim());
+      if (rgb) root.style.setProperty(`--mud-palette-${name}-rgb`, rgb);
+    }
+  }
+
   if (media) {
-    const onChange = () => { if (current && current.mode !== "light" && current.mode !== "dark") apply(current); };
+    const onChange = () => { if (current && current.mode !== "light" && current.mode !== "dark") apply(current); else syncMud(); };
     if (media.addEventListener) media.addEventListener("change", onChange); else if (media.addListener) media.addListener(onChange);
   }
 
@@ -55,12 +79,14 @@ const hearthTheme = (function () {
       if (old === "light" || old === "dark") root.dataset.theme = old;
     }
   } catch { /* storage blocked: defaults until settings load */ }
+  if (!current) syncMud();
 
   return {
     apply(t) {
       apply(t);
       try { localStorage.setItem(KEY, JSON.stringify(t)); } catch { /* per-session only */ }
     },
+    isDark() { return root.dataset.theme !== "light"; },
     // The light/dark choice older versions kept on this device (carried into settings once).
     legacy() {
       try { return localStorage.getItem("hearth-theme") || localStorage.getItem("locus-theme") || ""; } catch { return ""; }
@@ -166,6 +192,7 @@ const hearthSettingsSearch = (function () {
 window.hearth = {
   applyTheme(t) { hearthTheme.apply(t); },
   legacyTheme() { return hearthTheme.legacy(); },
+  isDark() { return hearthTheme.isDark(); },
   searchSettings(container, query, dotnet) { return hearthSettingsSearch.run(container, query, dotnet); },
   stopSettingsSearch() { hearthSettingsSearch.stop(); },
   initComposer(textarea, dotnet) {

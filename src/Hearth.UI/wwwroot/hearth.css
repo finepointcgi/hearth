@@ -49,6 +49,80 @@
   }
 }
 
+/* ---------- MudBlazor bridge ----------
+   MudBlazor's palette follows Hearth's theme variables, so Settings → Appearance (and light/dark/system) drive every
+   MudBlazor component too. html:root outranks the :root block MudThemeProvider writes. The "-rgb" versions are set
+   by hearth.js. */
+html:root {
+  --mud-palette-primary: var(--accent);
+  --mud-palette-primary-text: var(--accent-text);
+  --mud-palette-primary-darken: color-mix(in srgb, var(--accent) 86%, #000);
+  --mud-palette-primary-lighten: color-mix(in srgb, var(--accent) 80%, #fff);
+  --mud-palette-primary-hover: color-mix(in srgb, var(--accent) 10%, transparent);
+  --mud-palette-secondary: var(--brand);
+  --mud-palette-secondary-text: var(--accent-text);
+  --mud-palette-secondary-darken: color-mix(in srgb, var(--brand) 86%, #000);
+  --mud-palette-secondary-lighten: color-mix(in srgb, var(--brand) 80%, #fff);
+  --mud-palette-secondary-hover: color-mix(in srgb, var(--brand) 10%, transparent);
+  --mud-palette-tertiary: var(--ok);
+  --mud-palette-tertiary-text: var(--bg);
+  --mud-palette-tertiary-darken: color-mix(in srgb, var(--ok) 86%, #000);
+  --mud-palette-tertiary-lighten: color-mix(in srgb, var(--ok) 80%, #fff);
+  --mud-palette-tertiary-hover: color-mix(in srgb, var(--ok) 10%, transparent);
+  --mud-palette-info: var(--brand);
+  --mud-palette-info-text: var(--accent-text);
+  --mud-palette-info-darken: color-mix(in srgb, var(--brand) 86%, #000);
+  --mud-palette-info-lighten: color-mix(in srgb, var(--brand) 80%, #fff);
+  --mud-palette-info-hover: color-mix(in srgb, var(--brand) 10%, transparent);
+  --mud-palette-success: var(--ok);
+  --mud-palette-success-text: var(--bg);
+  --mud-palette-success-darken: color-mix(in srgb, var(--ok) 86%, #000);
+  --mud-palette-success-lighten: color-mix(in srgb, var(--ok) 80%, #fff);
+  --mud-palette-success-hover: color-mix(in srgb, var(--ok) 10%, transparent);
+  --mud-palette-warning: var(--warn);
+  --mud-palette-warning-text: var(--bg);
+  --mud-palette-warning-darken: color-mix(in srgb, var(--warn) 86%, #000);
+  --mud-palette-warning-lighten: color-mix(in srgb, var(--warn) 80%, #fff);
+  --mud-palette-warning-hover: color-mix(in srgb, var(--warn) 10%, transparent);
+  --mud-palette-error: var(--danger);
+  --mud-palette-error-text: #fff;
+  --mud-palette-error-darken: color-mix(in srgb, var(--danger) 86%, #000);
+  --mud-palette-error-lighten: color-mix(in srgb, var(--danger) 80%, #fff);
+  --mud-palette-error-hover: color-mix(in srgb, var(--danger) 10%, transparent);
+  --mud-palette-dark: var(--text);
+  --mud-palette-dark-text: var(--bg);
+  --mud-palette-dark-darken: var(--text);
+  --mud-palette-dark-lighten: var(--muted);
+  --mud-palette-dark-hover: color-mix(in srgb, var(--text) 8%, transparent);
+  --mud-palette-text-primary: var(--text);
+  --mud-palette-text-secondary: var(--muted);
+  --mud-palette-text-disabled: color-mix(in srgb, var(--text) 38%, transparent);
+  --mud-palette-action-default: var(--muted);
+  --mud-palette-action-default-hover: color-mix(in srgb, var(--text) 8%, transparent);
+  --mud-palette-action-disabled: color-mix(in srgb, var(--text) 38%, transparent);
+  --mud-palette-action-disabled-background: color-mix(in srgb, var(--text) 12%, transparent);
+  --mud-palette-background: var(--bg);
+  --mud-palette-background-gray: var(--bg-2);
+  --mud-palette-surface: var(--bg-2);
+  --mud-palette-drawer-background: var(--bg-2);
+  --mud-palette-drawer-text: var(--text);
+  --mud-palette-drawer-icon: var(--muted);
+  --mud-palette-appbar-background: var(--bg);
+  --mud-palette-appbar-text: var(--text);
+  --mud-palette-lines-default: var(--line);
+  --mud-palette-lines-inputs: var(--line-strong);
+  --mud-palette-table-lines: var(--line);
+  --mud-palette-table-striped: color-mix(in srgb, var(--text) 3%, transparent);
+  --mud-palette-table-hover: color-mix(in srgb, var(--text) 5%, transparent);
+  --mud-palette-divider: var(--line);
+  --mud-palette-divider-light: var(--line);
+  --mud-palette-skeleton: color-mix(in srgb, var(--text) 10%, transparent);
+  --mud-palette-overlay-dark: rgba(0, 0, 0, .5);
+  --mud-palette-overlay-light: color-mix(in srgb, var(--bg) 50%, transparent);
+  --mud-typography-default-family: var(--font);
+  --mud-default-borderradius: var(--radius-md);
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 15px; }
 body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }

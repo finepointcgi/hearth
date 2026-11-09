@@ -3,6 +3,7 @@ using Hearth.Core.Models;
 using Hearth.UI.State;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using MudBlazor.Services;
 
 namespace Hearth.UI;
 
@@ -16,6 +17,7 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<IVoiceInput, BrowserVoiceInput>();
         services.TryAddScoped<ISpeechOutput, BrowserSpeechOutput>();
         services.AddScoped<LiveVoice>();
+        services.AddMudServices();
         return services;
     }
 }
