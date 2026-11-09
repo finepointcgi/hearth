@@ -65,6 +65,11 @@ Click **Install browser** on the Computer page, or choose installed Chrome/Edge.
 Grant **Screen Recording** and **Accessibility** to the app running Hearth (for the service: `dotnet`), then restart
 Hearth. Use **📸 Test screenshot**.
 
+**macOS keeps asking for Screen Recording and Accessibility again**
+macOS ties the permission to the app's signature. An ad-hoc signed build gets a new one every rebuild: build with
+`scripts/build-mac-app.sh`, which signs with your Apple Development certificate so the permission sticks. Also check
+which copy of Hearth got your message: the always-on service (`dotnet`) doesn't share the desktop app's permissions.
+
 **Sandbox won't start**
 Docker Desktop must be running. The first start builds `hearth-desktop:2`, which takes a few minutes.
 

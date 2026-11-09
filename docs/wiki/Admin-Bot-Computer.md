@@ -59,7 +59,11 @@ a fresh screenshot, so it needs a **vision model** (`qwen2.5vl`, `gemma3`, `llam
 Per platform:
 
 - **macOS**: grant **Screen Recording** and **Accessibility** to the app running Hearth (System Settings → Privacy &
-  Security). **Request permissions** prompts for them; restart Hearth afterwards.
+  Security). **Request permissions** prompts for them; restart Hearth afterwards. Build the desktop app with
+  `scripts/build-mac-app.sh`: it signs Hearth.app with your Apple Development certificate (free with an Apple ID in
+  Xcode), so the permissions survive rebuilds. An ad-hoc signed build asks again after every rebuild.
+  Only the copy of Hearth that has the permissions can use the screen: if the always-on service is also running, a
+  message sent from your phone, Telegram or the web goes to the service, which can't.
 - **Windows**: works out of the box.
 - **Linux**: X11, `xdotool`, and a screenshot tool (`scrot`, `gnome-screenshot` or ImageMagick).
 
