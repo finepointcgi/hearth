@@ -14,6 +14,7 @@
     <meta name="apple-mobile-web-app-title" content="Hearth" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" />
     <link rel="icon" type="image/png" href="icon-192.png" />
+    <link rel="stylesheet" href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" />
     <link rel="stylesheet" href="@Assets["_content/Hearth.UI/hearth.css"]" />
     @* Loads first so the saved theme is applied before anything paints. *@
     <script src="_content/Hearth.UI/hearth.js"></script>
@@ -25,6 +26,7 @@
         Hearth lost its connection to this page. <a href="" class="reload" onclick="location.reload(); return false;">Reload</a>
     </div>
     <script src="_framework/blazor.web.js"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});</script>
 </body>
 </html>

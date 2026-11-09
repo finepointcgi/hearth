@@ -6,26 +6,24 @@
 @inject SettingsStore SettingsStore
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">What Hearth learned</h2>
 </header>
 
 <div class="settings teach">
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <p>Everything your chats taught Hearth lately: memories, notes about people, how to talk with you, what's going on in your life,
             and skills. Undo anything that's wrong. <a href="teach">How to teach Hearth</a></p>
         <div class="row">
-            <label>Show
-                <select value="@_days" @onchange="ChangeDays">
-                    <option value="7">the last 7 days</option>
-                    <option value="30">the last 30 days</option>
-                    <option value="90">the last 90 days</option>
-                </select>
-            </label>
-            <label class="check"><input type="checkbox" checked="@_showUndone" @onchange="ToggleUndone" /> Show undone</label>
+            <MudSelect Label="Show" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(_days.ToString())" ValueChanged="Ev.Change<string>(ChangeDays)" T="string">
+                    <MudSelectItem Value="@("7")">the last 7 days</MudSelectItem>
+                    <MudSelectItem Value="@("30")">the last 30 days</MudSelectItem>
+                    <MudSelectItem Value="@("90")">the last 90 days</MudSelectItem>
+                </MudSelect>
+            <MudSwitch T="bool" Color="Color.Primary" Value="@(_showUndone)" ValueChanged="Ev.Change<bool>(ToggleUndone)" Class="check" Label="Show undone" />
         </div>
         @if (_message is not null) { <p class="muted small">@_message</p> }
-    </section>
+    </MudPaper>
 
     @if (_items is null)
     {
@@ -33,13 +31,13 @@
     }
     else if (_items.Count == 0)
     {
-        <section class="card"><p class="muted">Nothing learned in this time. It shows up here as you chat.</p></section>
+        <MudPaper Class="card" Elevation="0"><p class="muted">Nothing learned in this time. It shows up here as you chat.</p></MudPaper>
     }
     else
     {
         @foreach (var day in _items.GroupBy(e => e.At.LocalDateTime.Date))
         {
-            <section class="card">
+            <MudPaper Class="card" Elevation="0">
                 <h3>@Day(day.Key)</h3>
                 <ul class="learned-list">
                     @foreach (var entry in day)
@@ -69,33 +67,31 @@
                         </li>
                     }
                 </ul>
-            </section>
+            </MudPaper>
         }
     }
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3><span aria-hidden="true">📬</span> Weekly recap and offers</h3>
-        <label class="check"><input type="checkbox" @bind="_t.WeeklyRecap" /> Send a weekly recap of what Hearth learned</label>
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_t.WeeklyRecap" Class="check" Label="Send a weekly recap of what Hearth learned" />
         <div class="row">
-            <label>On
-                <select @bind="_t.RecapDay">
-                    @foreach (var d in Enum.GetValues<DayOfWeek>()) { <option value="@d">@d</option> }
-                </select>
-            </label>
+            <MudSelect Label="On" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_t.RecapDay">
+                    @foreach (var d in Enum.GetValues<DayOfWeek>()) { <MudSelectItem Value="@(d)">@d</MudSelectItem> }
+                </MudSelect>
             <label>at <input type="time" value="@_t.RecapTime" @onchange="e => _t.RecapTime = e.Value?.ToString() ?? _t.RecapTime" /></label>
         </div>
         <p class="muted small">It goes to the activity feed, to push notifications (if they're on) and to chat apps that get routine results, with Undo buttons.</p>
-        <label class="check"><input type="checkbox" @bind="_t.Nudges" /> Offer to make requests I keep repeating into a skill or a routine</label>
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_t.Nudges" Class="check" Label="Offer to make requests I keep repeating into a skill or a routine" />
         @if (_t.DismissedNudges.Count > 0)
         {
             <p class="muted small">@_t.DismissedNudges.Count offer@(_t.DismissedNudges.Count == 1 ? "" : "s") turned down. <button class="learned-undo" @onclick="() => _t.DismissedNudges.Clear()">Allow them again</button></p>
         }
         <div class="row end">
             @if (_saved is not null) { <span class="muted small grow">@_saved</span> }
-            <button class="btn ghost" @onclick="SendNow" disabled="@_sending">@(_sending ? "Sending…" : "Send a recap now")</button>
-            <button class="btn primary" @onclick="Save">Save</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="SendNow" Disabled="@_sending">@(_sending ? "Sending…" : "Send a recap now")</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
         </div>
-    </section>
+    </MudPaper>
 </div>
 
 @code {

@@ -3,7 +3,7 @@
 @inject SkillTeacher Teacher
 @inject AppState State
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <h3>Teach by showing</h3>
     @if (!Computer.Status.Available)
     {
@@ -16,15 +16,15 @@
             and it becomes a skill your bots can repeat. Typed passwords are never recorded.
         </p>
         <div class="row">
-            <select @bind="_profile" title="Which browser to record in (uses its sign-ins)">
-                <option value="shared">Shared browser</option>
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_profile" title="Which browser to record in (uses its sign-ins)">
+                <MudSelectItem Value="@("shared")">Shared browser</MudSelectItem>
                 @foreach (var b in State.Bots.Where(b => b.Abilities.BrowserProfile == BrowserProfile.Own))
                 {
-                    <option value="@b.Id">@b.Emoji @b.Name's browser</option>
+                    <MudSelectItem Value="@(b.Id)">@b.Emoji @b.Name's browser</MudSelectItem>
                 }
-            </select>
-            <input class="grow" @bind="_startUrl" placeholder="Start page, e.g. https://news.ycombinator.com (optional)" />
-            <button class="btn primary" @onclick="Start" disabled="@_busy">● Start recording</button>
+            </MudSelect>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_startUrl" Placeholder="Start page, e.g. https://news.ycombinator.com (optional)" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Start" Disabled="@_busy">● Start recording</MudButton>
         </div>
     }
     else if (Computer.IsRecording)
@@ -36,7 +36,7 @@
             @foreach (var s in Computer.RecordedSteps) { <li>@s.Describe()</li> }
         </ol>
         @if (Computer.RecordedSteps.Count == 0) { <p class="muted small">Waiting for your first click…</p> }
-        <button class="btn danger" @onclick="Stop">■ Stop recording</button>
+        <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="Stop">■ Stop recording</MudButton>
     }
     else if (_steps is not null)
     {
@@ -45,23 +45,23 @@
             @foreach (var s in _steps.ToList())
             {
                 var step = s;
-                <li>@step.Describe() <button class="icon-btn small" title="Remove step" @onclick="() => _steps.Remove(step)">✕</button></li>
+                <li>@step.Describe() <MudIconButton Size="Size.Small" title="Remove step" OnClick="() => _steps.Remove(step)">✕</MudIconButton></li>
             }
         </ol>
         <div class="row">
-            <input class="grow" @bind="_name" placeholder="Skill name, e.g. check-flight-prices" />
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_name" Placeholder="Skill name, e.g. check-flight-prices" />
         </div>
-        <input @bind="_description" placeholder="What it's for (bots read this), e.g. Look up the cheapest flight on Google Flights for given cities and dates" />
+        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_description" Placeholder="What it's for (bots read this), e.g. Look up the cheapest flight on Google Flights for given cities and dates" />
         <div class="row end">
-            <button class="btn ghost" @onclick="() => _steps = null">Discard</button>
-            <button class="btn primary" @onclick="Create" disabled="@(_busy || _steps.Count == 0 || string.IsNullOrWhiteSpace(_name))">
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _steps = null">Discard</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Create" Disabled="@(_busy || _steps.Count == 0 || string.IsNullOrWhiteSpace(_name))">
                 @(_busy ? "Writing the skill…" : "Create skill")
-            </button>
+            </MudButton>
         </div>
     }
-    @if (_error is not null) { <div class="error-box">@_error</div> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
     @if (_message is not null) { <div class="ok-text">@_message</div> }
-</section>
+</MudPaper>
 
 @code {
     private string _profile = "shared";

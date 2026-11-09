@@ -17,37 +17,29 @@
 @inject Hearth.Core.Services.Microsoft.MicrosoftAuth MicrosoftAuth
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     @if (_bot is not null) { <BotAvatar Bot="_bot" /> }
     <h2 class="topbar-title">@(_isNew ? "New bot" : _bot?.Name)</h2>
     <span class="spacer"></span>
     @if (_saved) { <span class="ok-text"><Icon Name="check" Size="16" /> Saved</span> }
-    @if (!_isNew) { <a class="btn ghost" href="bot/@Id">Chat</a> }
-    <button class="btn primary" @onclick="Save">Save</button>
+    @if (!_isNew) { <MudButton Variant="Variant.Text" Color="Color.Primary" Href="@($"bot/{Id}")">Chat</MudButton> }
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
 </header>
 
 @if (_bot is not null)
 {
 <div class="settings">
-    @if (_error is not null) { <div class="error-box">@_error</div> }
-    <div class="tabs" role="tablist" aria-label="Bot settings">
-        @foreach (var (id, label, icon, badge) in Tabs())
-        {
-            var tab = id;
-            <button role="tab" aria-selected="@(_tab == tab)" class="tab @(_tab == tab ? "on" : "")" @onclick="() => _tab = tab">
-                <Icon Name="@icon" Size="16" /> @label @if (badge is not null) { <span class="tab-badge">@badge</span> }
-            </button>
-        }
-    </div>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
+    <TabBar Label="Bot settings" Tabs="@(Tabs().Select(t => new TabBar.Item(t.id, t.label, t.icon, t.badge)).ToList())" @bind-Value="_tab" />
 
     @if (_tab == "profile")
     {
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Identity</h3>
         <div class="row">
-            <label>Emoji <input @bind="_bot.Emoji" style="width:4.5rem;text-align:center;font-size:1.3rem" maxlength="8" /></label>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_bot.Emoji" Style="width:4.5rem;text-align:center;font-size:1.3rem" MaxLength="8" Label="Emoji" />
             <label>Colour <input type="color" @bind="_bot.Color" style="width:4rem;padding:.2rem" /></label>
-            <label class="grow">Name <input @bind="_bot.Name" placeholder="e.g. Researcher" /></label>
+            <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_bot.Name" Placeholder="e.g. Researcher" Label="Name" />
         </div>
         <div class="avatar-picker">
             <div class="avatar-preview" title="How it looks, and how it moves while thinking">
@@ -58,44 +50,36 @@
                 <InputFile OnChange="OnAvatarPicked" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" /></label>
             @if (_bot.AvatarImage is not null)
             {
-                <button class="btn ghost" @onclick="() => _bot.AvatarImage = null">Use emoji instead</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _bot.AvatarImage = null">Use emoji instead</MudButton>
             }
-            <label>While thinking
-                <select @bind="_bot.WorkingAnimation">
-                    @foreach (var (id, label) in Bot.WorkingAnimations) { <option value="@id">@label</option> }
-                </select>
-            </label>
+            <MudSelect Label="While thinking" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_bot.WorkingAnimation">
+                    @foreach (var (id, label) in Bot.WorkingAnimations) { <MudSelectItem Value="@(id)">@label</MudSelectItem> }
+                </MudSelect>
         </div>
-        @if (_avatarError is not null) { <div class="error-box">@_avatarError</div> }
+        @if (_avatarError is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_avatarError</MudAlert> }
         @if (_bot.AvatarImage is not null) { <p class="muted small">The emoji is still used in chat apps (Telegram, Discord…) and menus that can only show text.</p> }
-        <label>Title / role <input @bind="_bot.Title" placeholder="e.g. Research & fact-checking" /></label>
-        <label>Instructions
-            <textarea rows="7" @bind="_bot.Instructions" placeholder="What this bot does, how it works, its tone, what it should never do…"></textarea>
-        </label>
-        <label class="check"><input type="checkbox" @bind="_bot.IsCoordinator" /> Coordinator ("chief of staff"): routes work to the other bots and combines their results</label>
-    </section>
+        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_bot.Title" Placeholder="e.g. Research & fact-checking" Label="Title / role" />
+        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="7" @bind-Value="_bot.Instructions" Placeholder="What this bot does, how it works, its tone, what it should never do…" Label="Instructions" />
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_bot.IsCoordinator" Class="check" Label='Coordinator ("chief of staff"): routes work to the other bots and combines their results' />
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Model</h3>
         @if (State.Settings.Providers.Count > 1)
         {
-            <label>Model server
-                <select value="@(_bot.ProviderId ?? "")" @onchange="e => SetProvider(e.Value?.ToString())">
-                    <option value="">Same as the app (@State.Settings.ActiveProvider.Name)</option>
+            <MudSelect Label="Model server" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(_bot.ProviderId ?? "")" ValueChanged="(string v) => SetProvider(v)" T="string">
+                    <MudSelectItem Value="@("")">Same as the app (@State.Settings.ActiveProvider.Name)</MudSelectItem>
                     @foreach (var p in State.Settings.Providers.Where(p => p.Id != State.Settings.ActiveProvider.Id))
                     {
-                        <option value="@p.Id">@p.Name</option>
+                        <MudSelectItem Value="@(p.Id)">@p.Name</MudSelectItem>
                     }
-                </select>
-            </label>
+                </MudSelect>
         }
-        <label>Model
-            <select @bind="_bot.Model">
-                <option value="">@(OwnServer ? $"{OwnProvider!.Name}'s default model" : "Use the model selected in the chat")</option>
-                @foreach (var m in BotModels) { <option value="@m.Id">@m.Id</option> }
-                @if (!string.IsNullOrEmpty(_bot.Model) && BotModels.All(m => m.Id != _bot.Model)) { <option value="@_bot.Model">@_bot.Model (not available)</option> }
-            </select>
-        </label>
+        <MudSelect Label="Model" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_bot.Model">
+                <MudSelectItem Value="@("")">@(OwnServer ? $"{OwnProvider!.Name}'s default model" : "Use the model selected in the chat")</MudSelectItem>
+                @foreach (var m in BotModels) { <MudSelectItem Value="@(m.Id)">@m.Id</MudSelectItem> }
+                @if (!string.IsNullOrEmpty(_bot.Model) && BotModels.All(m => m.Id != _bot.Model)) { <MudSelectItem Value="@(_bot.Model)">@_bot.Model (not available)</MudSelectItem> }
+            </MudSelect>
         @if (_serverError is not null) { <span class="tiny-error">@_serverError</span> }
         @if (OwnServer) { <span class="muted small">If @OwnProvider!.Name can't be reached, this bot falls back to @State.Settings.ActiveProvider.Name.</span> }
 
@@ -105,69 +89,63 @@
         {
             var version = v;
             <div class="version-row">
-                <label>Name <input @bind="version.Name" placeholder="e.g. claude" style="width:8rem" /></label>
-                <label>Server
-                    <select value="@(version.ProviderId ?? "")" @onchange="e => SetVersionProvider(version, e.Value?.ToString())">
-                        <option value="">@State.Settings.ActiveProvider.Name (the app's)</option>
-                        @foreach (var p in State.Settings.Providers.Where(p => p.Id != State.Settings.ActiveProvider.Id)) { <option value="@p.Id">@p.Name</option> }
-                    </select>
-                </label>
-                <label>Model
-                    <select @bind="version.Model">
-                        <option value="">Server's default</option>
-                        @foreach (var m in VersionModels(version)) { <option value="@m.Id">@m.Id</option> }
-                        @if (!string.IsNullOrEmpty(version.Model) && VersionModels(version).All(m => m.Id != version.Model)) { <option value="@version.Model">@version.Model</option> }
-                    </select>
-                </label>
-                <label class="grow">When to use it <input @bind="version.Note" placeholder="e.g. hard research or code; uses your Claude plan" /></label>
-                <button class="btn ghost small" title="Remove this version" @onclick="() => _bot.Versions.Remove(version)">✕</button>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="version.Name" Placeholder="e.g. claude" Style="width:8rem" Label="Name" />
+                <MudSelect Label="Server" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(version.ProviderId ?? "")" ValueChanged="(string v) => SetVersionProvider(version, v)" T="string">
+                        <MudSelectItem Value="@("")">@State.Settings.ActiveProvider.Name (the app's)</MudSelectItem>
+                        @foreach (var p in State.Settings.Providers.Where(p => p.Id != State.Settings.ActiveProvider.Id)) { <MudSelectItem Value="@(p.Id)">@p.Name</MudSelectItem> }
+                    </MudSelect>
+                <MudSelect Label="Model" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="version.Model">
+                        <MudSelectItem Value="@("")">Server's default</MudSelectItem>
+                        @foreach (var m in VersionModels(version)) { <MudSelectItem Value="@(m.Id)">@m.Id</MudSelectItem> }
+                        @if (!string.IsNullOrEmpty(version.Model) && VersionModels(version).All(m => m.Id != version.Model)) { <MudSelectItem Value="@(version.Model)">@version.Model</MudSelectItem> }
+                    </MudSelect>
+                <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="version.Note" Placeholder="e.g. hard research or code; uses your Claude plan" Label="When to use it" />
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" title="Remove this version" OnClick="() => _bot.Versions.Remove(version)">✕</MudButton>
             </div>
         }
-        <div><button class="btn ghost small" @onclick="AddVersion">+ Add version</button></div>
+        <div><MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="AddVersion">+ Add version</MudButton></div>
 
         <details class="advanced">
             <summary>Advanced: limit to specific tools</summary>
-            <label>Tool access
-                <select @bind="_bot.ToolMode">
-                    <option value="@BotToolMode.All">Use the bot's abilities (Abilities tab)</option>
-                    <option value="@BotToolMode.Selected">Only the tools picked below (ignores abilities)</option>
-                    <option value="@BotToolMode.None">No tools at all</option>
-                </select>
-            </label>
+            <MudSelect Label="Tool access" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_bot.ToolMode">
+                    <MudSelectItem Value="@(BotToolMode.All)">Use the bot's abilities (Abilities tab)</MudSelectItem>
+                    <MudSelectItem Value="@(BotToolMode.Selected)">Only the tools picked below (ignores abilities)</MudSelectItem>
+                    <MudSelectItem Value="@(BotToolMode.None)">No tools at all</MudSelectItem>
+                </MudSelect>
             @if (_bot.ToolMode == BotToolMode.Selected)
             {
                 <div class="tool-pick">
                     @foreach (var (tool, reason) in _catalog)
                     {
                         var t = tool;
-                        <label class="check"><input type="checkbox" checked="@_bot.AllowedTools.Contains(t.Name)" @onchange="e => ToggleTool(t.Name, (bool)e.Value!)" /> @t.Icon @t.DisplayName @if (reason is not null) { <span class="muted small">(@reason)</span> }</label>
+                        <MudSwitch T="bool" Color="Color.Primary" Value="@(_bot.AllowedTools.Contains(t.Name))" ValueChanged="(bool v) => ToggleTool(t.Name, v)" Class="check">@t.Icon @t.DisplayName @if (reason is not null) { <span class="muted small">(@reason)</span> }</MudSwitch>
                     }
                 </div>
             }
         </details>
-    </section>
+    </MudPaper>
 
     @if (!_isNew)
     {
-        <section class="card danger">
+        <MudPaper Class="card danger" Elevation="0">
             @if (_confirmDelete)
             {
                 <div class="row">
                     <span>Delete @_bot.Name? Its chats stay, but it won't reply in them.</span>
-                    <button class="btn danger" @onclick="Delete">Delete</button>
-                    <button class="btn ghost" @onclick="() => _confirmDelete = false">Cancel</button>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="Delete">Delete</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _confirmDelete = false">Cancel</MudButton>
                 </div>
             }
             else
             {
-                <button class="btn danger" @onclick="() => _confirmDelete = true">Delete bot</button>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="() => _confirmDelete = true">Delete bot</MudButton>
             }
-        </section>
+        </MudPaper>
     }
     }
     @if (_tab == "abilities")
     {
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Abilities</h3>
         <p class="muted">Switch on what @(string.IsNullOrWhiteSpace(_bot.Name) ? "this bot" : _bot.Name) may do. Things that also need setting up elsewhere say so.</p>
         <div class="ability-list">
@@ -184,37 +162,35 @@
                     {
                         <a class="chip-warn" href="@ability.HintLink" title="@ability.Hint">Needs setup</a>
                     }
-                    <input type="checkbox" class="switch" role="switch" checked="@ability.Get()" @onchange="e => ability.Set((bool)e.Value!)" aria-label="@ability.Name" />
+                    <MudSwitch T="bool" Color="Color.Primary" Class="switch" role="switch" Value="@(ability.Get())" ValueChanged="(bool v) => ability.Set(v)" aria-label="@ability.Name" />
                 </label>
             }
         </div>
-    </section>
+    </MudPaper>
 
     @if (_bot.Abilities.Code && CodeTools.Available)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Coding</h3>
             <p class="muted small">Start a code session with @(string.IsNullOrWhiteSpace(_bot.Name) ? "this bot" : _bot.Name) from the Code tab. With a project folder set, it can also find, read, edit and test code there in its normal chats and when another bot hands it work (edits it isn't allowed to make without you are refused when you aren't watching).</p>
             <label>Project folder <span class="muted small">(optional)</span>
-                <input placeholder="Full path, e.g. /Users/me/src/my-app" @bind="_bot.Abilities.ProjectFolder" />
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Full path, e.g. /Users/me/src/my-app" @bind-Value="_bot.Abilities.ProjectFolder" />
             </label>
             @if (!string.IsNullOrWhiteSpace(_bot.Abilities.ProjectFolder) && !Directory.Exists(_bot.Abilities.ProjectFolder.Trim()))
             {
                 <span class="tiny-error">That folder doesn't exist.</span>
             }
-            <label>File edits in that folder
-                <select @bind="_bot.Abilities.CodeMode">
-                    <option value="@CodePermissionMode.Ask">Ask me each time</option>
-                    <option value="@CodePermissionMode.AcceptEdits">Allow without asking</option>
-                    <option value="@CodePermissionMode.Plan">Read only</option>
-                </select>
-            </label>
-        </section>
+            <MudSelect Label="File edits in that folder" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_bot.Abilities.CodeMode">
+                    <MudSelectItem Value="@(CodePermissionMode.Ask)">Ask me each time</MudSelectItem>
+                    <MudSelectItem Value="@(CodePermissionMode.AcceptEdits)">Allow without asking</MudSelectItem>
+                    <MudSelectItem Value="@(CodePermissionMode.Plan)">Read only</MudSelectItem>
+                </MudSelect>
+        </MudPaper>
     }
 
     @if (_bot.Abilities.Browser)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Browser</h3>
             <div class="seg">
                 <button class="@(_bot.Abilities.BrowserProfile == BrowserProfile.Own ? "on" : "")" @onclick="() => _bot.Abilities.BrowserProfile = BrowserProfile.Own">
@@ -227,10 +203,10 @@
             @if (!_isNew && Computer.Status.Available)
             {
                 <div class="row">
-                    <button class="btn ghost" @onclick="SignInBrowser" disabled="@_busy">🔑 Open @(_bot.Abilities.BrowserProfile == BrowserProfile.Own ? "its" : "the shared") browser to sign in</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="SignInBrowser" Disabled="@_busy">🔑 Open @(_bot.Abilities.BrowserProfile == BrowserProfile.Own ? "its" : "the shared") browser to sign in</MudButton>
                     @if (_bot.Abilities.BrowserProfile == BrowserProfile.Own)
                     {
-                        <button class="btn ghost" @onclick="ResetBrowser" disabled="@_busy" title="Deletes this bot's cookies and sign-ins">Reset its browser</button>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ResetBrowser" Disabled="@_busy" title="Deletes this bot's cookies and sign-ins">Reset its browser</MudButton>
                     }
                 </div>
                 <span class="muted small">A window opens on this computer. Sign in to the sites this bot should use, then close it — sign-ins are kept.</span>
@@ -239,12 +215,12 @@
             {
                 <span class="muted small">@Computer.Status.UnavailableReason</span>
             }
-        </section>
+        </MudPaper>
     }
 
     @if (_bot.Abilities.ComputerUse)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Computer use</h3>
             <div class="seg">
                 <button class="@(_bot.Abilities.Desktop == DesktopTarget.Sandbox ? "on" : "")" @onclick="() => _bot.Abilities.Desktop = DesktopTarget.Sandbox">
@@ -259,63 +235,63 @@
                 @if (_isNew) { <span class="muted small">Save the bot first; its desktop starts the first time it's used.</span> }
                 else { <SandboxView BotId="@_bot.Id" /> }
             }
-        </section>
+        </MudPaper>
     }
 
     }
     @if (_tab == "memory")
     {
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Memory</h3>
-        <label class="check"><input type="checkbox" @bind="_bot.Memory.Enabled" /> <span><b>Remember things</b> — keeps its own memory across all its chats</span></label>
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_bot.Memory.Enabled" Class="check"><span><b>Remember things</b> — keeps its own memory across all its chats</span></MudSwitch>
         @if (_bot.Memory.Enabled)
         {
-            <label class="check"><input type="checkbox" @bind="_bot.Memory.AutoLearn" /> <span><b>Learn automatically</b> — after each reply, quietly saves anything worth remembering</span></label>
-            <label class="check"><input type="checkbox" @bind="_bot.Memory.UseSharedMemory" /> <span><b>Know what other bots know about you</b> — reads the shared memory</span></label>
-            <label class="check"><input type="checkbox" @bind="_bot.Memory.ShareWhatItLearns" /> <span><b>Share what it learns about you</b> — adds facts about you to the shared memory</span></label>
-            <label>Memories in each prompt <input type="number" min="5" max="200" @bind="_bot.Memory.MaxInPrompt" style="width:5.5rem" /> <span class="muted small">older ones stay in long-term storage and come up when relevant</span></label>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_bot.Memory.AutoLearn" Class="check"><span><b>Learn automatically</b> — after each reply, quietly saves anything worth remembering</span></MudSwitch>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_bot.Memory.UseSharedMemory" Class="check"><span><b>Know what other bots know about you</b> — reads the shared memory</span></MudSwitch>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_bot.Memory.ShareWhatItLearns" Class="check"><span><b>Share what it learns about you</b> — adds facts about you to the shared memory</span></MudSwitch>
+            <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_bot.Memory.MaxInPrompt" Style="width:5.5rem" Label="Memories in each prompt" HelperText="older ones stay in long-term storage and come up when relevant" />
 
             @if (!_isNew)
             {
                 <div class="tool-label">@_memories.Count memories</div>
                 <div class="row">
-                    <input class="grow" @bind="_newMemory" @onkeydown="AddMemoryKey" placeholder="Teach it something, e.g. Our launch date is March 3" />
-                    <button class="btn ghost" @onclick="AddMemory" disabled="@string.IsNullOrWhiteSpace(_newMemory)">Add</button>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_newMemory" OnKeyDown="AddMemoryKey" Placeholder="Teach it something, e.g. Our launch date is March 3" />
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddMemory" Disabled="@string.IsNullOrWhiteSpace(_newMemory)">Add</MudButton>
                 </div>
-                <input class="search" @bind="_memoryFilter" @bind:event="oninput" placeholder="Search memories" />
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="search" @bind-Value="_memoryFilter" Immediate="true" Placeholder="Search memories" />
                 @foreach (var m in _memories.Where(m => _memoryFilter.Length == 0 || m.Text.Contains(_memoryFilter, StringComparison.OrdinalIgnoreCase)).OrderByDescending(m => m.CreatedAt))
                 {
                     var mem = m;
                     <div class="memory-row">
                         @if (_editingMemory == mem.Id)
                         {
-                            <input class="grow" @bind="_editMemoryText" @onkeydown="e => EditMemoryKey(e, mem.Id)" />
-                            <button class="btn primary small" @onclick="() => SaveMemory(mem.Id)">Save</button>
+                            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_editMemoryText" OnKeyDown="e => EditMemoryKey(e, mem.Id)" />
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => SaveMemory(mem.Id)">Save</MudButton>
                         }
                         else
                         {
                             <span class="grow">@mem.Text</span>
                             <span class="muted small">@mem.CreatedAt.ToString("MMM d")</span>
-                            <button class="icon-btn" title="Edit" @onclick="() => { _editingMemory = mem.Id; _editMemoryText = mem.Text; }">✎</button>
-                            <button class="icon-btn" title="Forget" @onclick="() => DeleteMemory(mem.Id)">🗑</button>
+                            <MudIconButton Size="Size.Small" title="Edit" OnClick="() => { _editingMemory = mem.Id; _editMemoryText = mem.Text; }">✎</MudIconButton>
+                            <MudIconButton Size="Size.Small" title="Forget" OnClick="() => DeleteMemory(mem.Id)">🗑</MudIconButton>
                         }
                     </div>
                 }
                 @if (_memories.Count > 0)
                 {
-                    <button class="btn danger small" @onclick="ClearMemory">Forget everything @_bot.Name knows</button>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" OnClick="ClearMemory">Forget everything @_bot.Name knows</MudButton>
                 }
             }
         }
-    </section>
+    </MudPaper>
 
     }
     @if (_tab == "checks")
     {
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <div class="row">
             <h3 class="grow">Checks</h3>
-            @if (_bot.Checks.Count > 0) { <button class="btn primary" @onclick="RunAllChecks" disabled="@(_runningCheck is not null)"><Icon Name="refresh-cw" Size="15" /> Run all</button> }
+            @if (_bot.Checks.Count > 0) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="RunAllChecks" Disabled="@(_runningCheck is not null)"><Icon Name="refresh-cw" Size="15" /> Run all</MudButton> }
         </div>
         <p class="muted small">Example questions with what a good answer does. Run them after changing the instructions, abilities or model to see that
             @(string.IsNullOrWhiteSpace(_bot.Name) ? "this bot" : _bot.Name) still works. Checks use the settings on this page, even before you save,
@@ -327,12 +303,12 @@
                 <div class="row">
                     <span class="check-status">@if (_runningCheck == check.Id) { <text>Running…</text> } else if (check.Last is { } r) { <Icon Name="@(r.Pass ? "check" : "circle-x")" Size="16" /> @(r.Pass ? "Pass" : "Fail") } else { <text>Not run</text> }</span>
                     <span class="spacer"></span>
-                    <button class="btn ghost small" @onclick="() => RunCheck(check)" disabled="@(_runningCheck is not null || string.IsNullOrWhiteSpace(check.Question))">Run</button>
-                    <button class="icon-btn" title="Remove" aria-label="Remove check" @onclick="() => _bot.Checks.Remove(check)"><Icon Name="trash-2" Size="15" /></button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => RunCheck(check)" Disabled="@(_runningCheck is not null || string.IsNullOrWhiteSpace(check.Question))">Run</MudButton>
+                    <MudIconButton Size="Size.Small" title="Remove" aria-label="Remove check" OnClick="() => _bot.Checks.Remove(check)"><Icon Name="trash-2" Size="15" /></MudIconButton>
                 </div>
-                <label>Question <textarea rows="2" @bind="check.Question" placeholder="What's the monthly payment on $20,000 over 5 years at 6%?"></textarea></label>
-                <label>A good answer… <input @bind="check.Expect" placeholder="uses the calculator and gives about $386.66 per month" /></label>
-                <label>Must include (optional, comma-separated) <input @bind="check.MustInclude" placeholder="386.66" /></label>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="2" @bind-Value="check.Question" Placeholder="What's the monthly payment on $20,000 over 5 years at 6%?" Label="Question" />
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="check.Expect" Placeholder="uses the calculator and gives about $386.66 per month" Label="A good answer…" />
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="check.MustInclude" Placeholder="386.66" Label="Must include (optional, comma-separated)" />
                 @if (check.Last is { } last)
                 {
                     <div class="small"><b>@(last.Pass ? "Why it passed" : "Why it failed"):</b> @last.Reason
@@ -341,14 +317,14 @@
                 }
             </div>
         }
-        <button class="btn ghost" @onclick="() => _bot.Checks.Add(new BotCheck())"><Icon Name="plus" Size="16" /> Add a check</button>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _bot.Checks.Add(new BotCheck())"><Icon Name="plus" Size="16" /> Add a check</MudButton>
         @if (_checkSummary is not null) { <div class="@(_checkSummary.StartsWith("All") ? "ok-text" : "tiny-error")">@_checkSummary</div> }
-    </section>
+    </MudPaper>
     }
 
     @if (_tab == "routines")
     {
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Routines and triggers</h3>
         <p class="muted">
             Prompts this bot runs on its own: on a schedule, or when something happens. Results show up in its chat,
@@ -359,45 +335,43 @@
             var routine = r;
             <div class="provider">
                 <div class="row">
-                    <label class="check"><input type="checkbox" @bind="routine.Enabled" /> On</label>
-                    <label class="check" title="Also send results to linked Telegram/Discord/Slack chats that have routine notifications on"><input type="checkbox" @bind="routine.NotifyChannels" /> Send to chat apps</label>
-                    <input class="grow" @bind="routine.Name" placeholder="Name, e.g. Morning briefing" />
-                    <button class="icon-btn" title="Remove" @onclick="() => _bot.Routines.Remove(routine)">🗑</button>
+                    <MudSwitch T="bool" Color="Color.Primary" @bind-Value="routine.Enabled" Class="check" Label="On" />
+                    <MudSwitch T="bool" Color="Color.Primary" @bind-Value="routine.NotifyChannels" title="Also send results to linked Telegram/Discord/Slack chats that have routine notifications on" Class="check" Label="Send to chat apps" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="routine.Name" Placeholder="Name, e.g. Morning briefing" />
+                    <MudIconButton Size="Size.Small" title="Remove" OnClick="() => _bot.Routines.Remove(routine)">🗑</MudIconButton>
                 </div>
                 <div class="row">
-                    <label class="grow">When
-                        <select @bind="routine.Trigger">
-                            <option value="@TriggerKind.Schedule">⏰ On a schedule</option>
-                            <option value="@TriggerKind.Webhook" disabled="@(!Platform.SupportsWebhooks)">🪝 A webhook is called@(Platform.SupportsWebhooks ? "" : " (not on this device)")</option>
-                            <option value="@TriggerKind.Folder" disabled="@(!Platform.CanUseComputer)">📁 A file appears or changes in a folder@(Platform.CanUseComputer ? "" : Platform.CanRunProcesses ? " (not allowed for this account)" : " (desktop only)")</option>
-                            <option value="@TriggerKind.Feed">📰 A new item appears in an RSS/Atom feed</option>
-                            <option value="@TriggerKind.PageChange">🌐 A web page changes</option>
-                            <option value="@TriggerKind.Sheet" disabled="@(!_googleConnected)">📊 A Google Sheet changes@(_googleConnected ? "" : " (connect Google first)")</option>
-                            <option value="@TriggerKind.Email" disabled="@(!_googleConnected)">📧 New email arrives@(_googleConnected ? "" : " (connect Google first)")</option>
-                            <option value="@TriggerKind.Calendar" disabled="@(!_googleConnected)">📅 A calendar event is coming up@(_googleConnected ? "" : " (connect Google first)")</option>
-                        </select>
-                    </label>
+                    <MudSelect Class="grow" Label="When" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="routine.Trigger">
+                            <MudSelectItem Value="@(TriggerKind.Schedule)">⏰ On a schedule</MudSelectItem>
+                            <MudSelectItem Value="@(TriggerKind.Webhook)" Disabled="@(!Platform.SupportsWebhooks)">🪝 A webhook is called@(Platform.SupportsWebhooks ? "" : " (not on this device)")</MudSelectItem>
+                            <MudSelectItem Value="@(TriggerKind.Folder)" Disabled="@(!Platform.CanUseComputer)">📁 A file appears or changes in a folder@(Platform.CanUseComputer ? "" : Platform.CanRunProcesses ? " (not allowed for this account)" : " (desktop only)")</MudSelectItem>
+                            <MudSelectItem Value="@(TriggerKind.Feed)">📰 A new item appears in an RSS/Atom feed</MudSelectItem>
+                            <MudSelectItem Value="@(TriggerKind.PageChange)">🌐 A web page changes</MudSelectItem>
+                            <MudSelectItem Value="@(TriggerKind.Sheet)" Disabled="@(!_googleConnected)">📊 A Google Sheet changes@(_googleConnected ? "" : " (connect Google first)")</MudSelectItem>
+                            <MudSelectItem Value="@(TriggerKind.Email)" Disabled="@(!_googleConnected)">📧 New email arrives@(_googleConnected ? "" : " (connect Google first)")</MudSelectItem>
+                            <MudSelectItem Value="@(TriggerKind.Calendar)" Disabled="@(!_googleConnected)">📅 A calendar event is coming up@(_googleConnected ? "" : " (connect Google first)")</MudSelectItem>
+                        </MudSelect>
                 </div>
                 @switch (routine.Trigger)
                 {
                     case TriggerKind.Schedule:
                         <div class="row">
-                            <select @bind="routine.Schedule">
-                                <option value="@RoutineSchedule.Daily">Every day at</option>
-                                <option value="@RoutineSchedule.Weekdays">Weekdays at</option>
-                                <option value="@RoutineSchedule.Weekly">Every week on</option>
-                                <option value="@RoutineSchedule.EveryMinutes">Every … minutes</option>
-                            </select>
+                            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="routine.Schedule">
+                                <MudSelectItem Value="@(RoutineSchedule.Daily)">Every day at</MudSelectItem>
+                                <MudSelectItem Value="@(RoutineSchedule.Weekdays)">Weekdays at</MudSelectItem>
+                                <MudSelectItem Value="@(RoutineSchedule.Weekly)">Every week on</MudSelectItem>
+                                <MudSelectItem Value="@(RoutineSchedule.EveryMinutes)">Every … minutes</MudSelectItem>
+                            </MudSelect>
                             @if (routine.Schedule == RoutineSchedule.Weekly)
                             {
-                                <select @bind="routine.Day" aria-label="Day of the week">
-                                    @foreach (var day in Enum.GetValues<DayOfWeek>()) { <option value="@day">@day</option> }
-                                </select>
+                                <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="routine.Day" aria-label="Day of the week">
+                                    @foreach (var day in Enum.GetValues<DayOfWeek>()) { <MudSelectItem Value="@(day)">@day</MudSelectItem> }
+                                </MudSelect>
                                 <span class="muted">at</span>
                             }
                             @if (routine.Schedule == RoutineSchedule.EveryMinutes)
                             {
-                                <input type="number" min="5" @bind="routine.IntervalMinutes" style="width:6rem" />
+                                <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="routine.IntervalMinutes" Style="width:6rem" />
                             }
                             else
                             {
@@ -415,8 +389,8 @@
                             var url = WebhookUrl(routine);
                             <div class="hook">
                                 <div class="row"><code class="grow ellipsis" title="@url">@url</code>
-                                    <button class="btn ghost small" @onclick="() => Copy(url)">Copy</button>
-                                    <button class="btn ghost small" title="Invalidates the old URL" @onclick="() => routine.WebhookSecret = Routine.NewSecret()">New secret</button>
+                                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Copy(url)">Copy</MudButton>
+                                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" title="Invalidates the old URL" OnClick="() => routine.WebhookSecret = Routine.NewSecret()">New secret</MudButton>
                                 </div>
                                 <span class="muted small">POST anything (JSON, text, form) — the body is passed to the bot. Works with GitHub, Home Assistant, IFTTT/Zapier, cron and scripts:</span>
                                 <code class="snippet">curl -X POST "@url" -H "Content-Type: application/json" -d '{"event":"test"}'</code>
@@ -429,8 +403,8 @@
                         break;
                     case TriggerKind.Folder:
                         <div class="row">
-                            <input class="grow" @bind="routine.FolderPath" placeholder="Folder, e.g. /Users/me/Downloads/Invoices" />
-                            <input @bind="routine.FilePattern" placeholder="Pattern, e.g. *.pdf" style="width:9rem" />
+                            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="routine.FolderPath" Placeholder="Folder, e.g. /Users/me/Downloads/Invoices" />
+                            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="routine.FilePattern" Placeholder="Pattern, e.g. *.pdf" Style="width:9rem" />
                         </div>
                         @if (!string.IsNullOrWhiteSpace(routine.FolderPath) && !Directory.Exists(routine.FolderPath))
                         {
@@ -440,9 +414,9 @@
                         break;
                     case TriggerKind.Sheet:
                         <div class="row">
-                            <input class="grow" @bind="routine.Url" placeholder="Spreadsheet URL, ID or name" />
-                            <input @bind="routine.SheetRange" placeholder="Range, e.g. Leads!A:F (default: first tab)" style="width:16rem" />
-                            <label>every <input type="number" min="1" @bind="routine.PollMinutes" style="width:5rem" /> min</label>
+                            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="routine.Url" Placeholder="Spreadsheet URL, ID or name" />
+                            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="routine.SheetRange" Placeholder="Range, e.g. Leads!A:F (default: first tab)" Style="width:16rem" />
+                            <label>every <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="routine.PollMinutes" Style="width:5rem" /> min</label>
                         </div>
                         <span class="muted small">New and edited rows (with the header row) are passed to the bot.</span>
                         @if (_states.TryGetValue(routine.Id, out var sst))
@@ -455,23 +429,23 @@
                         break;
                     case TriggerKind.Email:
                         <div class="row">
-                            <input class="grow" @bind="routine.Url" placeholder="Gmail search, e.g. in:inbox is:unread from:boss (default: in:inbox is:unread)" />
-                            <label>every <input type="number" min="1" @bind="routine.PollMinutes" style="width:5rem" /> min</label>
+                            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="routine.Url" Placeholder="Gmail search, e.g. in:inbox is:unread from:boss (default: in:inbox is:unread)" />
+                            <label>every <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="routine.PollMinutes" Style="width:5rem" /> min</label>
                         </div>
                         <span class="muted small">New matching emails (sender, subject and text) are passed to the bot. The first check only notes what's already there.</span>
                         break;
                     case TriggerKind.Calendar:
                         <div class="row">
-                            <label><input type="number" min="1" @bind="routine.LeadMinutes" style="width:5rem" /> minutes before each event</label>
-                            <label>check every <input type="number" min="1" @bind="routine.PollMinutes" style="width:5rem" /> min</label>
+                            <label><MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="routine.LeadMinutes" Style="width:5rem" /> minutes before each event</label>
+                            <label>check every <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="routine.PollMinutes" Style="width:5rem" /> min</label>
                         </div>
                         <span class="muted small">The event's title, time, attendees and notes are passed to the bot — great for meeting prep.</span>
                         break;
                     case TriggerKind.Feed:
                     case TriggerKind.PageChange:
                         <div class="row">
-                            <input class="grow" @bind="routine.Url" placeholder="@(routine.Trigger == TriggerKind.Feed ? "https://github.com/ollama/ollama/releases.atom" : "https://example.com/pricing")" />
-                            <label>every <input type="number" min="1" @bind="routine.PollMinutes" style="width:5rem" /> min</label>
+                            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="routine.Url" Placeholder="@(routine.Trigger == TriggerKind.Feed ? "https://github.com/ollama/ollama/releases.atom" : "https://example.com/pricing")" />
+                            <label>every <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="routine.PollMinutes" Style="width:5rem" /> min</label>
                         </div>
                         @if (_states.TryGetValue(routine.Id, out var st))
                         {
@@ -482,18 +456,18 @@
                         }
                         break;
                 }
-                <textarea rows="3" @bind="routine.Prompt" placeholder="@PromptHint(routine)"></textarea>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="3" @bind-Value="routine.Prompt" Placeholder="@PromptHint(routine)" />
                 <div class="row">
                     <span class="muted small grow">@(routine.LastRun is { } lr ? $"Last run {lr:MMM d, h:mm tt}" : "Never run")</span>
-                    <button class="btn ghost small" disabled="@(_isNew || _runningRoutine is not null)" @onclick="() => RunNow(routine)">
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Disabled="@(_isNew || _runningRoutine is not null)" OnClick="() => RunNow(routine)">
                         @(_runningRoutine == routine.Id ? "Running…" : routine.Trigger is TriggerKind.Feed or TriggerKind.PageChange or TriggerKind.Sheet or TriggerKind.Email or TriggerKind.Calendar ? "▶ Check now" : "▶ Test run")
-                    </button>
+                    </MudButton>
                 </div>
                 @if (_runResult.TryGetValue(routine.Id, out var rr)) { <span class="muted small">@rr</span> }
             </div>
         }
-        <button class="btn ghost" @onclick="() => _bot.Routines.Add(new Routine())"><Icon Name="plus" Size="16" /> Add routine</button>
-    </section>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _bot.Routines.Add(new Routine())"><Icon Name="plus" Size="16" /> Add routine</MudButton>
+    </MudPaper>
 
     }
 </div>

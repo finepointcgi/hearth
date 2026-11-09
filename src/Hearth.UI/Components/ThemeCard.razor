@@ -2,7 +2,7 @@
 @inject SettingsStore Store
 @inject IJSRuntime JS
 
-<section class="card theme-card">
+<MudPaper Class="card theme-card" Elevation="0">
     <h3>Theme</h3>
     <p class="muted small">How Hearth looks on every device you use it on. Changes apply and save straight away.</p>
 
@@ -54,11 +54,11 @@
             </label>
             @if (_t.Accent is not null)
             {
-                <button class="btn ghost small" @onclick="() => SetAccent(null)">Use the theme's accent</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => SetAccent(null)">Use the theme's accent</MudButton>
             }
         </div>
     </div>
-</section>
+</MudPaper>
 
 @code {
     private static readonly (string id, string label, string icon)[] Modes =

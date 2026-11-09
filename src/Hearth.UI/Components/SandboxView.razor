@@ -7,18 +7,18 @@
         <span class="grow muted small">@(_info?.Status ?? "Checking…")</span>
         @if (_info?.Running == true)
         {
-            <button class="btn ghost" @onclick="Stop" disabled="@_busy">Stop</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Stop" Disabled="@_busy">Stop</MudButton>
         }
         else if (_problem is null)
         {
-            <button class="btn ghost" @onclick="Start" disabled="@_busy">@(_busy ? "Starting… (first time builds it, a few minutes)" : "Start it now")</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Start" Disabled="@_busy">@(_busy ? "Starting… (first time builds it, a few minutes)" : "Start it now")</MudButton>
         }
         @if (_problem is null)
         {
-            <button class="btn danger" @onclick="Reset" disabled="@_busy" title="Deletes its desktop, files and sign-ins">Reset</button>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="Reset" Disabled="@_busy" title="Deletes its desktop, files and sign-ins">Reset</MudButton>
         }
     </div>
-    @if (_error is not null) { <div class="error-box">@_error</div> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
     @if (_info is { Running: true, ViewUrl: { } url })
     {
         @if (IsLocal)

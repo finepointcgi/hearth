@@ -1,7 +1,7 @@
 @inject SettingsStore Store
 @inject PlatformInfo Platform
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <h3>Remote computers</h3>
     <p class="muted small">
         Let bots run commands on your other machines (a server, a Raspberry Pi, a work box) over SSH, with the <code>run_remote</code> tool.
@@ -20,23 +20,23 @@
             <div class="memory-row">
                 <span class="grow"><b>@host.Name</b> <span class="muted small">@host.Target@(host.Port != 22 ? $":{host.Port}" : "")@(string.IsNullOrWhiteSpace(host.Notes) ? "" : $" · {host.Notes}")</span>
                     @if (_status.TryGetValue(host.Id, out var st)) { <br /><span class="small @(st.StartsWith("✓") ? "ok-text" : "tiny-error")">@st</span> }</span>
-                <button class="btn ghost small" @onclick="() => Test(host)" disabled="@_busy">Test</button>
-                <button class="icon-btn" title="Remove" @onclick="() => Remove(host)">🗑</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Test(host)" Disabled="@_busy">Test</MudButton>
+                <MudIconButton Size="Size.Small" title="Remove" OnClick="() => Remove(host)">🗑</MudIconButton>
             </div>
         }
         <div class="row">
-            <input style="width:9rem" @bind="_new.Name" placeholder="Name, e.g. homelab" />
-            <input class="grow" @bind="_new.Target" placeholder="user@host or an ~/.ssh/config alias" />
-            <input type="number" style="width:5rem" @bind="_new.Port" title="Port" />
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:9rem" @bind-Value="_new.Name" Placeholder="Name, e.g. homelab" />
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_new.Target" Placeholder="user@host or an ~/.ssh/config alias" />
+            <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:5rem" @bind-Value="_new.Port" title="Port" />
         </div>
         <div class="row">
-            <input class="grow" @bind="_new.KeyPath" placeholder="Key file (optional, e.g. ~/.ssh/id_ed25519)" />
-            <input class="grow" @bind="_new.Notes" placeholder="What it is (bots see this), e.g. Ubuntu server running Plex" />
-            <button class="btn primary" @onclick="Add">Add</button>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_new.KeyPath" Placeholder="Key file (optional, e.g. ~/.ssh/id_ed25519)" />
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_new.Notes" Placeholder="What it is (bots see this), e.g. Ubuntu server running Plex" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Add">Add</MudButton>
         </div>
-        @if (_error is not null) { <div class="error-box">@_error</div> }
+        @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
     }
-</section>
+</MudPaper>
 
 @code {
     /// <summary>Called after a computer is added or removed.</summary>

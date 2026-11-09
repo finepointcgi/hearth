@@ -5,31 +5,29 @@
 @inject AppState State
 @inject SettingsStore SettingsStore
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <h3>Check-ins</h3>
     <p class="muted small">A short, friendly message from your lead bot — not a report. It knows what's going on in your life (Memory → What's going on) and today's calendar, and asks how things went. In Telegram it arrives as a normal message, so just reply.</p>
     <div class="row">
-        <label class="check"><input type="checkbox" @bind="_c.Morning" /> Morning hello at</label>
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_c.Morning" Class="check" Label="Morning hello at" />
         <input type="time" value="@_c.MorningTime" @onchange="e => _c.MorningTime = e.Value?.ToString() ?? _c.MorningTime" />
     </div>
     <div class="row">
-        <label class="check"><input type="checkbox" @bind="_c.Evening" /> Evening check-in at</label>
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_c.Evening" Class="check" Label="Evening check-in at" />
         <input type="time" value="@_c.EveningTime" @onchange="e => _c.EveningTime = e.Value?.ToString() ?? _c.EveningTime" />
     </div>
     <div class="row">
-        <label class="grow">From
-            <select @bind="_botId">
-                <option value="">@(_default is null ? "(add a bot first)" : $"{_default.Emoji} {_default.Name} (your default)")</option>
-                @foreach (var b in State.Bots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
-            </select>
-        </label>
+        <MudSelect Class="grow" Label="From" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_botId">
+                <MudSelectItem Value="@("")">@(_default is null ? "(add a bot first)" : $"{_default.Emoji} {_default.Name} (your default)")</MudSelectItem>
+                @foreach (var b in State.Bots) { <MudSelectItem Value="@(b.Id)">@b.Emoji @b.Name</MudSelectItem> }
+            </MudSelect>
     </div>
     <div class="row end">
         @if (_message is not null) { <span class="muted small grow">@_message</span> }
-        <button class="btn ghost" @onclick="TryNow" disabled="@(_running || !(_c.Morning || _c.Evening))">@(_running ? "Writing…" : "▶ Try one now")</button>
-        <button class="btn primary" @onclick="Save">Save</button>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="TryNow" Disabled="@(_running || !(_c.Morning || _c.Evening))">@(_running ? "Writing…" : "▶ Try one now")</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
     </div>
-</section>
+</MudPaper>
 
 @code {
     private CheckInSettings _c = new();

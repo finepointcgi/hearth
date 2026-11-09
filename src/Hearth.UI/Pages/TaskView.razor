@@ -6,7 +6,7 @@
 @inject ApprovalCenter Approvals
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <a class="icon-btn" href="tasks" title="All tasks">←</a>
     <h2 class="topbar-title ellipsis">@(_task?.Title ?? "Task")</h2>
 </header>
@@ -16,51 +16,51 @@
     var bot = State.BotById(_task.BotId);
     var pending = Approvals.Pending.Where(p => p.ConversationId == _task.ConversationId).ToList();
     <div class="settings">
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <div class="row">
                 <span class="task-state big @_task.State.ToString().ToLowerInvariant()">@Tasks.Icon(_task)</span>
                 <span class="grow">
                     <b>@StateText(_task)</b><br />
                     <span class="muted small">@(bot is null ? "Hearth" : $"{bot.Emoji} {bot.Name}") · @_task.Cycles work cycles · started @_task.CreatedAt.ToString("MMM d h:mm tt")</span>
                 </span>
-                @if (_task.State is TaskState.Running or TaskState.WaitingForYou) { <button class="btn ghost small" @onclick="() => Runner.SetStateAsync(_task.Id, TaskState.Paused)">⏸ Pause</button> }
-                @if (_task.State is TaskState.Paused or TaskState.Failed) { <button class="btn ghost small" @onclick="() => Runner.SetStateAsync(_task.Id, TaskState.Running)">▶ Resume</button> }
-                @if (_task.State is not (TaskState.Done or TaskState.Cancelled)) { <button class="btn danger small" @onclick="() => Runner.SetStateAsync(_task.Id, TaskState.Cancelled)">Cancel</button> }
-                <a class="btn ghost small" href="c/@_task.ConversationId">Open work chat</a>
+                @if (_task.State is TaskState.Running or TaskState.WaitingForYou) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Runner.SetStateAsync(_task.Id, TaskState.Paused)">⏸ Pause</MudButton> }
+                @if (_task.State is TaskState.Paused or TaskState.Failed) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Runner.SetStateAsync(_task.Id, TaskState.Running)">▶ Resume</MudButton> }
+                @if (_task.State is not (TaskState.Done or TaskState.Cancelled)) { <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" OnClick="() => Runner.SetStateAsync(_task.Id, TaskState.Cancelled)">Cancel</MudButton> }
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="@($"c/{_task.ConversationId}")">Open work chat</MudButton>
             </div>
             <p class="goal">@_task.Goal</p>
-        </section>
+        </MudPaper>
 
         @foreach (var p in pending)
         {
             var approval = p;
-            <section class="card attention">
+            <MudPaper Class="card attention" Elevation="0">
                 <div class="row">
                     <span class="grow">🔐 Wants to run <b>@approval.ToolName</b> <code class="audit">@approval.ArgumentsJson</code></span>
-                    <button class="btn ghost small" @onclick="() => Approvals.Decide(approval.Id, false)">Deny</button>
-                    <button class="btn primary small" @onclick="() => Approvals.Decide(approval.Id, true)">Allow</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Approvals.Decide(approval.Id, false)">Deny</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => Approvals.Decide(approval.Id, true)">Allow</MudButton>
                 </div>
-            </section>
+            </MudPaper>
         }
 
         @if (_task.State == TaskState.WaitingForYou)
         {
-            <section class="card attention">
+            <MudPaper Class="card attention" Elevation="0">
                 <b>❓ @_task.Question</b>
-                <textarea rows="2" @bind="_answer" placeholder="Your answer"></textarea>
-                <div class="row end"><button class="btn primary" @onclick="Answer" disabled="@string.IsNullOrWhiteSpace(_answer)">Send answer & continue</button></div>
-            </section>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="2" @bind-Value="_answer" Placeholder="Your answer" />
+                <div class="row end"><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Answer" Disabled="@string.IsNullOrWhiteSpace(_answer)">Send answer & continue</MudButton></div>
+            </MudPaper>
         }
 
         @if (_task.Result is not null)
         {
-            <section class="card">
+            <MudPaper Class="card" Elevation="0">
                 <h3>Result</h3>
                 <div class="md"><Markdown Text="@_task.Result" /></div>
-            </section>
+            </MudPaper>
         }
 
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Plan @if (_task.Plan.Count > 0) { <span class="muted small">@_task.DoneSteps/@_task.Plan.Count done</span> }</h3>
             @if (_task.Plan.Count == 0) { <p class="muted">Making a plan…</p> }
             <ol class="plan">
@@ -69,15 +69,15 @@
                     <li class="@s.Status"><span class="step-mark">@Mark(s.Status)</span> @s.Text @if (s.Note is not null) { <span class="muted small"> — @s.Note</span> }</li>
                 }
             </ol>
-        </section>
+        </MudPaper>
 
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Log</h3>
             @foreach (var e in Enumerable.Reverse(_task.Log).Take(80))
             {
                 <div class="activity"><span class="when">@e.Time.ToString("h:mm tt")</span><span class="grow">@e.Text</span></div>
             }
-        </section>
+        </MudPaper>
     </div>
 }
 else

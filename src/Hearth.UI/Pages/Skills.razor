@@ -7,61 +7,53 @@
 @inject IJSRuntime JS
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Skills</h2>
     <span class="spacer"></span>
-    <button class="btn primary" @onclick="New">＋ New skill</button>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="New">＋ New skill</MudButton>
 </header>
 
 <div class="settings">
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <p class="muted">
             Skills are reusable prompts shared by you and every bot. Type <code>/name</code> in any chat or routine to run one
             (anything after the name is its input), and with tools on, bots load a skill by themselves when it fits.
         </p>
-    </section>
+    </MudPaper>
 
     @if (_editing is not null)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>@(_isNew ? "New skill" : "/" + _editing.Name)</h3>
             <div class="row">
-                <label>Icon <input @bind="_editing.Icon" style="width:4.5rem;text-align:center;font-size:1.2rem" maxlength="8" /></label>
-                <label class="grow">Name (the slash command)
-                    <input @bind="_editing.Name" placeholder="e.g. weekly-report" />
-                </label>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_editing.Icon" Style="width:4.5rem;text-align:center;font-size:1.2rem" MaxLength="8" Label="Icon" />
+                <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_editing.Name" Placeholder="e.g. weekly-report" Label="Name (the slash command)" />
             </div>
-            <label>When to use it (one line — bots read this)
-                <input @bind="_editing.Description" placeholder="e.g. Turn my notes into a weekly status report" />
-            </label>
-            <label>Instructions
-                <textarea rows="8" @bind="_editing.Instructions" placeholder="Step-by-step instructions, format, tone, what to include and avoid…"></textarea>
-            </label>
-            @if (_error is not null) { <div class="error-box">@_error</div> }
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_editing.Description" Placeholder="e.g. Turn my notes into a weekly status report" Label="When to use it (one line — bots read this)" />
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="8" @bind-Value="_editing.Instructions" Placeholder="Step-by-step instructions, format, tone, what to include and avoid…" Label="Instructions" />
+            @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
             <div class="row end">
-                <button class="btn ghost" @onclick="() => _editing = null">Cancel</button>
-                <button class="btn primary" @onclick="Save">Save skill</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _editing = null">Cancel</MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save skill</MudButton>
             </div>
-        </section>
+        </MudPaper>
     }
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Bots write their own skills</h3>
-        <label class="check"><input type="checkbox" checked="@State.Settings.SkillLearning.Enabled" @onchange="e => SetLearning(s => s.Enabled = (bool)e.Value!)" />
-            <span><b>Learn from experience</b> — after a job that took several steps, a bot saves the method as a skill, and fixes skills that turned out wrong</span></label>
+        <MudSwitch T="bool" Color="Color.Primary" Value="@(State.Settings.SkillLearning.Enabled)" ValueChanged="(bool v) => SetLearning(s => s.Enabled = v)" Class="check"><span><b>Learn from experience</b> — after a job that took several steps, a bot saves the method as a skill, and fixes skills that turned out wrong</span></MudSwitch>
         @if (State.Settings.SkillLearning.Enabled)
         {
-            <label class="check"><input type="checkbox" checked="@State.Settings.SkillLearning.NeedsReview" @onchange="e => SetLearning(s => s.NeedsReview = (bool)e.Value!)" />
-                <span><b>Let me review them first</b> — new and changed skills wait here for your OK</span></label>
+            <MudSwitch T="bool" Color="Color.Primary" Value="@(State.Settings.SkillLearning.NeedsReview)" ValueChanged="(bool v) => SetLearning(s => s.NeedsReview = v)" Class="check"><span><b>Let me review them first</b> — new and changed skills wait here for your OK</span></MudSwitch>
             <label class="row">Review a reply when it used at least
-                <input type="number" min="2" max="20" style="width:4.5rem" value="@State.Settings.SkillLearning.MinToolCalls" @onchange="e => SetLearning(s => s.MinToolCalls = int.TryParse(e.Value?.ToString(), out var n) ? Math.Clamp(n, 2, 20) : 4)" />
+                <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" Style="width:4.5rem" Value="@(State.Settings.SkillLearning.MinToolCalls)" ValueChanged="(int v) => SetLearning(s => s.MinToolCalls = Math.Clamp(v, 2, 20))" />
                 tools</label>
         }
-    </section>
+    </MudPaper>
 
     @if (State.Skills.Any(s => s.Pending))
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Waiting for your OK</h3>
             @foreach (var s in State.Skills.Where(s => s.Pending))
             {
@@ -70,31 +62,31 @@
                     <summary><b>/@skill.Name</b> <span class="muted small">@skill.Description · @(skill.Source is not null ? "imported" : "by " + Author(skill))@(skill.Revisions.Count > 0 ? " · changed" : "")</span>
                         @if (skill.Warnings.Count > 0) { <span class="tiny-error"> ⚠ @skill.Warnings.Count to check</span> }</summary>
                     @if (skill.Source is not null) { <div class="muted small">From @skill.Source</div> }
-                    @foreach (var w in skill.Warnings) { <div class="error-box small">⚠ @w</div> }
+                    @foreach (var w in skill.Warnings) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box small">⚠ @w</MudAlert> }
                     @if (skill.Files.Count > 0) { <div class="muted small">Bundled files: @string.Join(", ", skill.Files.Keys)</div> }
                     <pre class="code-block small" style="white-space:pre-wrap">@skill.Instructions</pre>
                     <div class="row end">
-                        @if (skill.Revisions.Count > 0) { <button class="btn ghost" @onclick="() => Reject(skill)">Keep the old version</button> }
-                        else { <button class="btn ghost" @onclick="() => Store.DeleteAsync(skill.Id)">Discard</button> }
-                        <button class="btn ghost" @onclick="() => Edit(skill)">Edit</button>
-                        <button class="btn primary" @onclick="() => Approve(skill)">Approve</button>
+                        @if (skill.Revisions.Count > 0) { <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => Reject(skill)">Keep the old version</MudButton> }
+                        else { <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => Store.DeleteAsync(skill.Id)">Discard</MudButton> }
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => Edit(skill)">Edit</MudButton>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => Approve(skill)">Approve</MudButton>
                     </div>
                 </details>
             }
-        </section>
+        </MudPaper>
     }
 
     <AgentImportCard />
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <div class="row">
             <span class="grow"><b>Starter skills</b><br /><span class="muted small">Job pipeline, interview prep, meal plan, meeting prep, email triage, research report and weekly review. They use whatever you've connected (mail, calendar, documents, To Do).</span></span>
-            <button class="btn ghost" @onclick="AddStarters">Add missing</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddStarters">Add missing</MudButton>
         </div>
         @if (_starterMessage is not null) { <span class="muted small">@_starterMessage</span> }
-    </section>
+    </MudPaper>
     <SkillCatalogCard />
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Import &amp; export</h3>
         <p class="muted small">
             Skills use the open <code>SKILL.md</code> format, so they move between Hearth, Claude, Hermes and OpenClaw. Import a
@@ -103,24 +95,24 @@
             <code>@Porter.FolderPath</code>, where other agents can read them.
         </p>
         <div class="row">
-            <input class="grow" @bind="_importUrl" placeholder="https://github.com/owner/repo/tree/main/skills/some-skill" />
-            <button class="btn primary" @onclick="ImportUrl" disabled="@(_importing || string.IsNullOrWhiteSpace(_importUrl))">@(_importing ? "Importing…" : "Import")</button>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_importUrl" Placeholder="https://github.com/owner/repo/tree/main/skills/some-skill" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportUrl" Disabled="@(_importing || string.IsNullOrWhiteSpace(_importUrl))">@(_importing ? "Importing…" : "Import")</MudButton>
         </div>
         <div class="row">
             <label class="btn ghost file-btn">Upload .md or .zip<InputFile OnChange="ImportFile" accept=".md,.zip,text/markdown,application/zip" style="display:none" /></label>
             <span class="spacer"></span>
-            <button class="btn ghost" @onclick="ExportAll" disabled="@(!State.Skills.Any(s => !s.Pending))">⬇ Export all (.zip)</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="ExportAll" Disabled="@(!State.Skills.Any(s => !s.Pending))">⬇ Export all (.zip)</MudButton>
         </div>
         @if (_importMessage is not null) { <div class="ok-text small">@_importMessage</div> }
-        @if (_error is not null && _editing is null) { <div class="error-box">@_error</div> }
-    </section>
+        @if (_error is not null && _editing is null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
+    </MudPaper>
 
     <TeachSkill />
 
     @{ var now = DateTimeOffset.Now; var sick = State.Skills.Where(x => x.NeedsFixing).ToList(); var idle = State.Skills.Where(x => !x.NeedsFixing && x.IsIdle(now)).ToList(); }
     @if (sick.Count + idle.Count > 0)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3><span aria-hidden="true">🩺</span> Skills that need a look</h3>
             @foreach (var s in sick)
             {
@@ -130,9 +122,9 @@
                     <span class="grow"><b>/@skill.Name</b> <span class="muted small">marked wrong @skill.WrongNotes.Count× since it last changed@(skill.Uses > 0 ? $" ({skill.Wrong} of {skill.Uses} uses in all)" : "")</span>
                         <ul class="small health-notes">@foreach (var n in skill.WrongNotes) { <li>“@n”</li> }</ul></span>
                     <span class="health-actions">
-                        <button class="btn small primary" @onclick="() => FixSkill(skill)" disabled="@(_fixing == skill.Id)">@(_fixing == skill.Id ? "Fixing…" : "Fix it from this")</button>
-                        <button class="btn small ghost" @onclick="() => Edit(skill)">Edit</button>
-                        <button class="btn small ghost" title="Clear these notes without changing the skill" @onclick="() => Store.ClearWrongAsync(skill)">It's fine</button>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => FixSkill(skill)" Disabled="@(_fixing == skill.Id)">@(_fixing == skill.Id ? "Fixing…" : "Fix it from this")</MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Edit(skill)">Edit</MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" title="Clear these notes without changing the skill" OnClick="() => Store.ClearWrongAsync(skill)">It's fine</MudButton>
                     </span>
                 </div>
             }
@@ -143,16 +135,16 @@
                     <span class="tool-icon">💤</span>
                     <span class="grow"><b>/@skill.Name</b> <span class="muted small">@(skill.LastUsed is { } u ? $"last used {u:MMM d}" : $"never used since {skill.CreatedAt:MMM d}")</span></span>
                     <span class="health-actions">
-                        <button class="btn small ghost" @onclick="() => Store.KeepAsync(skill)">Keep</button>
-                        <button class="btn small ghost" @onclick="() => Store.DeleteAsync(skill.Id)">Delete</button>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Store.KeepAsync(skill)">Keep</MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Store.DeleteAsync(skill.Id)">Delete</MudButton>
                     </span>
                 </div>
             }
             @if (_healthMessage is not null) { <p class="muted small">@_healthMessage</p> }
-        </section>
+        </MudPaper>
     }
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Your skills (@State.Skills.Count(s => !s.Pending))</h3>
         @foreach (var s in State.Skills.Where(s => !s.Pending))
         {
@@ -163,16 +155,16 @@
                     <br /><span class="muted small">@(skill.WrittenByBot ? $"Written by {Author(skill)}" : "Yours")@(skill.Uses > 0 ? $" · used {skill.Uses}×" : "")@(skill.Wrong > 0 ? $" · 👎 {skill.Wrong}×" : "")@(skill.Revisions.Count > 0 ? $" · last changed {skill.UpdatedAt:MMM d} by {skill.Revisions[0].By ?? "you"}" : "")</span></span>
                 @if (skill.Revisions.Count > 0)
                 {
-                    <button class="icon-btn" title="Undo the last change (@skill.Revisions[0].Note)" @onclick="() => Store.UndoAsync(skill)">↶</button>
+                    <MudIconButton Size="Size.Small" title="@($"Undo the last change ({skill.Revisions[0].Note})")" OnClick="() => Store.UndoAsync(skill)">↶</MudIconButton>
                 }
-                <button class="icon-btn" title="Edit" @onclick="() => Edit(skill)">✎</button>
-                <button class="icon-btn" title="Delete" @onclick="() => Store.DeleteAsync(skill.Id)">🗑</button>
+                <MudIconButton Size="Size.Small" title="Edit" OnClick="() => Edit(skill)">✎</MudIconButton>
+                <MudIconButton Size="Size.Small" title="Delete" OnClick="() => Store.DeleteAsync(skill.Id)">🗑</MudIconButton>
             </div>
         }
         @if (State.Skills.Count == 0) { <p class="muted">No skills yet — add some from the templates below.</p> }
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Templates</h3>
         @foreach (var t in SkillTemplates.All.Where(t => State.Skills.All(s => s.Name != t.Name)))
         {
@@ -180,11 +172,11 @@
             <div class="memory-row">
                 <span class="tool-icon">@template.Icon</span>
                 <span class="grow"><b>/@template.Name</b> <span class="muted small">@template.Description</span></span>
-                <button class="btn ghost small" @onclick="() => Add(template)">＋ Add</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Add(template)">＋ Add</MudButton>
             </div>
         }
-        <button class="btn ghost" @onclick="AddAll">＋ Add all templates</button>
-    </section>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddAll">＋ Add all templates</MudButton>
+    </MudPaper>
 </div>
 
 @code {

@@ -49,7 +49,7 @@
             else if (UndoLog.CanUndo(undo))
             {
                 <span class="muted" title="@string.Join("; ", undo.Steps.Select(s => s.Description))">@(_undoError ?? $"{string.Join("; ", undo.Steps.Select(s => s.Description))} — until {undo.At + UndoLog.Window:ddd h:mm tt}")</span>
-                <button class="btn ghost" disabled="@_undoing" @onclick="UndoIt">@(_undoing ? "Undoing…" : "↶ Undo")</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@_undoing" OnClick="UndoIt">@(_undoing ? "Undoing…" : "↶ Undo")</MudButton>
             }
         </div>
     }
@@ -57,12 +57,12 @@
     {
         <div class="approval">
             <span><Icon Name="circle-alert" Size="16" /> @(Call.ApprovalReason ?? "This tool can make changes or run code.") Allow it?</span>
-            <button class="btn ghost" @onclick="() => Decide(false)">Deny</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => Decide(false)">Deny</MudButton>
             @if (Call.AlwaysAllow is not null)
             {
-                <button class="btn ghost" title="Don't ask again when @Call.AlwaysAllowFor uses @Label (undo on the Permissions page)" @onclick="AllowAlways">Always allow for @Call.AlwaysAllowFor</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" title="@($"Don't ask again when {Call.AlwaysAllowFor} uses {Label} (undo on the Permissions page)")" OnClick="AllowAlways">Always allow for @Call.AlwaysAllowFor</MudButton>
             }
-            <button class="btn primary" @onclick="() => Decide(true)">Allow</button>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => Decide(true)">Allow</MudButton>
         </div>
     }
 </details>

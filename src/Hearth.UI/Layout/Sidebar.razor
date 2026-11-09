@@ -10,7 +10,7 @@
 <aside class="sidebar">
     <div class="sidebar-head">
         <span class="sidebar-title">@SectionTitle</span>
-        <button class="icon-btn only-mobile" title="Close" aria-label="Close menu" @onclick="Close"><Icon Name="x" /></button>
+        <MudIconButton Size="Size.Small" Class="only-mobile" title="Close" aria-label="Close menu" OnClick="Close"><Icon Name="x" /></MudIconButton>
     </div>
 
     @switch (_section)
@@ -21,18 +21,18 @@
             @if (code)
             {
                 <a class="new-chat" href="code" @onclick="Close"><Icon Name="terminal" /> New code session</a>
-                <label class="search-box"><Icon Name="search" Size="16" /><input placeholder="Search sessions" @bind="_filter" @bind:event="oninput" aria-label="Search code sessions" /></label>
+                <label class="search-box"><Icon Name="search" Size="16" /><MudTextField Variant="Variant.Text" Underline="false" Placeholder="Search sessions" @bind-Value="_filter" Immediate="true" aria-label="Search code sessions" /></label>
             }
             else
             {
                 <button class="new-chat" @onclick="NewChat"><Icon Name="message-square-plus" /> New chat</button>
                 <div class="search-row">
-                    <label class="search-box"><Icon Name="search" Size="16" /><input placeholder="Search chats" @bind="_filter" @bind:event="oninput" aria-label="Search chats" /></label>
-                    <select class="group-by" value="@GroupBy" @onchange="SetGroupBy" title="Group chats by" aria-label="Group chats by">
-                        <option value="time">By time</option>
-                        <option value="person">By person</option>
-                        <option value="topic">By topic</option>
-                    </select>
+                    <label class="search-box"><Icon Name="search" Size="16" /><MudTextField Variant="Variant.Text" Underline="false" Placeholder="Search chats" @bind-Value="_filter" Immediate="true" aria-label="Search chats" /></label>
+                    <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="group-by" Value="@(GroupBy)" ValueChanged="Ev.Change<string>(SetGroupBy)" title="Group chats by" aria-label="Group chats by" T="string">
+                        <MudSelectItem Value="@("time")">By time</MudSelectItem>
+                        <MudSelectItem Value="@("person")">By person</MudSelectItem>
+                        <MudSelectItem Value="@("topic")">By topic</MudSelectItem>
+                    </MudSelect>
                 </div>
                 @if (State.Bots.Count > 0)
                 {
@@ -61,7 +61,7 @@
                         <div class="conv @(IsActive(c.Id) ? "active" : "")">
                             @if (_renaming == c.Id)
                             {
-                                <input class="rename" @bind="_renameText" @onkeydown="e => RenameKey(e, c.Id)" @onblur="() => CommitRename(c.Id)" autofocus />
+                                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="rename" @bind-Value="_renameText" OnKeyDown="e => RenameKey(e, c.Id)" OnBlur="() => CommitRename(c.Id)" AutoFocus="true" />
                             }
                             else if (_topicFor == c.Id)
                             {

@@ -5,12 +5,12 @@
 @inject Hearth.Core.Services.PeopleStore People
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Teach Hearth</h2>
 </header>
 
 <div class="settings teach">
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <p>Your bots get better the more you teach them, and teaching is mostly just talking. Whatever they pick up shows under the
             reply as <span class="learned-item inline">🧠 Learned</span>, with <b>Undo</b> next to anything they got wrong.</p>
         @if (_counts is { } c)
@@ -19,9 +19,9 @@
         }
         <p class="muted small">Under each reply, <b>Drew on</b> shows the memories, skills and people it used, so you can see your teaching at work.
             See everything it learned lately, with Undo, on <a href="learned">What Hearth learned</a>.</p>
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3><span aria-hidden="true">💬</span> 1. Just tell it</h3>
         <p class="muted">Facts, preferences and rules, in your own words. They're remembered in every chat from then on.</p>
         <div class="teach-examples">
@@ -32,9 +32,9 @@
         </div>
         <p class="muted small">Hearth also notices things on its own as you chat: people you mention, what's going on in your life, how you like to be talked to.
             Change or delete any of it on the <a href="memory">Memory</a> page.</p>
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3><span aria-hidden="true">📒</span> 2. Save how it did something</h3>
         <p class="muted">When a bot handles something well, tap <Icon Name="zap" Size="14" /> <b>Save as skill</b> under its reply. It writes
             down the method, step by step, and does it the same way next time. Run a skill any time by typing <code>/</code> and its name.</p>
@@ -46,15 +46,15 @@
                 <a class="suggestion" href="@Draft(e)">@e</a>
             }
         </div>
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3><span aria-hidden="true">🖱</span> 3. Show it</h3>
         <p class="muted">For a job on a website, do it once while Hearth watches: <a href="skills">Skills</a> → <b>Teach by showing</b> → Record.
             Do the task in the browser window on this computer, click Stop, and your clicks become a skill.</p>
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3><span aria-hidden="true">⏰</span> 4. Make it a habit</h3>
         <p class="muted small">Ask for the same kind of thing a few times and Hearth offers to make it a skill, or a routine when it comes up on a schedule.</p>
         <p class="muted">Ask for anything on a schedule, or when something happens, and it becomes a routine.</p>
@@ -65,9 +65,9 @@
             }
         </div>
         <p class="muted small">Routines live on each bot's page under <a href="bots">Bots</a>.</p>
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3><span aria-hidden="true">🛠</span> When it gets something wrong</h3>
         <ul class="teach-tips">
             <li>Tap <Icon Name="thumbs-down" Size="14" /> under the reply and say what was wrong in a line. Hearth works out the cause and fixes it:
@@ -78,16 +78,16 @@
             <li>If a skill went wrong, say <i>"fix the /weekly-report skill: …"</i> or edit it on the Skills page. Earlier versions are kept.</li>
             <li>Give a bot standing instructions on its page under <a href="bots">Bots</a> (its personality and job).</li>
         </ul>
-    </section>
+    </MudPaper>
 
     <AssistantImportCard />
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3><span aria-hidden="true">📱</span> From your phone</h3>
         <p class="muted">In Telegram (and Discord, Slack), answers come with <b>👎 Wrong</b> and <b>⚡ Save as skill</b> buttons. What a reply taught
             Hearth follows as a short <b>🧠 Learned</b> message with Undo buttons, and once a week you get a recap of everything it learned
             (set the day on <a href="learned">What Hearth learned</a>).</p>
-    </section>
+    </MudPaper>
 </div>
 
 @code {

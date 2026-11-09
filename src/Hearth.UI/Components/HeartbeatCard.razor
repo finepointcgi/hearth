@@ -3,10 +3,10 @@
 @inject SettingsStore Settings
 @inject AppState State
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <div class="row">
         <h3 class="grow">Heartbeat</h3>
-        <label class="check"><input type="checkbox" checked="@_s.Enabled" @onchange="e => Change(s => s.Enabled = (bool)e.Value!)" /> On</label>
+        <MudSwitch T="bool" Color="Color.Primary" Value="@(_s.Enabled)" ValueChanged="(bool v) => Change(s => s.Enabled = v)" Class="check" Label="On" />
     </div>
     <p class="muted small">
         Every @_s.IntervalMinutes minutes, @(Who) goes through your checklist and messages you — here and on Telegram/Slack/Discord — only when something needs your attention.
@@ -18,30 +18,24 @@
         </p>
     }
     <div class="steps">
-        <label>What to keep an eye on (one per line)
-            <textarea rows="5" value="@_s.Checklist" @onchange="e => Change(s => s.Checklist = e.Value?.ToString() ?? s.Checklist)"></textarea>
-        </label>
+        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="5" Value="@(_s.Checklist)" ValueChanged="(string v) => Change(s => s.Checklist = v ?? s.Checklist)" T="string" Label="What to keep an eye on (one per line)" />
         <div class="row">
-            <label>Who checks in
-                <select value="@(_s.BotId ?? "")" @onchange="e => Change(s => s.BotId = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString())">
-                    <option value="">💬 Hearth</option>
-                    @foreach (var b in State.Bots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
-                </select>
-            </label>
-            <label>Every
-                <select value="@_s.IntervalMinutes" @onchange="e => Change(s => s.IntervalMinutes = int.Parse(e.Value!.ToString()!))">
-                    @foreach (var m in new[] { 15, 30, 60, 120, 240 }) { <option value="@m">@(m < 60 ? $"{m} min" : $"{m / 60} h")</option> }
-                </select>
-            </label>
+            <MudSelect Label="Who checks in" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(_s.BotId ?? "")" ValueChanged="Ev.Change<string>(e => Change(s => s.BotId = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value!.ToString()))" T="string">
+                    <MudSelectItem Value="@("")">💬 Hearth</MudSelectItem>
+                    @foreach (var b in State.Bots) { <MudSelectItem Value="@(b.Id)">@b.Emoji @b.Name</MudSelectItem> }
+                </MudSelect>
+            <MudSelect Label="Every" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(_s.IntervalMinutes.ToString())" ValueChanged="Ev.Change<string>(e => Change(s => s.IntervalMinutes = int.Parse(e.Value!.ToString()!)))" T="string">
+                    @foreach (var m in new[] { 15, 30, 60, 120, 240 }) { <MudSelectItem Value="@(m)">@(m < 60 ? $"{m} min" : $"{m / 60} h")</MudSelectItem> }
+                </MudSelect>
             <label>Quiet from <input type="time" value="@_s.QuietFrom" @onchange="e => Change(s => s.QuietFrom = e.Value?.ToString() ?? s.QuietFrom)" /></label>
             <label>until <input type="time" value="@_s.QuietUntil" @onchange="e => Change(s => s.QuietUntil = e.Value?.ToString() ?? s.QuietUntil)" /></label>
         </div>
         <span class="muted small">Each check-in is a short model call; with a cloud model that adds up, so pick a longer interval there.</span>
     </div>
     <div class="row end">
-        <button class="btn ghost" @onclick="RunNow" disabled="@_busy">@(_busy ? "Checking…" : "Check in now")</button>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="RunNow" Disabled="@_busy">@(_busy ? "Checking…" : "Check in now")</MudButton>
     </div>
-</section>
+</MudPaper>
 
 @code {
     private HeartbeatSettings _s = new();

@@ -2,12 +2,12 @@
 @inject SettingsStore Settings
 @inject PushNotifier Notifier
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <div class="row">
         <span class="conn-logo"><Icon Name="bell-ring" Size="20" /></span>
         <span class="grow"><b>Phone notifications</b><br />
             <span class="muted small">Approvals, heartbeat alerts and finished tasks, straight to your phone with the free ntfy app. Works even if Telegram is down.</span></span>
-        <label class="check"><input type="checkbox" class="switch" role="switch" checked="@_s.Enabled" @onchange="e => Change(s => s.Enabled = (bool)e.Value!)" /></label>
+        <MudSwitch T="bool" Color="Color.Primary" role="switch" Value="@(_s.Enabled)" ValueChanged="(bool v) => Change(s => s.Enabled = v)" Class="check"></MudSwitch>
     </div>
 
     <details class="steps" open="@(!_s.Enabled)">
@@ -21,13 +21,11 @@
         <div class="row">
             <div class="qr small-qr">@((MarkupString)Qr($"{_s.Server.TrimEnd('/')}/{_s.Topic}"))</div>
             <div class="grow" style="display:flex;flex-direction:column;gap:.5rem">
-                <label>Server <input @bind="_server" @bind:after="SaveServer" placeholder="https://ntfy.sh or your own ntfy server" /></label>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_server" @bind-Value:after="SaveServer" Placeholder="https://ntfy.sh or your own ntfy server" Label="Server" />
                 <label>Topic (keep it secret: anyone who knows it can read your notifications)
-                    <span class="row"><input class="grow" value="@_s.Topic" readonly /><button class="btn ghost small" @onclick="NewTopic">New topic</button></span></label>
-                <label>Open Hearth at (when you tap a notification)
-                    <input @bind="_open" @bind:after="SaveOpen" placeholder="https://my-mac.tailnet.ts.net or http://192.168.1.20:5290" /></label>
-                <label>Access token (only for a protected self-hosted server)
-                    <input type="password" @bind="_token" @bind:after="SaveToken" placeholder="@(_s.Token is null ? "none" : "saved — type to replace")" autocomplete="off" /></label>
+                    <span class="row"><MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" Value="@(_s.Topic)" ReadOnly="true" /><MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="NewTopic">New topic</MudButton></span></label>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_open" @bind-Value:after="SaveOpen" Placeholder="https://my-mac.tailnet.ts.net or http://192.168.1.20:5290" Label="Open Hearth at (when you tap a notification)" />
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" @bind-Value="_token" @bind-Value:after="SaveToken" Placeholder="@(_s.Token is null ? "none" : "saved — type to replace")" Label="Access token (only for a protected self-hosted server)" />
             </div>
         </div>
         <span class="muted small">ntfy.sh is a free public server; for full privacy run your own (<code>docker compose --profile ntfy up -d</code>) and point the server field at it.</span>
@@ -45,9 +43,9 @@
     </div>
     <div class="row end">
         @if (_message is not null) { <span class="@(_ok ? "ok-text" : "tiny-error")">@_message</span> }
-        <button class="btn ghost" @onclick="Test" disabled="@_busy">Send test</button>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Test" Disabled="@_busy">Send test</MudButton>
     </div>
-</section>
+</MudPaper>
 
 @code {
     private NotificationSettings _s = new();
