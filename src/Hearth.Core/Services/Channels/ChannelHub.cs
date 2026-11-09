@@ -535,7 +535,11 @@ public sealed class ChannelHub
             var body = new StringBuilder();
             if (isGroup && allBots.FirstOrDefault(b => b.Id == reply.BotId) is { } author) body.Append($"{author.Emoji} **{author.Name}**\n");
             if (reply.Notice is not null) body.Append($"ℹ {reply.Notice}\n\n");
-            body.Append(reply.Content);
+            // A reply that's nothing but tool calls that never ran says so instead (an answer that merely shows some
+            // markup, like a code example, is sent as it is).
+            body.Append(reply.Content.Trim().Length > 0 && Llm.TextToolCalls.WithoutMarkup(reply.Content).Length == 0
+                ? "(The model wrote tool calls it couldn't run instead of an answer. Try again, or pick a different model.)"
+                : reply.Content);
             if (reply.Sources.Count > 0)
                 body.Append("\n\n").AppendJoin("\n", reply.Sources.Take(8).Select((s, n) => $"[{n + 1}] {s.Url}"));
             if (body.Length > 0) await a.SendTextAsync(link.ChatId, body.ToString(), i == replies.Count - 1 ? await ReplyButtonsAsync(conv.Id, reply) : null);
@@ -769,12 +773,19 @@ public sealed class ChannelHub
             var targets = task.Origin is { } o && o.Contains(':')
                 ? links.Where(l => $"{l.Channel}:{l.ChatId}" == o)
                 : links.Where(l => l.Wants(ChannelLink.Kind.Task, DateTimeOffset.Now));
-            var text = message + (task.State == TaskState.WaitingForYou ? "\n\nReply with /answer your answer" : "");
+            if (Sendable(message) is not { } said) return;
+            var text = said + (task.State == TaskState.WaitingForYou ? "\n\nReply with /answer your answer" : "");
             foreach (var l in targets)
                 if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendTextAsync(l.ChatId, text);
         }
         catch { /* best effort */ }
     }
+
+    /// <summary>
+    /// Text a bot produced on its own, made fit to send: tool calls it wrote as text but never ran are taken out, and
+    /// null when nothing is left (so an empty or half-finished reply never becomes a notification).
+    /// </summary>
+    private static string? Sendable(string? text) => Llm.TextToolCalls.WithoutMarkup(text) is { Length: > 0 } t ? t : null;
 
     private async void OnHealthChanged(bool up, string message)
     {
@@ -786,10 +797,11 @@ public sealed class ChannelHub
         catch { /* best effort */ }
     }
 
-    private async void OnHeartbeatAlert(string conversationId, string text)
+    private async void OnHeartbeatAlert(string conversationId, string alert)
     {
         try
         {
+            if (Sendable(alert) is not { } text) return;
             foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Heartbeat, DateTimeOffset.Now)))
                 if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendTextAsync(l.ChatId, "💓 " + text);
         }
@@ -800,8 +812,9 @@ public sealed class ChannelHub
     /// A check-in arrives like any message from the bot: sent plainly and added to the chat that link talks in, so the
     /// reply carries on the conversation with the check-in in view.
     /// </summary>
-    private async Task CheckInAsync(Bot bot, string text)
+    private async Task CheckInAsync(Bot bot, string said)
     {
+        if (Sendable(said) is not { } text) return;
         foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Routine, DateTimeOffset.Now)))
         {
             if (!_adapters[l.Channel].Running) continue;
@@ -832,12 +845,15 @@ public sealed class ChannelHub
             // Each routine can keep its results in Hearth (Bots → bot → Routines → "Send results to chat apps").
             var routine = bot?.Routines.FirstOrDefault(r => r.Name == trigger);
             if (routine is { NotifyChannels: false }) return;
-            if (routine is { Conversational: true } && reply.Error is null && reply.Content.Length > 0)
+            var content = Sendable(reply.Content);
+            // Nothing worth a message: empty, or only calls that never ran.
+            if (reply.Error is null && content is null && reply.GeneratedImages.Count == 0) return;
+            if (routine is { Conversational: true } && reply.Error is null && content is not null)
             {
-                await CheckInAsync(bot!, reply.Content);
+                await CheckInAsync(bot!, content);
                 return;
             }
-            var text = $"⏰ {bot?.Emoji} {bot?.Name ?? "Hearth"} · {trigger}\n\n{(reply.Error is not null ? "⚠ " + reply.Error : reply.Content)}";
+            var text = $"⏰ {bot?.Emoji} {bot?.Name ?? "Hearth"} · {trigger}\n\n{(reply.Error is not null ? "⚠ " + reply.Error : content)}";
             foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Wants(ChannelLink.Kind.Routine, DateTimeOffset.Now)))
             {
                 if (!_adapters[l.Channel].Running) continue;

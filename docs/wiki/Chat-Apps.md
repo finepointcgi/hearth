@@ -68,6 +68,10 @@ Shown only when Hearth runs on a Mac.
   things when you're away. Signal and iMessage have no buttons, so choices arrive as *"Reply 1 Allow · 2 Deny"*;
   answer with the number or the word.
 - Routine results are pushed to linked chats (when the routine has **Send to chat apps** ticked).
+- What else a chat gets is up to you, per chat, under **Connections → Chat apps**: approval requests and routine
+  results are on for a new chat; progress of tasks started elsewhere, heartbeat check-ins and model-server alerts are
+  off until you turn them on. Tasks you start from the chat always report back to it. **Quiet hours** hold everything
+  but approval requests.
 
 ### Commands
 
@@ -79,6 +83,8 @@ Shown only when Hearth runs on a Mac.
 | `@Name …` | Ask one bot, once |
 | `/new` | Start a new conversation |
 | `/stop` | Stop the current reply |
-| `/notify on` / `/notify off` | Turn pushed results on or off for this chat |
+| `/notify` | Show what this chat gets |
+| `/notify on` / `/notify off` / `/notify approvals` | Everything, nothing, or only approval requests |
+| `/quiet 22:00-07:00` / `/quiet off` | Quiet hours: only approval requests come through |
 | `/task <goal>` | Start a [task](Inbox-and-Tasks.md#tasks) |
 | `/answer …` | Answer a task's question |

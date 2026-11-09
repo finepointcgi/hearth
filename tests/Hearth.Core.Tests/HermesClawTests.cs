@@ -308,6 +308,22 @@ public sealed class HistoryAndHeartbeatTests : IDisposable
         conv = await _sp.GetRequiredService<ConversationStore>().GetAsync(state.ConversationId!);
         Assert.Equal(answer, conv!.Messages.Last().Content);
         Assert.True(conv.Unread);
+
+        // A model that writes tool calls as text for a tool it doesn't have: nothing is sent, nothing is kept.
+        var before = conv.Messages.Count;
+        answer = "<invoke name=\"check_calendar\">\n<parameter name=\"day\">today</parameter>\n</invoke>\n\n<invoke name=\"check_calendar\">\n<parameter name=\"day\">today</parameter>\n</invoke>";
+        Assert.Contains("tool calls", await heartbeat.RunNowAsync());
+        Assert.Single(alerts);
+        answer = "   ";
+        Assert.Contains("empty", await heartbeat.RunNowAsync());
+        Assert.Single(alerts);
+        conv = await _sp.GetRequiredService<ConversationStore>().GetAsync(state.ConversationId!);
+        Assert.Equal(before, conv!.Messages.Count);
+
+        // Words around leftover markup: only the words go out.
+        answer = "Your lender call is due Friday.\n<tool_call> <function=run_command> <parameter=command> ls";
+        Assert.Equal("Sent you a message.", await heartbeat.RunNowAsync());
+        Assert.Equal("Your lender call is due Friday.", alerts[^1]);
     }
 
     [Fact]

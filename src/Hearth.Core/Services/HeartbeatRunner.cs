@@ -103,6 +103,19 @@ public sealed class HeartbeatRunner(SettingsStore settingsStore, BotStore bots, 
                 await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Error, "Heartbeat failed", reply?.Error, bot?.Id, conv.Id, Ok: false));
                 return state.LastResult;
             }
+            // Tool calls the model wrote as text but that never ran aren't a message: keep only the words around them.
+            var message = Llm.TextToolCalls.WithoutMarkup(reply.Content);
+            if (message.Length == 0 && !IsOk(reply.Content))
+            {
+                conv.Messages.Remove(prompt);
+                conv.Messages.Remove(reply);
+                await conversations.SaveAsync(conv, notify: false);
+                state.LastResult = reply.Content.Trim().Length == 0 ? "The model sent back an empty check-in; nothing was sent."
+                    : "The model wrote tool calls instead of a check-in; nothing was sent.";
+                await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Error, "Heartbeat skipped", state.LastResult, bot?.Id, conv.Id, Ok: false));
+                return state.LastResult;
+            }
+            reply.Content = message;
             if (IsOk(reply.Content))
             {
                 // Nothing to say: drop the exchange so the chat only holds real alerts.
