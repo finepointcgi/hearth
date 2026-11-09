@@ -1,4 +1,4 @@
-@* Usage: <Icon Name="bot" />  — a Material Symbols (rounded) icon; inherits colour; Size in px. *@
+@* Usage: <Icon Name="bot" />  — one of Hearth's cute line icons (CuteIcons); inherits colour; Size in px. *@
 <svg class="icon @Class" width="@Size" height="@Size" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">@((MarkupString)Path(Name))</svg>
 
 @code {
@@ -6,12 +6,14 @@
     [Parameter] public int Size { get; set; } = 18;
     [Parameter] public string? Class { get; set; }
 
-    /// <summary>The SVG markup for an icon name (the names pages use, mapped to Material rounded icons).</summary>
-    public static string Path(string name) => Map.TryGetValue(name, out var p) ? p : MudBlazor.Icons.Material.Rounded.HelpOutline;
+    /// <summary>The SVG markup for an icon name: Hearth's own cute icon if there is one, else the Material rounded fallback.</summary>
+    public static string Path(string name) =>
+        CuteIcons.All.TryGetValue(name, out var cute) ? cute : Map.TryGetValue(name, out var p) ? p : MudBlazor.Icons.Material.Rounded.HelpOutline;
 
     /// <summary>Same icon as a MudBlazor icon string (for Icon= / StartIcon= parameters).</summary>
     public static string Mud(string name) => Path(name);
 
+    /// <summary>Material fallbacks, used only for names CuteIcons does not draw.</summary>
     private static readonly Dictionary<string, string> Map = new()
     {
         ["archive-restore"] = MudBlazor.Icons.Material.Rounded.Restore,
