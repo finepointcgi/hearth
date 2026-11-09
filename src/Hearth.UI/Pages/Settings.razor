@@ -11,6 +11,7 @@
 @inject ImageGenService ImageGen
 @inject SpeechService Speech
 @inject ISpeechOutput SpeechOut
+@inject IJSRuntime JS
 
 <header class="topbar">
     <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
@@ -22,10 +23,41 @@
 
 @if (_s is not null)
 {
-<div class="settings">
+<div class="settings @(Searching ? "searching" : "")" @ref="_container">
+    <div class="settings-search" role="search">
+        <Icon Name="search" Size="16" />
+        <input type="search" placeholder="Search settings" aria-label="Search settings" autocomplete="off" spellcheck="false"
+               @bind="_query" @bind:event="oninput" @bind:after="QueryChanged" @onkeydown="SearchKey" />
+        @if (Searching)
+        {
+            <button class="icon-btn" title="Clear search" aria-label="Clear search" @onclick="ClearSearch"><Icon Name="x" Size="16" /></button>
+        }
+    </div>
+    @if (Searching)
+    {
+        var elsewhere = SettingsIndex.Find(_query).ToList();
+        @if (elsewhere.Count > 0)
+        {
+            <nav class="search-elsewhere" aria-label="On other settings pages">
+                <span class="muted small">On other settings pages</span>
+                @foreach (var link in elsewhere)
+                {
+                    <a href="@link.Href"><Icon Name="@link.Icon" Size="15" /> <span class="grow">@link.Title</span> <span class="muted small">@link.Page</span> <Icon Name="chevron-right" Size="14" /></a>
+                }
+            </nav>
+        }
+        @if (_matches == 0 && elsewhere.Count == 0)
+        {
+            <div class="search-empty">
+                <p>No settings match “@_query.Trim()”.</p>
+                <button class="btn ghost small" @onclick="ClearSearch">Clear search</button>
+            </div>
+        }
+    }
     <div class="tabs" role="tablist">
         <button role="tab" aria-selected="@(_tab == "models")" class="tab @(_tab == "models" ? "on" : "")" @onclick='() => _tab = "models"'><Icon Name="server" Size="16" /> Models</button>
         <button role="tab" aria-selected="@(_tab == "web")" class="tab @(_tab == "web" ? "on" : "")" @onclick='() => _tab = "web"'><Icon Name="globe" Size="16" /> Web and images</button>
+        <button role="tab" aria-selected="@(_tab == "appearance")" class="tab @(_tab == "appearance" ? "on" : "")" @onclick='() => _tab = "appearance"'><Icon Name="palette" Size="16" /> Appearance</button>
         <button role="tab" aria-selected="@(_tab == "voice")" class="tab @(_tab == "voice" ? "on" : "")" @onclick='() => _tab = "voice"'><Icon Name="mic" Size="16" /> Voice</button>
         <button role="tab" aria-selected="@(_tab == "daily")" class="tab @(_tab == "daily" ? "on" : "")" @onclick='() => _tab = "daily"'><Icon Name="clock" Size="16" /> Daily</button>
         <button role="tab" aria-selected="@(_tab == "data")" class="tab @(_tab == "data" ? "on" : "")" @onclick='() => _tab = "data"'><Icon Name="hard-drive-download" Size="16" /> Data</button>
@@ -34,7 +66,7 @@
             <button role="tab" aria-selected="@(_tab == "accounts")" class="tab @(_tab == "accounts" ? "on" : "")" @onclick='() => _tab = "accounts"'><Icon Name="users" Size="16" /> Accounts</button>
         }
     </div>
-    @if (_tab == "models")
+    @if (Show("models"))
     {
     <section class="card">
         <h3>Model servers</h3>
@@ -173,11 +205,11 @@
         <p class="muted small">Bots act on clear next steps instead of asking first, schedule their own follow-ups (they come back to the chat later with what they found) and hand big jobs to background tasks. Anything that changes things still follows your Permissions.</p>
     </section>
     }
-    @if (_tab == "models")
+    @if (Show("models"))
     {
     <ModelRoutingCard />
     }
-    @if (_tab == "web")
+    @if (Show("web"))
     {
     <section class="card">
         <h3>DeepSearch (optional)</h3>
@@ -218,7 +250,11 @@
         }
     </section>
     }
-    @if (_tab == "voice")
+    @if (Show("appearance"))
+    {
+    <ThemeCard />
+    }
+    @if (Show("voice"))
     {
     <section class="card">
         <h3>Voice</h3>
@@ -260,17 +296,17 @@
         <span class="muted small">Setting up installs whisper.cpp with Homebrew and downloads an English speech model (about 148 MB) into Hearth's data folder.</span>
     </section>
     }
-    @if (_tab == "accounts")
+    @if (Show("accounts"))
     {
     <AccountsCard />
     }
-    @if (_tab == "daily")
+    @if (Show("daily"))
     {
     <BriefingCard />
     <CheckInCard />
     <SelfCheckCard />
     }
-    @if (_tab == "data")
+    @if (Show("data"))
     {
     <section class="card danger">
         <h3>Data</h3>
@@ -308,6 +344,54 @@
     }
 
     private string _tab = "models";
+
+    // Search: while there's a query every tab's cards are shown and hearth.js hides the ones that don't match.
+    private string _query = "";
+    private ElementReference _container;
+    private int? _matches;
+    private string? _searched;
+    private DotNetObjectReference<Settings>? _self;
+    private bool Searching => !string.IsNullOrWhiteSpace(_query);
+    private bool Show(string tab) => tab == "accounts" && Services.GetService<AccountStore>() is null ? false : Searching || _tab == tab;
+
+    private void QueryChanged() { if (!Searching) _matches = null; }
+    private void ClearSearch() { _query = ""; _matches = null; }
+    private void SearchKey(KeyboardEventArgs e) { if (e.Key == "Escape") ClearSearch(); }
+
+    [JSInvokable]
+    public void SearchCountChanged(int count)
+    {
+        if (!Searching || _matches == count) return;
+        _matches = count;
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var query = Searching ? _query.Trim() : "";
+        if (query == (_searched ?? "")) return;
+        _searched = query;
+        try
+        {
+            if (query.Length == 0) { await JS.InvokeVoidAsync("hearth.stopSettingsSearch"); return; }
+            _self ??= DotNetObjectReference.Create(this);
+            var count = await JS.InvokeAsync<int>("hearth.searchSettings", _container, query, _self);
+            if (count != _matches && query == _searched) { _matches = count; StateHasChanged(); }
+        }
+        catch (JSDisconnectedException) { }
+    }
+
+    public override void Dispose()
+    {
+        base.Dispose();
+        _ = StopSearch();
+        _self?.Dispose();
+    }
+
+    private async Task StopSearch()
+    {
+        try { await JS.InvokeVoidAsync("hearth.stopSettingsSearch"); } catch { /* page already gone */ }
+    }
 
     private AppSettings? _s;
     private bool _saved;

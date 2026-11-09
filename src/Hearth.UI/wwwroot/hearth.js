@@ -1,24 +1,173 @@
 // Inside the Hearth phone app (its web view adds "HearthApp" to the user agent).
 if (navigator.userAgent.includes("HearthApp")) document.documentElement.classList.add("in-app");
 
-// Theme: "system" (default), "light" or "dark", remembered per device.
-(function () {
+// Theme: chosen in Settings → Appearance and saved in Hearth's settings. The last one applied is cached on this
+// device so the next start paints in the right colours before Blazor connects (this file loads in <head>).
+const hearthTheme = (function () {
+  const KEY = "hearth-theme-v2";
+  const root = document.documentElement;
+  const media = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
+  let current = null;
+  let applied = [];
+
+  // Readable text on a custom accent: dark text on light colours, white on dark ones.
+  function textOn(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const l = 0.2126 * lin(n >> 16 & 255) + 0.7152 * lin(n >> 8 & 255) + 0.0722 * lin(n & 255);
+    return l > 0.4 ? "#111111" : "#ffffff";
+  }
+
+  function apply(t) {
+    current = t;
+    const mode = t.mode === "light" || t.mode === "dark" ? t.mode : (media && media.matches ? "light" : "dark");
+    root.dataset.theme = mode;
+    root.dataset.palette = t.palette || "hearth";
+    for (const name of applied) root.style.removeProperty(name);
+    applied = [];
+    const vars = Object.assign({}, (mode === "light" ? t.light : t.dark) || {});
+    if (t.accent && /^#[0-9a-f]{6}$/i.test(t.accent)) {
+      vars["--accent"] = t.accent;
+      vars["--accent-text"] = textOn(t.accent);
+      // Links and focus rings need to stand out from the page: nudge the accent towards the text colour.
+      vars["--brand"] = `color-mix(in srgb, ${t.accent} 78%, ${mode === "light" ? "#000" : "#fff"})`;
+    }
+    for (const [name, value] of Object.entries(vars)) {
+      if (!/^--[a-z0-9-]+$/.test(name)) continue;
+      root.style.setProperty(name, value);
+      applied.push(name);
+    }
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = getComputedStyle(root).getPropertyValue("--bg").trim() || meta.content;
+  }
+
+  if (media) {
+    const onChange = () => { if (current && current.mode !== "light" && current.mode !== "dark") apply(current); };
+    if (media.addEventListener) media.addEventListener("change", onChange); else if (media.addListener) media.addListener(onChange);
+  }
+
+  // Before anything paints: the cached theme, else an older per-device light/dark choice.
   try {
-    const t = (localStorage.getItem("hearth-theme") || localStorage.getItem("locus-theme"));
-    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
-  } catch { /* storage blocked: follow the system */ }
+    const cached = localStorage.getItem(KEY);
+    if (cached) apply(JSON.parse(cached));
+    else {
+      const old = localStorage.getItem("hearth-theme") || localStorage.getItem("locus-theme");
+      if (old === "light" || old === "dark") root.dataset.theme = old;
+    }
+  } catch { /* storage blocked: defaults until settings load */ }
+
+  return {
+    apply(t) {
+      apply(t);
+      try { localStorage.setItem(KEY, JSON.stringify(t)); } catch { /* per-session only */ }
+    },
+    // The light/dark choice older versions kept on this device (carried into settings once).
+    legacy() {
+      try { return localStorage.getItem("hearth-theme") || localStorage.getItem("locus-theme") || ""; } catch { return ""; }
+    },
+  };
+})();
+
+// Settings search: hides cards and options that don't match, highlights the words, and reports how many matched.
+const hearthSettingsSearch = (function () {
+  let state = null;
+  const ITEM_HIDE = "data-search-hidden";
+
+  function textOf(el) {
+    let t = el.textContent || "";
+    el.querySelectorAll && el.querySelectorAll("[placeholder],[title],[aria-label]").forEach((x) => {
+      // Labels on controls count too (icon buttons and empty fields have no text of their own).
+      t += " " + (x.getAttribute("aria-label") || "") + " " + (x.getAttribute("title") || "");
+    });
+    return t.toLowerCase();
+  }
+
+  function clear(container) {
+    container.querySelectorAll(`[${ITEM_HIDE}]`).forEach((el) => el.removeAttribute(ITEM_HIDE));
+    if (window.CSS && CSS.highlights) CSS.highlights.delete("hearth-search");
+  }
+
+  function highlight(container, words) {
+    if (!(window.CSS && CSS.highlights && window.Highlight)) return;
+    const ranges = [];
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.parentElement && node.parentElement.closest(`[${ITEM_HIDE}], option, script, style, .search-empty`)) continue;
+      const text = node.nodeValue.toLowerCase();
+      for (const w of words) {
+        for (let i = text.indexOf(w); i >= 0; i = text.indexOf(w, i + w.length)) {
+          const r = new Range(); r.setStart(node, i); r.setEnd(node, i + w.length); ranges.push(r);
+        }
+      }
+    }
+    CSS.highlights.set("hearth-search", new Highlight(...ranges));
+  }
+
+  function run() {
+    if (!state) return 0;
+    const { container, words } = state;
+    clear(container);
+    if (!words.length) return 0;
+    const matches = (el) => { const t = textOf(el); return words.every((w) => t.includes(w)); };
+    const cards = [...container.querySelectorAll(".card")].filter((c) => !c.parentElement.closest(".card"));
+    let shown = 0;
+    for (const card of cards) {
+      const heading = card.querySelector(":scope > h3, :scope > .row h3, :scope > header h3");
+      if (heading && matches(heading)) { shown++; continue; }
+      if (!matches(card)) { card.setAttribute(ITEM_HIDE, ""); continue; }
+      // Only some of the card matches: keep its title and the options that match.
+      shown++;
+      for (const child of card.children) {
+        if (child.matches("h3, h4, header") || child.contains(heading)) continue;
+        if (!matches(child)) child.setAttribute(ITEM_HIDE, "");
+      }
+    }
+    highlight(container, words);
+    return shown;
+  }
+
+  return {
+    // Filters `container` for `query`; keeps filtering cards that load or change later and tells
+    // `dotnet.SearchCountChanged(n)` whenever the number of matching cards changes.
+    run(container, query, dotnet) {
+      if (!container) return 0;
+      const words = (query || "").toLowerCase().split(/\s+/).filter(Boolean);
+      if (!state || state.container !== container) {
+        if (state) state.observer.disconnect();
+        let pending = false;
+        const observer = new MutationObserver(() => {
+          if (pending) return;
+          pending = true;
+          requestAnimationFrame(() => {
+            pending = false;
+            if (!state) return;
+            const n = run();
+            if (n !== state.count) { state.count = n; state.dotnet && state.dotnet.invokeMethodAsync("SearchCountChanged", n).catch(() => {}); }
+          });
+        });
+        observer.observe(container, { childList: true, subtree: true, characterData: true });
+        state = { container, observer, words, dotnet, count: -1 };
+      }
+      state.words = words; state.dotnet = dotnet;
+      const n = run();
+      state.count = n;
+      return n;
+    },
+    stop() {
+      if (!state) return;
+      state.observer.disconnect();
+      clear(state.container);
+      state = null;
+    },
+  };
 })();
 
 // Small JS helpers shared by every host (MAUI WebView, Photino, browser).
 window.hearth = {
-  getTheme() {
-    try { return (localStorage.getItem("hearth-theme") || localStorage.getItem("locus-theme")) || "system"; } catch { return "system"; }
-  },
-  setTheme(t) {
-    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
-    else delete document.documentElement.dataset.theme;
-    try { localStorage.setItem("hearth-theme", t); } catch { /* per-session only */ }
-  },
+  applyTheme(t) { hearthTheme.apply(t); },
+  legacyTheme() { return hearthTheme.legacy(); },
+  searchSettings(container, query, dotnet) { return hearthSettingsSearch.run(container, query, dotnet); },
+  stopSettingsSearch() { hearthSettingsSearch.stop(); },
   initComposer(textarea, dotnet) {
     const resize = () => {
       textarea.style.height = "auto";
