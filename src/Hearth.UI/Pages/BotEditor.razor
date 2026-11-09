@@ -54,20 +54,32 @@
                 <BotAvatar Bot="_bot" Size="lg" />
                 <BotAvatar Bot="_bot" Size="lg" Working="true" />
             </div>
-            <label class="btn ghost file-btn">@(_bot.AvatarImage is null ? "Upload picture" : "Change picture")
-                <InputFile OnChange="OnAvatarPicked" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" /></label>
-            @if (_bot.AvatarImage is not null)
-            {
-                <button class="btn ghost" @onclick="() => _bot.AvatarImage = null">Use emoji instead</button>
-            }
             <label>While thinking
                 <select @bind="_bot.WorkingAnimation">
                     @foreach (var (id, label) in Bot.WorkingAnimations) { <option value="@id">@label</option> }
                 </select>
             </label>
         </div>
+        <div class="pic-choices" role="radiogroup" aria-label="Picture">
+            @{ var current = BotPictures.For(_bot); }
+            @foreach (var pic in BotPictures.All)
+            {
+                var choice = pic;
+                <button type="button" role="radio" aria-checked="@(current?.Id == choice.Id)" class="pic-choice @(current?.Id == choice.Id ? "on" : "")"
+                        title="@choice.Label" @onclick="() => _bot.AvatarImage = BotPictures.Prefix + choice.Id">@((MarkupString)choice.Svg)</button>
+            }
+            @if (_bot.AvatarImage is { } up && up.StartsWith("data:image/"))
+            {
+                <button type="button" role="radio" aria-checked="true" class="pic-choice on" title="Your picture"><img src="@up" alt="Your picture" /></button>
+            }
+            <button type="button" role="radio" aria-checked="@(_bot.AvatarImage == "")" class="pic-choice text @(_bot.AvatarImage == "" ? "on" : "")"
+                    title="Just the emoji" @onclick="() => _bot.AvatarImage = string.Empty">@_bot.Emoji</button>
+            <label class="pic-choice text" title="Upload your own picture (PNG, JPEG, WebP or an animated GIF)" style="cursor:pointer">
+                <Icon Name="upload" Size="18" />
+                <InputFile OnChange="OnAvatarPicked" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" /></label>
+        </div>
         @if (_avatarError is not null) { <div class="error-box">@_avatarError</div> }
-        @if (_bot.AvatarImage is not null) { <p class="muted small">The emoji is still used in chat apps (Telegram, Discord…) and menus that can only show text.</p> }
+        <p class="muted small">Pick a character, the emoji, or upload your own picture. Chat apps (Telegram, Discord…) show the emoji.</p>
         <label>Title / role <input @bind="_bot.Title" placeholder="e.g. Research & fact-checking" /></label>
         <label>Instructions
             <textarea rows="7" @bind="_bot.Instructions" placeholder="What this bot does, how it works, its tone, what it should never do…"></textarea>

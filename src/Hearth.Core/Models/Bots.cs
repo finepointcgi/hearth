@@ -248,18 +248,20 @@ public sealed class Bot
     public string Name { get; set; } = "Bot";
     public string Emoji { get; set; } = "🤖";
     /// <summary>
-    /// A picture for the avatar, as a data: URL (a small PNG/JPEG/WebP, or a GIF kept as it is so it stays animated).
-    /// Shown instead of <see cref="Emoji"/> wherever the app can show pictures; chat apps still get the emoji.
+    /// The avatar picture: "builtin:fox" for one of <see cref="BotPictures"/>, a data: URL for an upload (a small
+    /// PNG, or a GIF kept as it is so it stays animated), "" to show <see cref="Emoji"/>, or null for a cute built-in
+    /// picture chosen for it. Chat apps and text-only menus always get the emoji.
     /// </summary>
     public string? AvatarImage { get; set; }
     /// <summary>How the avatar moves while the bot is thinking or working: one of <see cref="WorkingAnimations"/>.</summary>
-    public string WorkingAnimation { get; set; } = "pulse";
+    public string WorkingAnimation { get; set; } = "hop";
 
     /// <summary>The working animations a bot can pick: id and label.</summary>
     public static readonly (string Id, string Label)[] WorkingAnimations =
     [
-        ("pulse", "Pulse"), ("dots", "Typing dots"), ("bounce", "Bounce"), ("spin", "Spinning ring"),
-        ("wave", "Sound wave"), ("glow", "Glow"), ("wobble", "Wobble"), ("none", "None"),
+        ("hop", "Happy hops"), ("dots", "Thought bubble"), ("hearts", "Floating hearts"), ("sparkle", "Sparkles"),
+        ("look", "Looking around"), ("float", "Floating"), ("wobble", "Wiggle"), ("bounce", "Bounce"),
+        ("pulse", "Pulse"), ("spin", "Spinning ring"), ("wave", "Ripples"), ("glow", "Glow"), ("none", "None"),
     ];
     /// <summary>Accent colour for the avatar, CSS hex.</summary>
     public string Color { get; set; } = "#7c9cff";
@@ -320,32 +322,32 @@ public static class BotTemplates
 {
     public static IReadOnlyList<Bot> All =>
     [
-        new() { Name = "Chief of Staff", Emoji = "🧭", Color = "#f5b942", Title = "Coordinator", IsCoordinator = true,
+        new() { Name = "Chief of Staff", AvatarImage = BotPictures.Prefix + "owl", WorkingAnimation = "dots", Emoji = "🧭", Color = "#f5b942", Title = "Coordinator", IsCoordinator = true,
             Abilities = new() { Browser = false, Images = false },
             Instructions = "You run the user's team of bots. Understand what the user wants, break it into pieces, hand each " +
                            "piece to the right specialist by @mentioning them, then pull their results together into one clear " +
                            "answer. Do small things yourself. Ask the user only for real judgment calls." },
-        new() { Name = "Researcher", Emoji = "🔎", Color = "#4ade80", Title = "Research & fact-checking",
+        new() { Name = "Researcher", AvatarImage = BotPictures.Prefix + "fox", WorkingAnimation = "look", Emoji = "🔎", Color = "#4ade80", Title = "Research & fact-checking",
             Abilities = new() { Images = false },
             Instructions = "You find out what's true. Search the web, read primary sources, compare them and cite everything " +
                            "with [n]. Say clearly when evidence is weak or conflicting." },
-        new() { Name = "Engineer", Emoji = "🛠️", Color = "#7c9cff", Title = "Software engineer",
+        new() { Name = "Engineer", AvatarImage = BotPictures.Prefix + "cat", WorkingAnimation = "sparkle", Emoji = "🛠️", Color = "#7c9cff", Title = "Software engineer",
             Abilities = new() { Code = true, Images = false },
             Instructions = "You write and debug code. In a code session, work in the project like a careful senior engineer: read " +
                            "before changing, make small exact edits, run the build and tests, and report what you verified. " +
                            "Otherwise prefer complete, runnable solutions and test with run_python when it helps. Point out bugs and edge cases." },
-        new() { Name = "Writer", Emoji = "✍️", Color = "#f472b6", Title = "Writing & editing",
+        new() { Name = "Writer", AvatarImage = BotPictures.Prefix + "bunny", WorkingAnimation = "float", Emoji = "✍️", Color = "#f472b6", Title = "Writing & editing",
             Abilities = new() { Browser = false },
             Instructions = "You write clear, vivid, well-structured prose in the user's voice: emails, posts, docs, stories. " +
                            "Keep it tight; offer one strong draft rather than many options." },
-        new() { Name = "Critic", Emoji = "🧐", Color = "#ff6b6b", Title = "Reviewer & devil's advocate",
+        new() { Name = "Critic", AvatarImage = BotPictures.Prefix + "raccoon", WorkingAnimation = "wobble", Emoji = "🧐", Color = "#ff6b6b", Title = "Reviewer & devil's advocate",
             Abilities = new() { Browser = false, Images = false, Files = false },
             Instructions = "You review other bots' work and the user's ideas. Find the weakest points, missing cases and " +
                            "risks, and say how to fix them. Be direct but constructive. Don't rewrite everything." },
-        new() { Name = "Planner", Emoji = "🗓️", Color = "#38bdf8", Title = "Plans, schedules & checklists",
+        new() { Name = "Planner", AvatarImage = BotPictures.Prefix + "penguin", WorkingAnimation = "hop", Emoji = "🗓️", Color = "#38bdf8", Title = "Plans, schedules & checklists",
             Instructions = "You turn goals into concrete plans: steps, owners, timelines and checklists. Keep plans realistic " +
                            "and flag dependencies." },
-        new() { Name = "Comedian", Emoji = "🎭", Color = "#c084fc", Title = "Entertainment",
+        new() { Name = "Comedian", AvatarImage = BotPictures.Prefix + "frog", WorkingAnimation = "hearts", Emoji = "🎭", Color = "#c084fc", Title = "Entertainment",
             Abilities = new() { Browser = false, Files = false, Documents = false }, Memory = new() { ShareWhatItLearns = false },
             Instructions = "You're the funny one: witty, sarcastic, irreverent. Roast gently, riff on what others say, " +
                            "and keep the group chat fun — but stay accurate if facts come up." },
