@@ -7,21 +7,19 @@
 @inject ProjectHistory History
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Documents</h2>
 </header>
 
 <div class="settings">
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <p class="muted">
             Add PDFs, notes and code. They're split into passages and indexed with a local embedding model, so the
             <b>Search my documents</b> tool can find relevant parts. The files and index are stored on this device; passages the model reads are sent to whichever model provider is active.
         </p>
         <div class="row">
-            <label class="grow">Embedding model (on the active server)
-                <input @bind="_embedModel" placeholder="nomic-embed-text" />
-            </label>
-            <button class="btn ghost" @onclick="SaveModel">Save</button>
+            <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_embedModel" Placeholder="nomic-embed-text" Label="Embedding model (on the active server)" />
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="SaveModel">Save</MudButton>
         </div>
         <p class="muted small">Ollama: <code>ollama pull nomic-embed-text</code>. Changing the model means re-adding documents.</p>
         <label class="btn primary upload">
@@ -29,17 +27,17 @@
             <InputFile OnChange="OnFiles" multiple accept=".pdf,.txt,.md,.csv,.json,.html,.htm,.xml,.yaml,.yml,.cs,.js,.ts,.py,.java,.go,.rs,.cpp,.c,.h,.sql,.log" class="hidden-file" />
         </label>
         @if (_progress is not null) { <div class="muted">@_progress</div> }
-        @if (_error is not null) { <div class="error-box">@_error</div> }
-    </section>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Linked folders</h3>
         <p class="muted small">Folders on this computer that stay indexed: new and changed files are picked up within seconds, deleted ones drop out. Bots can search them and read the files (not change them). Hidden files and folders (like <code>.env</code> or <code>.git</code>), dependencies and build output are skipped.</p>
         <div class="row">
-            <input class="grow" @bind="_folderPath" placeholder="/Users/you/Projects/notes" @onkeydown="FolderKey" />
-            <button class="btn primary" @onclick="AddFolder" disabled="@string.IsNullOrWhiteSpace(_folderPath)">Link folder</button>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_folderPath" Placeholder="/Users/you/Projects/notes" OnKeyDown="FolderKey" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddFolder" Disabled="@string.IsNullOrWhiteSpace(_folderPath)">Link folder</MudButton>
         </div>
-        @if (_folderError is not null) { <div class="error-box">@_folderError</div> }
+        @if (_folderError is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_folderError</MudAlert> }
         @if (Folders.Status is { } status) { <div class="muted small">@status</div> }
         @foreach (var f in _folders)
         {
@@ -51,17 +49,15 @@
                     · @(folder.LastSync is { } at ? $"synced {at:MMM d h:mm tt}" : "indexing…")
                     @(folder.KeywordOnly ? " · keyword search" : "")
                 </span>
-                <button class="btn ghost small" @onclick="() => SyncFolder(folder.Id)">Sync now</button>
-                <button class="icon-btn" title="Unlink folder" aria-label="Unlink folder" @onclick="() => Folders.RemoveAsync(folder.Id)"><Icon Name="trash-2" Size="15" /></button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => SyncFolder(folder.Id)">Sync now</MudButton>
+                <MudIconButton Size="Size.Small" title="Unlink folder" aria-label="Unlink folder" OnClick="() => Folders.RemoveAsync(folder.Id)"><Icon Name="trash-2" Size="15" /></MudIconButton>
             </div>
             @if (folder.Error is not null) { <div class="tiny-error">@folder.Error</div> }
             <div class="sub">
-                <label class="check"><input type="checkbox" checked="@folder.Editable" @onchange="e => Folders.SetEditableAsync(folder.Id, (bool)e.Value!)" /> Bots can edit (for coding: each change shows a diff, asks first and can be undone; commands run in the code sandbox)</label>
+                <MudSwitch T="bool" Color="Color.Primary" Value="@(folder.Editable)" ValueChanged="(bool v) => Folders.SetEditableAsync(folder.Id, v)" Class="check" Label="Bots can edit (for coding: each change shows a diff, asks first and can be undone; commands run in the code sandbox)" />
                 @if (folder.Editable)
                 {
-                    <label>Sandbox image for this project
-                        <input value="@folder.SandboxImage" placeholder="default (Tools page), e.g. mcr.microsoft.com/dotnet/sdk:10.0 or node:22" @onchange="e => Folders.SetSandboxImageAsync(folder.Id, e.Value?.ToString())" />
-                    </label>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Value="@(folder.SandboxImage)" Placeholder="default (Tools page), e.g. mcr.microsoft.com/dotnet/sdk:10.0 or node:22" ValueChanged="(string v) => Folders.SetSandboxImageAsync(folder.Id, v)" T="string" Label="Sandbox image for this project" />
                     var changes = _changes.Where(c => c.FolderId == folder.Id).OrderByDescending(c => c.At).Take(8).ToList();
                     @if (changes.Count > 0)
                     {
@@ -71,7 +67,7 @@
                             var change = c;
                             <div class="memory-row">
                                 <span class="grow small">@change.Summary <span class="muted">· @change.At.ToString("MMM d h:mm tt") · @System.IO.Path.GetRelativePath(folder.Path, change.Path)</span></span>
-                                <button class="btn ghost small" @onclick="() => Undo(change.Id)">Undo</button>
+                                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Undo(change.Id)">Undo</MudButton>
                             </div>
                         }
                         @if (_undoError is not null) { <div class="tiny-error">@_undoError</div> }
@@ -84,20 +80,20 @@
             <p class="muted small">No embedding model answered, so these are searched by keyword. For search by meaning, run <code>ollama pull nomic-embed-text</code> (or set an embedding model your server has) and press Sync now.</p>
         }
         <p class="muted small">On a Mac, Hearth needs permission for Documents, Desktop and Downloads (System Settings → Privacy &amp; Security). Folders elsewhere, like <code>~/Projects</code>, work as is.</p>
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Cloud folders</h3>
         <p class="muted small">Google Drive and OneDrive folders (a Job Search or Recipes folder…) kept searchable like the folders above: Google Docs, Sheets, Slides, Word, PDF and text files are indexed, and changes are picked up every hour. Bots answer from them with document search instead of fetching each file. Needs Google (Docs &amp; Drive) or Microsoft 365 connected on the Connections page.</p>
         <div class="row">
-            <select @bind="_cloudProvider">
-                <option value="google">Google Drive</option>
-                <option value="onedrive">OneDrive</option>
-            </select>
-            <input class="grow" @bind="_cloudFolder" placeholder="@(_cloudProvider == "onedrive" ? "Documents/Job Search (or a share link)" : "Folder link, or its exact name")" />
-            <button class="btn primary" @onclick="AddCloud" disabled="@(string.IsNullOrWhiteSpace(_cloudFolder) || _cloudAdding)">@(_cloudAdding ? "Linking…" : "Link folder")</button>
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_cloudProvider">
+                <MudSelectItem Value="@("google")">Google Drive</MudSelectItem>
+                <MudSelectItem Value="@("onedrive")">OneDrive</MudSelectItem>
+            </MudSelect>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_cloudFolder" Placeholder="@(_cloudProvider == "onedrive" ? "Documents/Job Search (or a share link)" : "Folder link, or its exact name")" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="AddCloud" Disabled="@(string.IsNullOrWhiteSpace(_cloudFolder) || _cloudAdding)">@(_cloudAdding ? "Linking…" : "Link folder")</MudButton>
         </div>
-        @if (_cloudError is not null) { <div class="error-box">@_cloudError</div> }
+        @if (_cloudError is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_cloudError</MudAlert> }
         @if (Cloud.Status is { } cloudStatus) { <div class="muted small">@cloudStatus</div> }
         @foreach (var c in _cloud)
         {
@@ -109,14 +105,14 @@
                     @folder.Files files@(folder.Skipped > 0 ? $" ({folder.Skipped} more not indexed)" : "")
                     · @(folder.LastSync is { } at ? $"synced {at:MMM d h:mm tt}" : "indexing…")
                 </span>
-                <button class="btn ghost small" @onclick="() => SyncCloud(folder.Id)">Sync now</button>
-                <button class="icon-btn" title="Unlink folder" aria-label="Unlink folder" @onclick="() => Cloud.RemoveAsync(folder.Id)"><Icon Name="trash-2" Size="15" /></button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => SyncCloud(folder.Id)">Sync now</MudButton>
+                <MudIconButton Size="Size.Small" title="Unlink folder" aria-label="Unlink folder" OnClick="() => Cloud.RemoveAsync(folder.Id)"><Icon Name="trash-2" Size="15" /></MudIconButton>
             </div>
             @if (folder.Error is not null) { <div class="tiny-error">@folder.Error</div> }
         }
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Library (@_docs.Count(d => d.FolderId is null))</h3>
         @foreach (var d in _docs.Where(d => d.FolderId is null))
         {
@@ -124,11 +120,11 @@
             <div class="memory-row">
                 <span class="grow">📄 <b>@doc.Name</b></span>
                 <span class="muted small">@doc.Chunks passages · @(doc.Characters / 1000)k chars · @(doc.KeywordOnly ? "keyword search" : doc.EmbeddingModel)</span>
-                <button class="icon-btn" title="Remove" @onclick="() => Store.DeleteAsync(doc.Id)">🗑</button>
+                <MudIconButton Size="Size.Small" title="Remove" OnClick="() => Store.DeleteAsync(doc.Id)">🗑</MudIconButton>
             </div>
         }
         @if (!_docs.Any(d => d.FolderId is null)) { <p class="muted">No documents added one by one yet.</p> }
-    </section>
+    </MudPaper>
 </div>
 
 @code {

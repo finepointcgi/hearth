@@ -6,10 +6,10 @@
 @inject LinkedFolders Linked
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="MudBlazor.Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Files</h2>
     <span class="spacer"></span>
-    <button class="icon-btn" title="Refresh" aria-label="Refresh" @onclick="LoadAsync"><Icon Name="refresh-cw" Size="16" /></button>
+    <MudIconButton Size="MudBlazor.Size.Small" title="Refresh" aria-label="Refresh" OnClick="LoadAsync"><Icon Name="refresh-cw" Size="16" /></MudIconButton>
 </header>
 
 <div class="settings files-page">
@@ -27,7 +27,7 @@
                 }
             </div>
         }
-        <a class="btn ghost small" href="documents" title="Link folders on this computer (Documents → Linked folders)"><Icon Name="folder" Size="14" /> @(_folders.Count == 0 ? "Browse a folder on this computer…" : "Link a folder")</a>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="MudBlazor.Size.Small" Href="documents" title="Link folders on this computer (Documents → Linked folders)"><Icon Name="folder" Size="14" /> @(_folders.Count == 0 ? "Browse a folder on this computer…" : "Link a folder")</MudButton>
     </div>
     @if (_place is not null && _cwd is not null)
     {
@@ -41,7 +41,7 @@
         </nav>
     }
     <div class="row">
-        <label class="search-box grow"><Icon Name="search" Size="16" /><input placeholder="Search files" @bind="_filter" @bind:event="oninput" /></label>
+        <label class="search-box grow"><Icon Name="search" Size="16" /><MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Placeholder="Search files" @bind-Value="_filter" Immediate="true" /></label>
         <div class="seg-mini" role="group" aria-label="Kind">
             @foreach (var k in new[] { "All", "Images", "Documents", "Data", "Code" })
             {
@@ -89,9 +89,9 @@
             <aside class="file-preview card">
                 <div class="row">
                     <b class="grow ellipsis">@sel.Name</b>
-                    @if (sel.ConversationId is not null) { <a class="btn ghost small" href="c/@sel.ConversationId">Open chat</a> }
-                    <button class="btn ghost small" @onclick="Download"><Icon Name="download" Size="15" /> Download</button>
-                    @if (sel.Path is not null && InWorkspace(sel.Path)) { <button class="btn danger small" @onclick="Delete"><Icon Name="trash-2" Size="15" /> Delete</button> }
+                    @if (sel.ConversationId is not null) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="MudBlazor.Size.Small" Href="@($"c/{sel.ConversationId}")">Open chat</MudButton> }
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="MudBlazor.Size.Small" OnClick="Download"><Icon Name="download" Size="15" /> Download</MudButton>
+                    @if (sel.Path is not null && InWorkspace(sel.Path)) { <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="MudBlazor.Size.Small" OnClick="Delete"><Icon Name="trash-2" Size="15" /> Delete</MudButton> }
                 </div>
                 <span class="muted small">@sel.Where@(sel.Path is null ? "" : InWorkspace(sel.Path) ? " · " + Relative(sel.Path)
                         : _place is not null ? " · " + System.IO.Path.GetRelativePath(_place.Path, sel.Path) : " · " + Display(sel.Path))</span>

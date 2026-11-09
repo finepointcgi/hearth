@@ -6,18 +6,18 @@
 @inject ApprovalCenter Approvals
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <a class="icon-btn" href="agents" title="All agents">←</a>
     <h2 class="topbar-title ellipsis">@(_run is null ? "Agent job" : $"{_run.AgentName}: {_run.Task}")</h2>
     <span class="spacer"></span>
-    @if (_run?.Active == true) { <button class="btn ghost" @onclick="Stop">Stop</button> }
+    @if (_run?.Active == true) { <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Stop">Stop</MudButton> }
 </header>
 
 @if (_run is { } run)
 {
     var pending = run.WaitingOn is { } w ? Approvals.Pending.FirstOrDefault(p => p.Id == w) : null;
     <div class="settings agent-run">
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <div class="row">
                 <span class="grow"><b>@Agents.StatusMark(run) @StatusText(run)</b>
                     <span class="muted small"> · @Took(run) · @(run.NodeName is { } node ? $"on {node}, " : "")in <code>@run.Folder</code> · @ModeText(run.Mode)</span></span>
@@ -26,22 +26,22 @@
             {
                 <p class="muted small">Handed over@(run.BotId is { } b && State.BotById(b) is { } bot ? $" by {bot.Name}" : "") from <a href="c/@conv">a chat</a>.</p>
             }
-            @if (run.Error is { } err) { <div class="error-box">@err</div> }
-        </section>
+            @if (run.Error is { } err) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@err</MudAlert> }
+        </MudPaper>
 
         @if (pending is not null)
         {
-            <section class="card attention">
+            <MudPaper Class="card attention" Elevation="0">
                 <div class="row">
                     <span class="grow">🔐 <b>@pending.ToolName</b>
                         <details><summary class="small muted">Details</summary><code class="audit">@pending.ArgumentsJson</code></details></span>
-                    <button class="btn ghost small" @onclick="() => Approvals.Decide(pending.Id, false)">Deny</button>
-                    <button class="btn primary small" @onclick="() => Approvals.Decide(pending.Id, true)">Allow</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Approvals.Decide(pending.Id, false)">Deny</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => Approvals.Decide(pending.Id, true)">Allow</MudButton>
                 </div>
-            </section>
+            </MudPaper>
         }
 
-        <section class="card agent-steps">
+        <MudPaper Class="card agent-steps" Elevation="0">
             @foreach (var s in Steps(run))
             {
                 switch (s.Kind)
@@ -67,17 +67,17 @@
                 }
             }
             @if (run.Active) { <div class="agent-step note muted small">@(run.Status == AgentRunStatus.WaitingForYou ? "Waiting for your OK…" : "Working…")</div> }
-        </section>
+        </MudPaper>
 
         @if (!run.Active)
         {
-            <section class="card">
-                <textarea rows="2" @bind="_message" placeholder="Follow up: ask for changes or the next step (it remembers this job)"></textarea>
+            <MudPaper Class="card" Elevation="0">
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="2" @bind-Value="_message" Placeholder="Follow up: ask for changes or the next step (it remembers this job)" />
                 <div class="row end">
                     @if (_error is not null) { <span class="error-text small grow">@_error</span> }
-                    <button class="btn primary" @onclick="Send" disabled="@string.IsNullOrWhiteSpace(_message)">Send</button>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Send" Disabled="@string.IsNullOrWhiteSpace(_message)">Send</MudButton>
                 </div>
-            </section>
+            </MudPaper>
         }
     </div>
 }

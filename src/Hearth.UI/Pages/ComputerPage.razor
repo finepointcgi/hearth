@@ -8,14 +8,14 @@
 @inject LoginVault Vault
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Bot computer</h2>
     <span class="spacer"></span>
     @if (_status.Running) { <span class="live-pill">● live</span> }
 </header>
 
 <div class="settings">
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <p class="muted">
             A browser and a workspace folder your bots share, plus (optionally) control of this computer's screen, mouse and
             keyboard. Sign in to sites once in the bot browser and every bot can use them, or save logins below so bots can
@@ -23,7 +23,7 @@
         </p>
         @if (!_status.Available)
         {
-            <div class="notice">@_status.UnavailableReason</div>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Text" Dense="true" Class="hearth-alert notice">@_status.UnavailableReason</MudAlert>
         }
         else
         {
@@ -41,16 +41,16 @@
                 </span>
                 @if (_status.Running)
                 {
-                    <button class="btn ghost" @onclick="Stop" disabled="@_busy">Stop</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Stop" Disabled="@_busy">Stop</MudButton>
                 }
-                <select @bind="_signInProfile" title="Which browser to sign in to">
-                    <option value="shared">Shared browser (all bots)</option>
+                <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_signInProfile" title="Which browser to sign in to">
+                    <MudSelectItem Value="@("shared")">Shared browser (all bots)</MudSelectItem>
                     @foreach (var b in State.Bots.Where(b => b.Abilities.Browser && b.Abilities.BrowserProfile == BrowserProfile.Own))
                     {
-                        <option value="@b.Id">@b.Emoji @b.Name's own browser</option>
+                        <MudSelectItem Value="@(b.Id)">@b.Emoji @b.Name's own browser</MudSelectItem>
                     }
-                </select>
-                <button class="btn primary" @onclick="ShowWindow" disabled="@_busy" title="Opens a visible browser window so you can sign in to sites">🔑 Show browser to sign in</button>
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ShowWindow" Disabled="@_busy" title="Opens a visible browser window so you can sign in to sites">🔑 Show browser to sign in</MudButton>
             </div>
             @if (_status.Error is not null || _message is not null)
             {
@@ -58,14 +58,14 @@
             }
             @if (_status.Error?.Contains("Install browser") == true)
             {
-                <button class="btn ghost" @onclick="Install" disabled="@_busy">⇩ Install browser (Chromium, ~150 MB)</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Install" Disabled="@_busy">⇩ Install browser (Chromium, ~150 MB)</MudButton>
             }
         }
-    </section>
+    </MudPaper>
 
     @if (_status.Running)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <div class="row">
                 <span class="grow ellipsis"><b>@(_status.Title ?? "…")</b> <span class="muted small">@_status.Url</span></span>
             </div>
@@ -77,36 +77,34 @@
             {
                 <p class="muted">No page open yet.</p>
             }
-        </section>
+        </MudPaper>
     }
 
     @if (_s is not null && _status.Available)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Settings</h3>
-            <label class="check"><input type="checkbox" @bind="_s.Computer.Enabled" /> Let bots use the computer</label>
-            <label class="check"><input type="checkbox" @bind="_s.Computer.Headless" /> Run the browser in the background (no window)</label>
-            <label>Browser
-                <select @bind="_s.Computer.Channel">
-                    <option value="">Playwright Chromium (separate from your own browser)</option>
-                    <option value="chrome">Google Chrome (installed)</option>
-                    <option value="msedge">Microsoft Edge (installed)</option>
-                </select>
-            </label>
-            <label class="check"><input type="checkbox" @bind="_s.Computer.AutoApproveActions" /> Let bots click and type without asking each time</label>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Computer.Enabled" Class="check" Label="Let bots use the computer" />
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Computer.Headless" Class="check" Label="Run the browser in the background (no window)" />
+            <MudSelect Label="Browser" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_s.Computer.Channel">
+                    <MudSelectItem Value="@("")">Playwright Chromium (separate from your own browser)</MudSelectItem>
+                    <MudSelectItem Value="@("chrome")">Google Chrome (installed)</MudSelectItem>
+                    <MudSelectItem Value="@("msedge")">Microsoft Edge (installed)</MudSelectItem>
+                </MudSelect>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Computer.AutoApproveActions" Class="check" Label="Let bots click and type without asking each time" />
             @if (Platform.CanUseComputer)
             {
-                <label class="check"><input type="checkbox" @bind="_s.Computer.AllowCommands" /> Allow shell commands in the workspace (asks every time unless tools are auto-approved)</label>
+                <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Computer.AllowCommands" Class="check" Label="Allow shell commands in the workspace (asks every time unless tools are auto-approved)" />
             }
-            <label>Close the browser after <input type="number" min="0" @bind="_s.Computer.IdleMinutes" style="width:5rem" /> idle minutes (0 = never)</label>
+            <label>Close the browser after <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.Computer.IdleMinutes" Style="width:5rem" /> idle minutes (0 = never)</label>
             <div class="row end">
                 @if (_saved) { <span class="ok-text">Saved ✓</span> }
-                <button class="btn primary" @onclick="Save">Save</button>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
             </div>
-        </section>
+        </MudPaper>
     }
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Computer use</h3>
         <p class="muted">
             Let bots see your screen and use the mouse and keyboard to work in any app. Each action shows up in the chat with
@@ -116,30 +114,30 @@
         </p>
         @if (!Desktop.Supported || !Platform.CanUseComputer)
         {
-            <div class="notice">@(!Platform.CanRunProcesses ? "Computer use is available in the desktop app." : Platform.ComputerProblem is { } off ? off + "." : Desktop.Problem)</div>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Text" Dense="true" Class="hearth-alert notice">@(!Platform.CanRunProcesses ? "Computer use is available in the desktop app." : Platform.ComputerProblem is { } off ? off + "." : Desktop.Problem)</MudAlert>
         }
         else if (_s is not null)
         {
-            <label class="check"><input type="checkbox" @bind="_s.Computer.DesktopControl" /> Let bots control this computer's screen, mouse and keyboard</label>
-            <label class="check"><input type="checkbox" @bind="_s.Computer.AutoApproveDesktop" /> Don't ask before each click, keypress or typing</label>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Computer.DesktopControl" Class="check" Label="Let bots control this computer's screen, mouse and keyboard" />
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Computer.AutoApproveDesktop" Class="check" Label="Don't ask before each click, keypress or typing" />
             @if (Desktop.Problem is { } problem)
             {
-                <div class="error-box">@problem</div>
-                <button class="btn ghost" @onclick="Desktop.RequestPermissions">Request permissions</button>
+                <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@problem</MudAlert>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Desktop.RequestPermissions">Request permissions</MudButton>
             }
             <div class="row">
-                <button class="btn ghost" @onclick="TestScreenshot" disabled="@_busy">📸 Test screenshot</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="TestScreenshot" Disabled="@_busy">📸 Test screenshot</MudButton>
                 <span class="muted small grow">@Desktop.LastAction</span>
-                <button class="btn primary" @onclick="Save">Save</button>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
             </div>
             @if (_desktopShot is not null)
             {
                 <img class="screen" src="@_desktopShot" alt="What bots see" />
             }
         }
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Saved logins</h3>
         <p class="muted">
             Bots can sign in with these — in the bot browser (<code>browser_fill_login</code>) or any app (<code>desktop_type_login</code>) —
@@ -147,41 +145,41 @@
         </p>
         @if (_s is not null)
         {
-            <label class="check"><input type="checkbox" @bind="_s.Computer.ProtectSensitiveFields" @bind:after="Save" /> Protect password and payment fields (bots can only use saved logins, not type passwords themselves)</label>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Computer.ProtectSensitiveFields" @bind-Value:after="Save" Class="check" Label="Protect password and payment fields (bots can only use saved logins, not type passwords themselves)" />
         }
         @foreach (var l in _logins)
         {
             var login = l;
             <div class="memory-row">
                 <span class="grow"><b>@login.Name</b> <span class="muted small">@login.Site · @login.Username · ••••••</span></span>
-                <button class="icon-btn" title="Edit" @onclick="() => EditLogin(login)">✎</button>
-                <button class="icon-btn" title="Delete" @onclick="() => Vault.DeleteAsync(login.Id)">🗑</button>
+                <MudIconButton Size="Size.Small" title="Edit" OnClick="() => EditLogin(login)">✎</MudIconButton>
+                <MudIconButton Size="Size.Small" title="Delete" OnClick="() => Vault.DeleteAsync(login.Id)">🗑</MudIconButton>
             </div>
         }
         @if (_editLogin is not null)
         {
             <div class="provider">
                 <div class="row">
-                    <input class="grow" @bind="_editLogin.Name" placeholder="Name, e.g. github" />
-                    <input class="grow" @bind="_editLogin.Site" placeholder="Site or app, e.g. github.com" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_editLogin.Name" Placeholder="Name, e.g. github" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_editLogin.Site" Placeholder="Site or app, e.g. github.com" />
                 </div>
                 <div class="row">
-                    <input class="grow" @bind="_editLogin.Username" placeholder="Username or email" autocomplete="off" />
-                    <input class="grow" type="password" @bind="_newPassword" placeholder="@(_isNewLogin ? "Password" : "New password (blank = keep)")" autocomplete="new-password" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_editLogin.Username" Placeholder="Username or email" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" InputType="InputType.Password" @bind-Value="_newPassword" Placeholder="@(_isNewLogin ? "Password" : "New password (blank = keep)")" />
                 </div>
                 <div class="row end">
-                    <button class="btn ghost" @onclick="() => _editLogin = null">Cancel</button>
-                    <button class="btn primary" @onclick="SaveLogin">Save login</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _editLogin = null">Cancel</MudButton>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveLogin">Save login</MudButton>
                 </div>
             </div>
         }
         else
         {
-            <button class="btn ghost" @onclick="NewLogin">＋ Add login</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="NewLogin">＋ Add login</MudButton>
         }
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Workspace files</h3>
         <p class="muted small">@Computer.WorkspaceDirectory</p>
         @foreach (var f in _files)
@@ -190,11 +188,11 @@
             <div class="memory-row">
                 <span class="grow ellipsis">📄 @file.rel</span>
                 <span class="muted small">@FormatSize(file.size) · @file.modified.ToString("MMM d, HH:mm")</span>
-                <button class="icon-btn" title="Delete" @onclick="() => DeleteFile(file.full)">🗑</button>
+                <MudIconButton Size="Size.Small" title="Delete" OnClick="() => DeleteFile(file.full)">🗑</MudIconButton>
             </div>
         }
         @if (_files.Count == 0) { <p class="muted">Empty. Bots save downloads and files they write here.</p> }
-    </section>
+    </MudPaper>
     <RemoteHostsCard />
 </div>
 

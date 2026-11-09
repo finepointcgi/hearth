@@ -9,7 +9,7 @@
 @inject SettingsStore Settings
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Inbox</h2>
     <span class="muted small">@DateTime.Now.ToString("dddd, MMMM d")</span>
 </header>
@@ -17,7 +17,7 @@
 <div class="settings inbox">
     <div class="inbox-grid">
         <div class="inbox-main">
-            <section class="card">
+            <MudPaper Class="card" Elevation="0">
                 <h3 class="section-title">Needs you @if (NeedsYouCount > 0) { <span class="count-badge">@NeedsYouCount</span> }</h3>
 
                 @foreach (var p in Approvals.Pending)
@@ -33,12 +33,12 @@
                             @if (pending.Reason is not null) { <span class="reason"><Icon Name="circle-alert" Size="14" /> @pending.Reason</span> }
                         </span>
                         <span class="needs-actions">
-                            <button class="btn ghost small" @onclick="() => Approvals.Decide(pending.Id, false)">Deny</button>
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Approvals.Decide(pending.Id, false)">Deny</MudButton>
                             @if (pending.AlwaysAllowFor is not null)
                             {
-                                <button class="btn ghost small" title="Don't ask again when @pending.AlwaysAllowFor uses this (undo on the Permissions page)" @onclick="() => Approvals.AllowAlwaysAsync(pending.Id)">Always allow</button>
+                                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" title="@($"Don't ask again when {pending.AlwaysAllowFor} uses this (undo on the Permissions page)")" OnClick="() => Approvals.AllowAlwaysAsync(pending.Id)">Always allow</MudButton>
                             }
-                            <button class="btn primary small" @onclick="() => Approvals.Decide(pending.Id, true)">Allow</button>
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => Approvals.Decide(pending.Id, true)">Allow</MudButton>
                         </span>
                     </div>
                 }
@@ -48,7 +48,7 @@
                     <div class="needs-row problem">
                         <span class="needs-icon bad"><Icon Name="circle-alert" Size="16" /></span>
                         <span class="grow"><b>No model available</b><br /><span class="muted small">@State.ModelError</span></span>
-                        <a class="btn ghost small" href="settings">Fix</a>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="settings">Fix</MudButton>
                     </div>
                 }
                 @if (State.FallbackNotice is not null)
@@ -56,7 +56,7 @@
                     <div class="needs-row problem">
                         <span class="needs-icon bad"><Icon Name="server" Size="16" /></span>
                         <span class="grow"><b>Main model server is down</b><br /><span class="muted small">@State.FallbackNotice</span></span>
-                        <a class="btn ghost small" href="settings">Check</a>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="settings">Check</MudButton>
                     </div>
                 }
                 @foreach (var (title, detail, link) in _problems)
@@ -64,7 +64,7 @@
                     <div class="needs-row problem">
                         <span class="needs-icon bad"><Icon Name="circle-alert" Size="16" /></span>
                         <span class="grow"><b>@title</b>@if (detail is not null) { <br /><span class="muted small">@Clip(detail, 200)</span> }</span>
-                        @if (link is not null) { <a class="btn ghost small" href="@link">Fix</a> }
+                        @if (link is not null) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="@link">Fix</MudButton> }
                     </div>
                 }
 
@@ -81,9 +81,9 @@
                 {
                     <div class="all-clear"><Icon Name="check" Size="18" /> All clear. Nothing needs you right now.</div>
                 }
-            </section>
+            </MudPaper>
 
-            <section class="card">
+            <MudPaper Class="card" Elevation="0">
                 <h3 class="section-title">Today <span class="muted small">@_routineRuns routine runs · @_botReplies replies</span></h3>
                 <div class="timeline">
                     @foreach (var a in _activity.Take(60))
@@ -99,11 +99,11 @@
                     }
                     @if (_activity.Count == 0) { <p class="muted small">Quiet so far. Routines, triggers, bot-to-bot messages, approvals and chats from your phone show up here.</p> }
                 </div>
-            </section>
+            </MudPaper>
         </div>
 
         <aside class="inbox-side">
-            <section class="card">
+            <MudPaper Class="card" Elevation="0">
                 <div class="row">
                     <h3 class="grow section-title"><Icon Name="heart-pulse" Size="17" /> Heartbeat</h3>
                     <span class="status-chip @(_hb.Enabled ? "on" : "")">@(_hb.Enabled ? $"Every {Interval(_hb.IntervalMinutes)}" : "Off")</span>
@@ -113,12 +113,12 @@
                     else { <text>Checks your list on a schedule and messages you only when something needs you.</text> }
                 </p>
                 <div class="row">
-                    <button class="btn ghost small" @onclick="() => _heartbeatOpen = true"><Icon Name="sliders-horizontal" Size="15" /> Settings</button>
-                    @if (_hbState.ConversationId is { } hc && _hbState.Alerts > 0) { <a class="btn ghost small" href="c/@hc">Messages (@_hbState.Alerts)</a> }
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _heartbeatOpen = true"><Icon Name="sliders-horizontal" Size="15" /> Settings</MudButton>
+                    @if (_hbState.ConversationId is { } hc && _hbState.Alerts > 0) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="@($"c/{hc}")">Messages (@_hbState.Alerts)</MudButton> }
                 </div>
-            </section>
+            </MudPaper>
 
-            <section class="card">
+            <MudPaper Class="card" Elevation="0">
                 <h3 class="section-title">Your bots</h3>
                 @foreach (var b in State.Bots)
                 {
@@ -131,7 +131,7 @@
                     </a>
                 }
                 @if (State.Bots.Count == 0) { <p class="muted small">No bots yet. <a href="bots">Create one</a>.</p> }
-            </section>
+            </MudPaper>
         </aside>
     </div>
 </div>
@@ -142,7 +142,7 @@
     <aside class="drawer" role="dialog" aria-label="Heartbeat settings">
         <div class="drawer-head">
             <b>Heartbeat settings</b>
-            <button class="icon-btn" aria-label="Close" @onclick="CloseHeartbeat"><Icon Name="x" /></button>
+            <MudIconButton Size="Size.Small" aria-label="Close" OnClick="CloseHeartbeat"><Icon Name="x" /></MudIconButton>
         </div>
         <HeartbeatCard />
     </aside>

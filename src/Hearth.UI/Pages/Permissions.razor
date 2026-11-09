@@ -5,14 +5,14 @@
 @inject McpManager Mcp
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Permissions</h2>
     <span class="spacer"></span>
     @if (_saved) { <span class="ok-text">Saved ✓</span> }
 </header>
 
 <div class="settings">
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <p class="muted">
             What every bot may do, per area. <b>Allow</b> runs without asking, <b>Ask</b> waits for your OK (here, in the chat,
             on the Today page or in Telegram), <b>Block</b> hides it from bots entirely. <b>Default</b> keeps each feature's own
@@ -33,12 +33,12 @@
                         else
                         {
                             <label class="perm-cell" title="@label">
-                                <select value="@Level(area.Key, w)" @onchange="e => Set(area.Key, w, e.Value?.ToString())" class="@Level(area.Key, w).ToString().ToLowerInvariant()">
-                                    <option value="Default">Default</option>
-                                    <option value="Allow">Allow</option>
-                                    <option value="Ask">Ask</option>
-                                    <option value="Block">Block</option>
-                                </select>
+                                <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(Level(area.Key, w).ToString())" ValueChanged="(string v) => Set(area.Key, w, v)" Class="@Level(area.Key, w).ToString().ToLowerInvariant()" T="string">
+                                    <MudSelectItem Value="@("Default")">Default</MudSelectItem>
+                                    <MudSelectItem Value="@("Allow")">Allow</MudSelectItem>
+                                    <MudSelectItem Value="@("Ask")">Ask</MudSelectItem>
+                                    <MudSelectItem Value="@("Block")">Block</MudSelectItem>
+                                </MudSelect>
                                 <span class="muted small">@label</span>
                             </label>
                         }
@@ -46,17 +46,16 @@
                 </div>
             }
         </div>
-        <label class="check"><input type="checkbox" checked="@State.Settings.Tools.GuardUntrustedContent" @onchange="ToggleGuard" />
-            <span><b>Guard against hidden instructions</b> — after a bot reads web pages, email, shared files or another bot's reply, it asks
+        <MudSwitch T="bool" Color="Color.Primary" Value="@(State.Settings.Tools.GuardUntrustedContent)" ValueChanged="Ev.Change<bool>(ToggleGuard)" Class="check"><span><b>Guard against hidden instructions</b> — after a bot reads web pages, email, shared files or another bot's reply, it asks
             before anything that changes things (sending, writing, running code, saving memories or skills), even where it normally
-            wouldn't. Areas set to <b>Allow</b> above still run; routines and tasks with no one to ask skip those actions.</span></label>
+            wouldn't. Areas set to <b>Allow</b> above still run; routines and tasks with no one to ask skip those actions.</span></MudSwitch>
         <div class="row">
-            <button class="btn ghost small" @onclick="Careful">Careful preset: ask before every change</button>
-            <button class="btn ghost small" @onclick="Reset">Reset all to Default</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="Careful">Careful preset: ask before every change</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="Reset">Reset all to Default</MudButton>
         </div>
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Always allowed</h3>
         <p class="muted small">Tools you chose "Always allow" for on an approval card. These run without asking for that bot only, even after it has read web pages or email.</p>
         @foreach (var (who, tools) in _s.AlwaysAllow.Where(kv => kv.Value.Count > 0).ToList())
@@ -68,28 +67,28 @@
                 var tool = t;
                 <div class="memory-row">
                     <span class="grow"><b>@name</b> may run <code>@tool</code> without asking</span>
-                    <button class="btn ghost small" @onclick="() => Forget(whoKey, tool)">Ask again</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Forget(whoKey, tool)">Ask again</MudButton>
                 </div>
             }
         }
         @if (!_s.AlwaysAllow.Any(kv => kv.Value.Count > 0)) { <p class="muted small">Nothing yet.</p> }
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>What bots did</h3>
         <div class="row">
-            <select @bind="_botFilter">
-                <option value="">All bots</option>
-                <option value="@Bot.PlainId">Hearth (no bot)</option>
-                @foreach (var b in State.Bots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
-            </select>
-            <input class="grow" @bind="_search" @bind:event="oninput" placeholder="Search actions, e.g. gmail_send or a file name" />
-            <select @bind="_days">
-                <option value="1">Today</option>
-                <option value="7">7 days</option>
-                <option value="30">30 days</option>
-            </select>
-            <button class="btn ghost small" @onclick="LoadAsync">↻</button>
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_botFilter">
+                <MudSelectItem Value="@("")">All bots</MudSelectItem>
+                <MudSelectItem Value="@(Bot.PlainId)">Hearth (no bot)</MudSelectItem>
+                @foreach (var b in State.Bots) { <MudSelectItem Value="@(b.Id)">@b.Emoji @b.Name</MudSelectItem> }
+            </MudSelect>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_search" Immediate="true" Placeholder="Search actions, e.g. gmail_send or a file name" />
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_days">
+                <MudSelectItem Value="@("1")">Today</MudSelectItem>
+                <MudSelectItem Value="@("7")">7 days</MudSelectItem>
+                <MudSelectItem Value="@("30")">30 days</MudSelectItem>
+            </MudSelect>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="LoadAsync">↻</MudButton>
         </div>
         @foreach (var a in Filtered().Take(200))
         {
@@ -103,7 +102,7 @@
             </div>
         }
         @if (!Filtered().Any()) { <p class="muted">No actions in this period.</p> }
-    </section>
+    </MudPaper>
 </div>
 
 @code {

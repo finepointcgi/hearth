@@ -2,7 +2,7 @@
 @implements IDisposable
 @inject MicrosoftAuth Auth
 
-<section class="card">
+<MudPaper Class="card" Elevation="0">
     <div class="row">
         <span class="conn-logo">🪟</span>
         <span class="grow">
@@ -15,7 +15,7 @@
     @if (_conn.Connected)
     {
         <p class="muted small">Turn it on for each bot under Bots → (bot) → Abilities → Microsoft 365. Chats without a bot can always use it.</p>
-        <div class="row end"><button class="btn ghost" @onclick="Disconnect">Disconnect</button></div>
+        <div class="row end"><MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Disconnect">Disconnect</MudButton></div>
     }
     else
     {
@@ -30,14 +30,12 @@
             <p class="muted small">A work account's organisation may need an admin to approve the permissions. Personal Microsoft accounts (outlook.com, hotmail) work right away.</p>
         </details>
         <div class="row">
-            <label class="grow">Application (client) ID <input @bind="_clientId" placeholder="1a2b3c4d-…" autocomplete="off" /></label>
-            <label>Accounts
-                <select @bind="_tenant">
-                    <option value="common">Work or personal</option>
-                    <option value="consumers">Personal only</option>
-                    <option value="organizations">Work or school only</option>
-                </select>
-            </label>
+            <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_clientId" Placeholder="1a2b3c4d-…" Label="Application (client) ID" />
+            <MudSelect Label="Accounts" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_tenant">
+                    <MudSelectItem Value="@("common")">Work or personal</MudSelectItem>
+                    <MudSelectItem Value="@("consumers")">Personal only</MudSelectItem>
+                    <MudSelectItem Value="@("organizations")">Work or school only</MudSelectItem>
+                </MudSelect>
         </div>
         @if (_signIn is { } s)
         {
@@ -49,10 +47,10 @@
         }
         <div class="row end">
             @if (_message is not null) { <span class="muted small grow">@_message</span> }
-            <button class="btn primary" @onclick="Connect" disabled="@(_signIn is not null)">Connect</button>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Connect" Disabled="@(_signIn is not null)">Connect</MudButton>
         </div>
     }
-</section>
+</MudPaper>
 
 @code {
     private MicrosoftConnection _conn = new();

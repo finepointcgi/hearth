@@ -8,7 +8,7 @@
 {
     var config = _store.Get();
     var me = Me;
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Accounts</h3>
         @if (!_store.Enabled)
         {
@@ -16,15 +16,15 @@
             @if (config.Accounts.Count > 0)
             {
                 <p class="small">@config.Accounts.Count accounts are set up (@string.Join(", ", config.Accounts.Select(a => a.Name))). Turning them on again signs everyone in with the passwords they had.</p>
-                <button class="btn primary" @onclick="TurnOnAgain">Turn on separate accounts</button>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="TurnOnAgain">Turn on separate accounts</MudButton>
             }
             else
             {
                 <p class="small">First, your own sign-in. Everything in Hearth now becomes your account; after this, the page asks for your name and password.</p>
                 <div class="row">
-                    <input class="grow" @bind="_name" placeholder="Your name" autocomplete="username" />
-                    <input class="grow" type="password" @bind="_password" placeholder="Your password (8+ characters)" autocomplete="new-password" />
-                    <button class="btn primary" @onclick="Enable" disabled="@(_name.Trim().Length == 0 || _password.Length == 0)">Turn on separate accounts</button>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_name" Placeholder="Your name" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" InputType="InputType.Password" @bind-Value="_password" Placeholder="Your password (8+ characters)" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Enable" Disabled="@(_name.Trim().Length == 0 || _password.Length == 0)">Turn on separate accounts</MudButton>
                 </div>
             }
         }
@@ -39,30 +39,28 @@
                         <span class="muted small">@(account.IsOwner ? "owner · you" : $"since {account.CreatedAt:MMM d, yyyy}")</span></span>
                     @if (!account.IsOwner)
                     {
-                        <label class="check small" title="Run code and commands, other agents (with your logins), computer control, other computers over SSH and folders on this computer, as you.">
-                            <input type="checkbox" checked="@account.ComputerAccess" @onchange="e => SetComputerAccess(account, (bool)e.Value!)" /> Can use this computer
-                        </label>
+                        <MudSwitch T="bool" Color="Color.Primary" Value="@(account.ComputerAccess)" ValueChanged="(bool v) => SetComputerAccess(account, v)" title="Run code and commands, other agents (with your logins), computer control, other computers over SSH and folders on this computer, as you." Class="check small" Label="Can use this computer" />
                     }
                     @if (_resetFor == account.Id)
                     {
-                        <input type="password" @bind="_resetPassword" placeholder="New password" autocomplete="new-password" />
-                        <button class="btn primary small" @onclick="() => Reset(account.Id)">Set</button>
-                        <button class="btn ghost small" @onclick="() => _resetFor = null">Cancel</button>
+                        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Password" @bind-Value="_resetPassword" Placeholder="New password" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="() => Reset(account.Id)">Set</MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _resetFor = null">Cancel</MudButton>
                     }
                     else
                     {
-                        <button class="btn ghost small" @onclick="() => { _resetFor = account.Id; _resetPassword = string.Empty; }">Change password</button>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => { _resetFor = account.Id; _resetPassword = string.Empty; }">Change password</MudButton>
                     }
                     @if (!account.IsOwner)
                     {
                         @if (_removing == account.Id)
                         {
-                            <button class="btn danger small" @onclick="() => Remove(account.Id)">Remove @account.Name</button>
-                            <button class="btn ghost small" @onclick="() => _removing = null">Keep</button>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" OnClick="() => Remove(account.Id)">Remove @account.Name</MudButton>
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _removing = null">Keep</MudButton>
                         }
                         else
                         {
-                            <button class="icon-btn" title="Remove account" aria-label="Remove account" @onclick="() => _removing = account.Id"><Icon Name="trash-2" Size="15" /></button>
+                            <MudIconButton Size="Size.Small" title="Remove account" aria-label="Remove account" OnClick="() => _removing = account.Id"><Icon Name="trash-2" Size="15" /></MudIconButton>
                         }
                     }
                 </div>
@@ -73,9 +71,9 @@
             }
             <h4>Add someone</h4>
             <div class="row">
-                <input class="grow" @bind="_name" placeholder="Their name" autocomplete="off" />
-                <input class="grow" type="password" @bind="_password" placeholder="Their password (8+ characters)" autocomplete="new-password" />
-                <button class="btn primary" @onclick="Add" disabled="@(_name.Trim().Length == 0 || _password.Length == 0)">Add account</button>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_name" Placeholder="Their name" />
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" InputType="InputType.Password" @bind-Value="_password" Placeholder="Their password (8+ characters)" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Add" Disabled="@(_name.Trim().Length == 0 || _password.Length == 0)">Add account</MudButton>
             </div>
             <p class="muted small">They start with the default team of bots and the starter skills, and connect their own Google, Microsoft and chat apps. Use a different Telegram bot for each person.</p>
             <p class="muted small"><b>Can use this computer</b> is off for everyone you add. Only turn it on for people you'd trust with your own login: it lets them run code and commands, hand work to other agents (Claude Code, Hermes… with your accounts), control the screen and browser, reach your other computers over SSH and link folders here, all as you.</p>
@@ -84,12 +82,12 @@
                 @if (_confirmOff)
                 {
                     <span class="small">Everyone else loses access until accounts are on again (their data is kept).</span>
-                    <button class="btn danger small" @onclick="Disable">Turn off</button>
-                    <button class="btn ghost small" @onclick="() => _confirmOff = false">Cancel</button>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" OnClick="Disable">Turn off</MudButton>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _confirmOff = false">Cancel</MudButton>
                 }
                 else
                 {
-                    <button class="btn ghost small" @onclick="() => _confirmOff = true">Turn off separate accounts</button>
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => _confirmOff = true">Turn off separate accounts</MudButton>
                 }
             </div>
         }
@@ -98,13 +96,13 @@
             <p class="muted small">Signed in as <b>@me.Name</b>. Your bots, chats, memories and connections are your own; model servers are shared and managed by @(_store.Owner?.Name ?? "the owner").</p>
             <p class="muted small">@(me.ComputerAccess ? "You can use this computer: code, commands, other agents, computer control, other computers and local folders." : $"Running code and programs, other agents, computer control, other computers and local folders are off for your account; {_store.Owner?.Name ?? "the owner"} can turn them on.")</p>
             <div class="row">
-                <input class="grow" type="password" @bind="_password" placeholder="New password (8+ characters)" autocomplete="new-password" />
-                <button class="btn primary" @onclick="() => Reset(me.Id)" disabled="@(_password.Length == 0 && _resetPassword.Length == 0)">Change my password</button>
+                <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" InputType="InputType.Password" @bind-Value="_password" Placeholder="New password (8+ characters)" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => Reset(me.Id)" Disabled="@(_password.Length == 0 && _resetPassword.Length == 0)">Change my password</MudButton>
             </div>
         }
         <div class="row"><span class="grow"></span>@if (_message is not null) { <span class="muted small">@_message</span> }</div>
-        @if (_error is not null) { <div class="error-box">@_error</div> }
-    </section>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
+    </MudPaper>
 }
 
 @code {

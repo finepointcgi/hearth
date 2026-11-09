@@ -6,56 +6,52 @@
 @inject SettingsStore SettingsStore
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Bots</h2>
     <span class="spacer"></span>
     <span class="muted small">@State.Bots.Count / @Bot.MaxBots</span>
 </header>
 
 <div class="settings">
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <p class="muted">
             Bots are AI teammates with their own role, instructions, model, tools, memory and routines.
             Chat with one, or put 2–@Bot.MaxPerGroup in a group chat: they decide who answers, hand work to each other with
             <code>@@Name</code>, and can message each other directly.
         </p>
         <div class="row">
-            <a class="btn primary" href="bots/new">＋ New bot</a>
-            <button class="btn ghost" disabled="@(State.Bots.Count < 2)" @onclick="() => _picking = !_picking">👥 New group chat</button>
-            <button class="btn ghost" @onclick="AddStarterTeam" disabled="@(State.Bots.Count + Missing().Count > Bot.MaxBots || Missing().Count == 0)">✨ Add starter team</button>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="bots/new">＋ New bot</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(State.Bots.Count < 2)" OnClick="() => _picking = !_picking">👥 New group chat</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddStarterTeam" Disabled="@(State.Bots.Count + Missing().Count > Bot.MaxBots || Missing().Count == 0)">✨ Add starter team</MudButton>
         </div>
-        @if (_error is not null) { <div class="error-box">@_error</div> }
-    </section>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
+    </MudPaper>
 
     @if (State.Bots.Count > 0)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>Teamwork</h3>
             <div class="row">
-                <label class="grow">New chats go to
-                    <select value="@(_defaultBot ?? "auto")" @onchange="SetDefault">
-                        <option value="auto">@(State.Bots.FirstOrDefault(b => b.IsCoordinator)?.Name is { } c ? $"{c} (the coordinator)" : "the coordinator, once there is one")</option>
+                <MudSelect Class="grow" Label="New chats go to" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(_defaultBot ?? "auto")" ValueChanged="Ev.Change<string>(SetDefault)" T="string">
+                        <MudSelectItem Value="@("auto")">@(State.Bots.FirstOrDefault(b => b.IsCoordinator)?.Name is { } c ? $"{c} (the coordinator)" : "the coordinator, once there is one")</MudSelectItem>
                         @foreach (var b in State.Bots.Where(b => !b.IsCoordinator))
                         {
-                            <option value="@b.Id">@b.Name</option>
+                            <MudSelectItem Value="@(b.Id)">@b.Name</MudSelectItem>
                         }
-                        <option value="none">Plain Hearth (no bot)</option>
-                    </select>
-                </label>
+                        <MudSelectItem Value="@("none")">Plain Hearth (no bot)</MudSelectItem>
+                    </MudSelect>
             </div>
-            <label class="check"><input type="checkbox" checked="@_plan" @onchange="e => SetTeamwork(plan: (bool)e.Value!)" />
-                The coordinator plans first: answers small things itself, hands clear jobs to one specialist, and splits bigger requests across the team (later bots build on earlier ones' work)</label>
-            <label class="check"><input type="checkbox" checked="@_review" @onchange="e => SetTeamwork(review: (bool)e.Value!)" />
-                When it matters, the reviewer (Critic) checks the team's work and it's fixed before the final answer</label>
+            <MudSwitch T="bool" Color="Color.Primary" Value="@(_plan)" ValueChanged="(bool v) => SetTeamwork(plan: v)" Class="check" Label="The coordinator plans first: answers small things itself, hands clear jobs to one specialist, and splits bigger requests across the team (later bots build on earlier ones' work)" />
+            <MudSwitch T="bool" Color="Color.Primary" Value="@(_review)" ValueChanged="(bool v) => SetTeamwork(review: v)" Class="check" Label="When it matters, the reviewer (Critic) checks the team's work and it's fixed before the final answer" />
             <p class="muted small">You can always @@mention a bot to ask it directly. Team answers take longer on a local model: each bot's step is its own model call.</p>
-        </section>
+        </MudPaper>
     }
 
     @if (_picking)
     {
-        <section class="card">
+        <MudPaper Class="card" Elevation="0">
             <h3>New group chat</h3>
-            <input @bind="_groupName" placeholder="Group name, e.g. Launch planning" />
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_groupName" Placeholder="Group name, e.g. Launch planning" />
             <div class="bot-grid">
                 @foreach (var b in State.Bots)
                 {
@@ -70,12 +66,12 @@
             </div>
             <div class="row">
                 <span class="muted grow">@_selected.Count selected (2–@Bot.MaxPerGroup)</span>
-                <button class="btn primary" disabled="@(_selected.Count is < 2 or > Bot.MaxPerGroup)" @onclick="CreateGroup">Create group</button>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_selected.Count is < 2 or > Bot.MaxPerGroup)" OnClick="CreateGroup">Create group</MudButton>
             </div>
-        </section>
+        </MudPaper>
     }
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Your bots</h3>
         <div class="bot-grid">
             @foreach (var b in State.Bots)
@@ -98,16 +94,16 @@
                         @if (b.Memory.Enabled) { <span title="@(b.Memory.AutoLearn ? "Remembers and learns" : "Remembers")">🧠</span> }
                     </span>
                     <div class="row">
-                        <a class="btn primary small" href="bot/@b.Id">Chat</a>
-                        <a class="btn ghost small" href="bots/@b.Id">Edit</a>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Href="@($"bot/{b.Id}")">Chat</MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="@($"bots/{b.Id}")">Edit</MudButton>
                     </div>
                 </div>
             }
         </div>
         @if (State.Bots.Count == 0) { <p class="muted">No bots yet. Start from a template below or add the starter team.</p> }
-    </section>
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Templates</h3>
         <div class="bot-grid">
             @foreach (var t in BotTemplates.All)
@@ -120,7 +116,7 @@
                 </button>
             }
         </div>
-    </section>
+    </MudPaper>
 </div>
 
 @code {

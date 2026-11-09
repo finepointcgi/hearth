@@ -14,11 +14,11 @@
 @inject IJSRuntime JS
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <h2 class="topbar-title">Settings</h2>
     <span class="spacer"></span>
     @if (_saved) { <span class="ok-text">Saved ✓</span> }
-    <button class="btn primary" @onclick="Save">Save</button>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
 </header>
 
 @if (_s is not null)
@@ -26,11 +26,10 @@
 <div class="settings @(Searching ? "searching" : "")" @ref="_container">
     <div class="settings-search" role="search">
         <Icon Name="search" Size="16" />
-        <input type="search" placeholder="Search settings" aria-label="Search settings" autocomplete="off" spellcheck="false"
-               @bind="_query" @bind:event="oninput" @bind:after="QueryChanged" @onkeydown="SearchKey" />
+        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" InputType="InputType.Search" Placeholder="Search settings" aria-label="Search settings" @bind-Value="_query" Immediate="true" @bind-Value:after="QueryChanged" OnKeyDown="SearchKey" />
         @if (Searching)
         {
-            <button class="icon-btn" title="Clear search" aria-label="Clear search" @onclick="ClearSearch"><Icon Name="x" Size="16" /></button>
+            <MudIconButton Size="Size.Small" title="Clear search" aria-label="Clear search" OnClick="ClearSearch"><Icon Name="x" Size="16" /></MudIconButton>
         }
     </div>
     @if (Searching)
@@ -50,7 +49,7 @@
         {
             <div class="search-empty">
                 <p>No settings match “@_query.Trim()”.</p>
-                <button class="btn ghost small" @onclick="ClearSearch">Clear search</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="ClearSearch">Clear search</MudButton>
             </div>
         }
     }
@@ -68,7 +67,7 @@
     </div>
     @if (Show("models"))
     {
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Model servers</h3>
         @if (Services.GetService<ICurrentUser>()?.Account is { IsOwner: false } && Services.GetService<AccountStore>()?.Owner is { } owner)
         {
@@ -82,20 +81,20 @@
             <div class="provider @(provider.Id == _s.ActiveProviderId || (_s.ActiveProviderId is null && provider == _s.Providers[0]) ? "active" : "")">
                 <div class="row">
                     <label class="radio"><input type="radio" name="active" checked="@(provider == _s.ActiveProvider)" @onchange="() => _s.ActiveProviderId = provider.Id" /> Active</label>
-                    <input class="grow" @bind="provider.Name" placeholder="Name" />
-                    <select @bind="provider.Kind">
-                        <option value="@ProviderKind.Ollama">Ollama</option>
-                        <option value="@ProviderKind.OpenAICompatible">OpenAI-compatible</option>
-                        <option value="@ProviderKind.Anthropic">Claude (Anthropic API)</option>
-                        <option value="@ProviderKind.ClaudeCode" disabled="@(!Platform.CanRunProcesses)">Claude Code (local CLI)@(Platform.CanRunProcesses ? "" : " — desktop only")</option>
-                    </select>
-                    <button class="icon-btn" title="Remove" disabled="@(_s.Providers.Count == 1)" @onclick="() => _s.Providers.Remove(provider)">🗑</button>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="provider.Name" Placeholder="Name" />
+                    <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="provider.Kind">
+                        <MudSelectItem Value="@(ProviderKind.Ollama)">Ollama</MudSelectItem>
+                        <MudSelectItem Value="@(ProviderKind.OpenAICompatible)">OpenAI-compatible</MudSelectItem>
+                        <MudSelectItem Value="@(ProviderKind.Anthropic)">Claude (Anthropic API)</MudSelectItem>
+                        <MudSelectItem Value="@(ProviderKind.ClaudeCode)" Disabled="@(!Platform.CanRunProcesses)">Claude Code (local CLI)@(Platform.CanRunProcesses ? "" : " — desktop only")</MudSelectItem>
+                    </MudSelect>
+                    <MudIconButton Size="Size.Small" title="Remove" Disabled="@(_s.Providers.Count == 1)" OnClick="() => _s.Providers.Remove(provider)">🗑</MudIconButton>
                 </div>
                 <div class="row">
-                    <input class="grow" @bind="provider.BaseUrl" placeholder="@AddressHint(provider.Kind)" title="@AddressHint(provider.Kind)" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="provider.BaseUrl" Placeholder="@AddressHint(provider.Kind)" title="@AddressHint(provider.Kind)" />
                     @if (provider.Kind != ProviderKind.ClaudeCode)
                     {
-                        <input class="grow" type="password" @bind="provider.ApiKey" placeholder="@(provider.Kind == ProviderKind.Anthropic ? "Anthropic API key (sk-ant-…)" : "API key (optional for local servers)")" />
+                        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" InputType="InputType.Password" @bind-Value="provider.ApiKey" Placeholder="@(provider.Kind == ProviderKind.Anthropic ? "Anthropic API key (sk-ant-…)" : "API key (optional for local servers)")" />
                     }
                 </div>
                 @if (provider.Kind is ProviderKind.Anthropic or ProviderKind.OpenAICompatible)
@@ -103,18 +102,17 @@
                     <details class="advanced">
                         <summary>More API keys@(provider.ExtraApiKeys.Count > 0 ? $" ({provider.ExtraApiKeys.Count} saved)" : "")</summary>
                         <p class="muted small">Calls take turns across all the keys, and when one hits a rate limit or runs out of quota the request moves on to the next. Paste one key per line; saving replaces the list (leave empty to keep it). Stored encrypted.</p>
-                        <textarea rows="3" placeholder="@(provider.ExtraApiKeys.Count > 0 ? "saved — paste keys to replace them" : "one key per line")" autocomplete="off" spellcheck="false"
-                                  @onchange="e => SetExtraKeys(provider, e.Value?.ToString())"></textarea>
-                        @if (provider.ExtraApiKeys.Count > 0) { <button class="btn ghost small" @onclick="() => provider.ExtraApiKeys.Clear()">Remove extra keys</button> }
+                        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="3" Placeholder="@(provider.ExtraApiKeys.Count > 0 ? "saved — paste keys to replace them" : "one key per line")" ValueChanged="(string v) => SetExtraKeys(provider, v)" T="string" />
+                        @if (provider.ExtraApiKeys.Count > 0) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => provider.ExtraApiKeys.Clear()">Remove extra keys</MudButton> }
                     </details>
                 }
                 <div class="muted small">@KindHelp(provider.Kind)</div>
                 <div class="row">
-                    <input class="grow" @bind="provider.DefaultModel" placeholder="Default model (optional)" />
-                    <button class="btn ghost" @onclick="() => Test(provider)">Test connection</button>
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="provider.DefaultModel" Placeholder="Default model (optional)" />
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => Test(provider)">Test connection</MudButton>
                 </div>
                 <label class="small">Context window (tokens)
-                    <input type="number" min="0" step="1024" @bind="provider.ContextTokens" style="width:9rem" placeholder="@ContextWindow.WindowFor(new ProviderProfile { Kind = provider.Kind }, _s)" />
+                    <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="provider.ContextTokens" Style="width:9rem" Placeholder="@ContextWindow.WindowFor(new ProviderProfile { Kind = provider.Kind }, _s).ToString()" />
                     <span class="muted">How much the model can read at once. Longer chats are summarised to fit. Leave empty for the default.</span>
                 </label>
                 @if (provider.Kind == ProviderKind.OpenAICompatible)
@@ -122,8 +120,8 @@
                     <details class="advanced">
                         <summary>Prices for cost estimates (cloud servers only)</summary>
                         <div class="row">
-                            <label>Input $ per million tokens <input type="number" step="0.01" min="0" @bind="provider.InputPricePerMillion" style="width:8rem" /></label>
-                            <label>Output $ per million tokens <input type="number" step="0.01" min="0" @bind="provider.OutputPricePerMillion" style="width:8rem" /></label>
+                            <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="provider.InputPricePerMillion" Style="width:8rem" Label="Input $ per million tokens" />
+                            <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="provider.OutputPricePerMillion" Style="width:8rem" Label="Output $ per million tokens" />
                         </div>
                         <span class="muted small">Leave empty for servers on your own hardware (counted as free). Claude API prices are built in.</span>
                     </details>
@@ -135,75 +133,62 @@
             </div>
         }
         <div class="row">
-            <button class="btn ghost" @onclick="AddOllama">＋ Ollama</button>
-            <button class="btn ghost" @onclick="AddLmStudio">＋ LM Studio</button>
-            <button class="btn ghost" @onclick="AddLlamaCpp">＋ llama.cpp</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddOllama">＋ Ollama</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddLmStudio">＋ LM Studio</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddLlamaCpp">＋ llama.cpp</MudButton>
         </div>
         <div class="row">
             <span class="muted small">Cloud &amp; other:</span>
             @if (Platform.CanUseComputer)
             {
-                <button class="btn ghost" @onclick="AddClaudeCode">＋ Claude Code</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddClaudeCode">＋ Claude Code</MudButton>
             }
-            <button class="btn ghost" @onclick="AddClaudeApi">＋ Claude API</button>
-            <button class="btn ghost" @onclick="AddOpenAI">＋ OpenAI</button>
-            <button class="btn ghost" @onclick="AddOpenRouter">＋ OpenRouter</button>
-            <button class="btn ghost" @onclick="AddGroq">＋ Groq</button>
-            <button class="btn ghost" @onclick="AddCustom">＋ Other OpenAI-compatible</button>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddClaudeApi">＋ Claude API</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddOpenAI">＋ OpenAI</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddOpenRouter">＋ OpenRouter</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddGroq">＋ Groq</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddCustom">＋ Other OpenAI-compatible</MudButton>
         </div>
-    </section>
-    <section class="card">
+    </MudPaper>
+    <MudPaper Class="card" Elevation="0">
         <h3>Backup servers</h3>
         <p class="muted">If the active server can't be reached, Hearth retries with these, in order, and tells you which one answered. Each backup uses its own default model.</p>
         @foreach (var p in _s.Providers.Where(p => p != _s.ActiveProvider))
         {
             var provider = p;
             var on = _s.FallbackProviderIds.Contains(provider.Id);
-            <label class="check">
-                <input type="checkbox" checked="@on" @onchange="e => ToggleFallback(provider.Id, (bool)e.Value!)" />
-                <span>@provider.Name @if (on) { <span class="badge">#@(_s.FallbackProviderIds.IndexOf(provider.Id) + 1)</span> }
-                    @if (string.IsNullOrWhiteSpace(provider.DefaultModel) && provider.Kind != ProviderKind.ClaudeCode) { <span class="muted small"> — set a default model so it knows what to use</span> }</span>
-            </label>
+            <MudSwitch T="bool" Color="Color.Primary" Value="@(on)" ValueChanged="(bool v) => ToggleFallback(provider.Id, v)" Class="check"><span>@provider.Name @if (on) { <span class="badge">#@(_s.FallbackProviderIds.IndexOf(provider.Id) + 1)</span> }
+                    @if (string.IsNullOrWhiteSpace(provider.DefaultModel) && provider.Kind != ProviderKind.ClaudeCode) { <span class="muted small"> — set a default model so it knows what to use</span> }</span></MudSwitch>
         }
-    </section>
-    <section class="card">
+    </MudPaper>
+    <MudPaper Class="card" Elevation="0">
         <h3>Generation</h3>
         <label>Temperature: <b>@_s.Temperature.ToString("0.00")</b>
             <input type="range" min="0" max="2" step="0.05" @bind="_s.Temperature" @bind:event="oninput" />
         </label>
         <div class="row">
-            <label class="grow">Max reply tokens (0 = unlimited)<input type="number" min="0" @bind="_s.MaxTokens" /></label>
-            <label class="grow">Context length (Ollama num_ctx, 0 = default)<input type="number" min="0" step="1024" @bind="_s.ContextLength" /></label>
+            <MudNumericField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.MaxTokens" Label="Max reply tokens (0 = unlimited)" />
+            <MudNumericField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.ContextLength" Label="Context length (Ollama num_ctx, 0 = default)" />
         </div>
-        <label class="check"><input type="checkbox" @bind="_s.ContinueCutOffReplies" /> Continue replies that hit the length limit (up to twice) instead of stopping mid-sentence</label>
-        <label>Check answers against their sources
-            <select @bind="_s.CheckAnswers">
-                <option value="@AnswerCheck.AfterResearch">After research (web pages, documents, email)</option>
-                <option value="@AnswerCheck.AnyTools">After any tool use</option>
-                <option value="@AnswerCheck.Off">Off</option>
-            </select>
-            <span class="muted small">The model re-reads its answer against what the tools returned and fixes anything unsupported before you see it. One or two extra turns.</span>
-        </label>
-        <label>Default personality
-            <select @bind="_s.DefaultPersonaId">
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.ContinueCutOffReplies" Class="check" Label="Continue replies that hit the length limit (up to twice) instead of stopping mid-sentence" />
+        <MudSelect Label="Check answers against their sources" HelperText="The model re-reads its answer against what the tools returned and fixes anything unsupported before you see it. One or two extra turns." Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_s.CheckAnswers">
+                <MudSelectItem Value="@(AnswerCheck.AfterResearch)">After research (web pages, documents, email)</MudSelectItem>
+                <MudSelectItem Value="@(AnswerCheck.AnyTools)">After any tool use</MudSelectItem>
+                <MudSelectItem Value="@(AnswerCheck.Off)">Off</MudSelectItem>
+            </MudSelect>
+        <MudSelect Label="Default personality" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_s.DefaultPersonaId">
                 @foreach (var p in Personas.All)
                 {
-                    <option value="@p.Id">@p.Emoji @p.Name — @p.Description</option>
+                    <MudSelectItem Value="@(p.Id)">@p.Emoji @p.Name — @p.Description</MudSelectItem>
                 }
-            </select>
-        </label>
-        <label>Custom instructions (added to every system prompt)
-            <textarea rows="4" @bind="_s.CustomSystemPrompt" placeholder="e.g. I'm a C# developer. Prefer metric units."></textarea>
-        </label>
-        <label>Personality (SOUL.md)
-            <textarea rows="5" value="@_soul" @onchange="SaveSoul" placeholder="How Hearth and your bots should sound, e.g. Direct and warm. Short answers first, details after. No filler or flattery. Light humour is fine."></textarea>
-            <span class="muted small">Every bot follows this voice on top of its own role. Saved as SOUL.md in Hearth's data folder (the same file other agents like Hermes and OpenClaw use). Saved as you leave the box.</span>
-        </label>
-        <label class="check"><input type="checkbox" @bind="_s.ShowThinking" /> Show thinking from reasoning models</label>
-        <label class="check"><input type="checkbox" @bind="_s.AutoTitle" /> Auto-name chats with the model</label>
-        <label class="check"><input type="checkbox" @bind="_s.TakeInitiative" /> Bots take initiative</label>
+            </MudSelect>
+        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="4" @bind-Value="_s.CustomSystemPrompt" Placeholder="e.g. I'm a C# developer. Prefer metric units." Label="Custom instructions (added to every system prompt)" />
+        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="5" Value="@(_soul)" ValueChanged="Ev.Change<string>(SaveSoul)" T="string" Placeholder="How Hearth and your bots should sound, e.g. Direct and warm. Short answers first, details after. No filler or flattery. Light humour is fine." Label="Personality (SOUL.md)" HelperText="Every bot follows this voice on top of its own role. Saved as SOUL.md in Hearth's data folder (the same file other agents like Hermes and OpenClaw use). Saved as you leave the box." />
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.ShowThinking" Class="check" Label="Show thinking from reasoning models" />
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.AutoTitle" Class="check" Label="Auto-name chats with the model" />
+        <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.TakeInitiative" Class="check" Label="Bots take initiative" />
         <p class="muted small">Bots act on clear next steps instead of asking first, schedule their own follow-ups (they come back to the chat later with what they found) and hand big jobs to background tasks. Anything that changes things still follows your Permissions.</p>
-    </section>
+    </MudPaper>
     }
     @if (Show("models"))
     {
@@ -211,24 +196,24 @@
     }
     @if (Show("web"))
     {
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>DeepSearch (optional)</h3>
         <p class="muted">Point at a self-hosted <a href="https://docs.searxng.org" target="_blank" rel="noopener">SearXNG</a> instance with the JSON format enabled. Searches go to your instance, not to a third-party API.</p>
         <div class="row">
-            <input class="grow" @bind="_s.SearxngUrl" placeholder="http://localhost:8080" />
-            <label>Results <input type="number" min="1" max="15" @bind="_s.SearchResultCount" style="width:5rem" /></label>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_s.SearxngUrl" Placeholder="http://localhost:8080" />
+            <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.SearchResultCount" Style="width:5rem" Label="Results" />
         </div>
-    </section>
-    <section class="card">
+    </MudPaper>
+    <MudPaper Class="card" Elevation="0">
         <h3>Image generation</h3>
         <p class="muted">Use your local Stable Diffusion server. Then ask for a picture, or type <code>/imagine a red fox in snow</code>.</p>
         <div class="row">
-            <select @bind="_s.ImageGen.Backend">
-                <option value="@ImageBackend.None">Off</option>
-                <option value="@ImageBackend.Automatic1111">AUTOMATIC1111 / Forge</option>
-                <option value="@ImageBackend.ComfyUI">ComfyUI</option>
-            </select>
-            <input class="grow" @bind="_s.ImageGen.Url" placeholder="http://localhost:7860 or http://localhost:8188" />
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_s.ImageGen.Backend">
+                <MudSelectItem Value="@(ImageBackend.None)">Off</MudSelectItem>
+                <MudSelectItem Value="@(ImageBackend.Automatic1111)">AUTOMATIC1111 / Forge</MudSelectItem>
+                <MudSelectItem Value="@(ImageBackend.ComfyUI)">ComfyUI</MudSelectItem>
+            </MudSelect>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Class="grow" @bind-Value="_s.ImageGen.Url" Placeholder="http://localhost:7860 or http://localhost:8188" />
         </div>
         @if (_s.ImageGen.Backend != ImageBackend.None)
         {
@@ -237,18 +222,18 @@
                 <datalist id="img-models">
                     @foreach (var m in _imageModels) { <option value="@m"></option> }
                 </datalist>
-                <button class="btn ghost" @onclick="LoadImageModels">Test & list models</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="LoadImageModels">Test & list models</MudButton>
             </div>
             <div class="row">
-                <label>Width <input type="number" step="64" @bind="_s.ImageGen.Width" style="width:6rem" /></label>
-                <label>Height <input type="number" step="64" @bind="_s.ImageGen.Height" style="width:6rem" /></label>
-                <label>Steps <input type="number" @bind="_s.ImageGen.Steps" style="width:5rem" /></label>
-                <label>CFG <input type="number" step="0.5" @bind="_s.ImageGen.CfgScale" style="width:5rem" /></label>
+                <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.ImageGen.Width" Style="width:6rem" Label="Width" />
+                <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.ImageGen.Height" Style="width:6rem" Label="Height" />
+                <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.ImageGen.Steps" Style="width:5rem" Label="Steps" />
+                <MudNumericField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.ImageGen.CfgScale" Style="width:5rem" Label="CFG" />
             </div>
-            <label>Negative prompt <input @bind="_s.ImageGen.NegativePrompt" /></label>
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.ImageGen.NegativePrompt" Label="Negative prompt" />
             @if (_imageTest is not null) { <div class="@(_imageTest.StartsWith("✓") ? "ok-text" : "error-box")">@_imageTest</div> }
         }
-    </section>
+    </MudPaper>
     }
     @if (Show("appearance"))
     {
@@ -256,45 +241,41 @@
     }
     @if (Show("voice"))
     {
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Voice</h3>
         <p class="muted">
             🎙 Dictation uses your device's speech recognition when available@(Platform.IsMobile ? " (on-device)" : "").
             Point it at a Whisper server for private, high-quality transcription everywhere. 🔊 Read-aloud uses system voices or a TTS server.
         </p>
-        <label>Language <input @bind="_s.Voice.Language" placeholder="en-US" style="width:8rem" /></label>
+        <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.Voice.Language" Placeholder="en-US" Style="width:8rem" Label="Language" />
         <div class="row">
-            <label class="grow">Speech-to-text server (OpenAI-compatible, optional)
-                <input @bind="_s.Voice.SttUrl" placeholder="http://localhost:8000 (speaches / faster-whisper-server)" />
-            </label>
-            <label class="grow">STT model <input @bind="_s.Voice.SttModel" /></label>
+            <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.Voice.SttUrl" Placeholder="http://localhost:8000 (speaches / faster-whisper-server)" Label="Speech-to-text server (OpenAI-compatible, optional)" />
+            <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.Voice.SttModel" Label="STT model" />
         </div>
         <div class="row">
-            <label class="grow">Text-to-speech server (OpenAI-compatible, optional)
-                <input @bind="_s.Voice.TtsUrl" placeholder="http://localhost:8880 (Kokoro-FastAPI)" />
-            </label>
-            <label>TTS model <input @bind="_s.Voice.TtsModel" style="width:8rem" /></label>
-            <label>Voice <input @bind="_s.Voice.TtsVoice" style="width:8rem" /></label>
+            <MudTextField Class="grow" Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.Voice.TtsUrl" Placeholder="http://localhost:8880 (Kokoro-FastAPI)" Label="Text-to-speech server (OpenAI-compatible, optional)" />
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.Voice.TtsModel" Style="width:8rem" Label="TTS model" />
+            <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_s.Voice.TtsVoice" Style="width:8rem" Label="Voice" />
         </div>
         <div class="row">
-            <label class="check grow"><input type="checkbox" @bind="_s.Voice.AutoReadAloud" /> Read replies aloud automatically</label>
-            <button class="btn ghost" @onclick="TestVoice">🔊 Test voice</button>
+            <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_s.Voice.AutoReadAloud" Class="check grow" Label="Read replies aloud automatically" />
+            <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="TestVoice">🔊 Test voice</MudButton>
         </div>
-        @if (_voiceTest is not null) { <div class="error-box">@_voiceTest</div> }
-    </section>
+        @if (_voiceTest is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_voiceTest</MudAlert> }
+    </MudPaper>
 
-    <section class="card">
+    <MudPaper Class="card" Elevation="0">
         <h3>Voice memos and recordings</h3>
         <p class="muted small">Drop an audio file into a chat, or send a voice note in Telegram, and Hearth transcribes it, then the bot summarizes it and lists action items. Uses the speech-to-text server above when set, otherwise whisper.cpp on this computer (private and offline).</p>
         <div class="row">
             <span class="grow small">@(_transcription is { } t ? (t.ready ? "✅ Ready: " : "⚠ Not set up: ") + t.how : "Checking…")</span>
             @if (_transcription is { ready: false })
             {
-                <button class="btn ghost" @onclick="SetUpTranscription" disabled="@(_settingUp is not null)">@(_settingUp ?? "Set up local transcription")</button>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="SetUpTranscription" Disabled="@(_settingUp is not null)">@(_settingUp ?? "Set up local transcription")</MudButton>
             }
         </div>
         <span class="muted small">Setting up installs whisper.cpp with Homebrew and downloads an English speech model (about 148 MB) into Hearth's data folder.</span>
-    </section>
+    </MudPaper>
     }
     @if (Show("accounts"))
     {
@@ -308,22 +289,22 @@
     }
     @if (Show("data"))
     {
-    <section class="card danger">
+    <MudPaper Class="card danger" Elevation="0">
         <h3>Data</h3>
         <p class="muted">Chats are stored as JSON files on this device.</p>
         @if (_confirmDelete)
         {
             <div class="row">
                 <span>Delete all chats permanently?</span>
-                <button class="btn danger" @onclick="DeleteAll">Yes, delete</button>
-                <button class="btn ghost" @onclick="() => _confirmDelete = false">Cancel</button>
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="DeleteAll">Yes, delete</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _confirmDelete = false">Cancel</MudButton>
             </div>
         }
         else
         {
-            <button class="btn danger" @onclick="() => _confirmDelete = true">Delete all chats</button>
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="() => _confirmDelete = true">Delete all chats</MudButton>
         }
-    </section>
+    </MudPaper>
     }
 </div>
 }

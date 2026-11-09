@@ -16,7 +16,7 @@
 @inject LinkedFolders Folders
 
 <header class="topbar">
-    <button class="icon-btn only-mobile" title="Menu" aria-label="Menu" @onclick="OpenSidebar"><Icon Name="panel-left" /></button>
+    <MudIconButton Size="Size.Small" Class="only-mobile" title="Menu" aria-label="Menu" OnClick="OpenSidebar"><Icon Name="panel-left" /></MudIconButton>
     <div class="model-picker">
         @if (State.LoadingModels)
         {
@@ -24,18 +24,18 @@
         }
         else if (State.Models.Count > 0)
         {
-            <select value="@State.SelectedModel" @onchange="OnModelChanged" title="Model">
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(State.SelectedModel)" ValueChanged="Ev.Change<string>(OnModelChanged)" title="Model" T="string">
                 @foreach (var m in State.Models)
                 {
-                    <option value="@m.Id">@m.Id</option>
+                    <MudSelectItem Value="@(m.Id)">@m.Id</MudSelectItem>
                 }
-            </select>
+            </MudSelect>
         }
         else
         {
             <span class="muted">No model</span>
         }
-        <button class="icon-btn" title="Refresh models" aria-label="Refresh models" @onclick="State.RefreshModelsAsync"><Icon Name="refresh-cw" Size="16" /></button>
+        <MudIconButton Size="Size.Small" title="Refresh models" aria-label="Refresh models" OnClick="State.RefreshModelsAsync"><Icon Name="refresh-cw" Size="16" /></MudIconButton>
         @if (State.Capabilities is { } caps)
         {
             <span class="caps">
@@ -55,9 +55,9 @@
     }
     @if (_conv is { Messages.Count: > 0 })
     {
-        <button class="icon-btn" title="Copy chat as Markdown" aria-label="Copy chat as Markdown" @onclick="ExportMarkdown"><Icon Name="download" /></button>
+        <MudIconButton Size="Size.Small" title="Copy chat as Markdown" aria-label="Copy chat as Markdown" OnClick="ExportMarkdown"><Icon Name="download" /></MudIconButton>
     }
-    <button class="icon-btn" title="@(IsCodeRoute ? "New code session" : "New chat")" aria-label="@(IsCodeRoute ? "New code session" : "New chat")" @onclick="NewChat"><Icon Name="@(IsCodeRoute ? "terminal" : "message-square-plus")" /></button>
+    <MudIconButton Size="Size.Small" title="@(IsCodeRoute ? "New code session" : "New chat")" aria-label="@(IsCodeRoute ? "New code session" : "New chat")" OnClick="NewChat"><Icon Name="@(IsCodeRoute ? "terminal" : "message-square-plus")" /></MudIconButton>
 </header>
 
 @if (_conv?.Code is { } session && !_codeSetup)
@@ -67,11 +67,11 @@
         <button class="code-folder" title="@session.Directory — change folder" @onclick="ToggleCodeSetup"><b>@session.Name</b> <span class="muted small ellipsis only-desktop">@session.Directory</span></button>
         @if (!Directory.Exists(session.Directory)) { <span class="tiny-error">Folder not found</span> }
         <span class="spacer"></span>
-        <select class="code-mode mode-@session.Mode.ToString().ToLowerInvariant()" value="@session.Mode" @onchange="SetCodeMode" title="Permission mode" aria-label="Permission mode">
-            <option value="@CodePermissionMode.Ask">Ask before edits</option>
-            <option value="@CodePermissionMode.AcceptEdits">Accept edits</option>
-            <option value="@CodePermissionMode.Plan">Plan only</option>
-        </select>
+        <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="@($"code-mode mode-{session.Mode.ToString().ToLowerInvariant()}")" Value="@(session.Mode.ToString())" ValueChanged="Ev.Change<string>(SetCodeMode)" title="Permission mode" aria-label="Permission mode" T="string">
+            <MudSelectItem Value="@(CodePermissionMode.Ask)">Ask before edits</MudSelectItem>
+            <MudSelectItem Value="@(CodePermissionMode.AcceptEdits)">Accept edits</MudSelectItem>
+            <MudSelectItem Value="@(CodePermissionMode.Plan)">Plan only</MudSelectItem>
+        </MudSelect>
     </div>
 }
 @if (_codeSetup)
@@ -87,18 +87,18 @@
                 </datalist>
                 @if (_conv is null)
                 {
-                    <select value="@CodeBotId" @onchange="PickCodeBot" aria-label="Who works on it" title="Who works on it">
-                        @foreach (var b in CodeBots) { <option value="@b.Id">@b.Emoji @b.Name</option> }
-                        <option value="">Hearth (no bot)</option>
-                    </select>
+                    <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(CodeBotId)" ValueChanged="Ev.Change<string>(PickCodeBot)" aria-label="Who works on it" title="Who works on it" T="string">
+                        @foreach (var b in CodeBots) { <MudSelectItem Value="@(b.Id)">@b.Emoji @b.Name</MudSelectItem> }
+                        <MudSelectItem Value="@("")">Hearth (no bot)</MudSelectItem>
+                    </MudSelect>
                 }
-                <select @bind="_codeMode" aria-label="Permission mode">
-                    <option value="@CodePermissionMode.Ask">Ask before edits</option>
-                    <option value="@CodePermissionMode.AcceptEdits">Accept edits</option>
-                    <option value="@CodePermissionMode.Plan">Plan only</option>
-                </select>
-                <button class="btn primary" @onclick="StartCodeSession">@(_conv?.Code is null ? "Start" : "Save")</button>
-                @if (_conv is not null) { <button class="btn ghost" @onclick="() => _codeSetup = false">Cancel</button> }
+                <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" @bind-Value="_codeMode" aria-label="Permission mode">
+                    <MudSelectItem Value="@(CodePermissionMode.Ask)">Ask before edits</MudSelectItem>
+                    <MudSelectItem Value="@(CodePermissionMode.AcceptEdits)">Accept edits</MudSelectItem>
+                    <MudSelectItem Value="@(CodePermissionMode.Plan)">Plan only</MudSelectItem>
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="StartCodeSession">@(_conv?.Code is null ? "Start" : "Save")</MudButton>
+                @if (_conv is not null) { <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => _codeSetup = false">Cancel</MudButton> }
             </div>
             @if (_codeError is not null) { <div class="tiny-error">@_codeError</div> }
         </div>
@@ -160,7 +160,7 @@
                             <li>@((MarkupString)tip)</li>
                         }
                     </ul>
-                    <a class="btn primary" href="settings">Open settings</a>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="settings">Open settings</MudButton>
                 </div>
             }
             else
@@ -251,7 +251,7 @@
             @if (Live.Heard.Length > 0) { <div class="muted small">“@Live.Heard”</div> }
             @if (Live.Error is not null) { <div class="tiny-error">@Live.Error</div> }
         </div>
-        @if (Live.Active) { <button class="btn ghost" @onclick="Live.StopAsync">End</button> }
+        @if (Live.Active) { <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="Live.StopAsync">End</MudButton> }
     </div>
 }
 @if (_conv?.Code is { Todos.Count: > 0 } todoCode)
@@ -290,8 +290,8 @@
 {
     <div class="plan-actions">
         <span class="muted small">Happy with the plan?</span>
-        <button class="btn ghost" @onclick="() => StartOnPlan(CodePermissionMode.Ask)">Go ahead, ask before edits</button>
-        <button class="btn primary" @onclick="() => StartOnPlan(CodePermissionMode.AcceptEdits)">Go ahead, accept edits</button>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="() => StartOnPlan(CodePermissionMode.Ask)">Go ahead, ask before edits</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => StartOnPlan(CodePermissionMode.AcceptEdits)">Go ahead, accept edits</MudButton>
     </div>
 }
 @if (!(IsCodeRoute && _conv is null))

@@ -19,10 +19,10 @@
         <ErrorBoundary @ref="_boundary">
             <ChildContent>@Body</ChildContent>
             <ErrorContent Context="ex">
-                <div class="error-box page-error">
+                <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box page-error">
                     <b>Something on this page broke.</b> @ex.Message
-                    <button class="btn small" @onclick="Recover">Try again</button>
-                </div>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick="Recover">Try again</MudButton>
+                </MudAlert>
             </ErrorContent>
         </ErrorBoundary>
     </main>
