@@ -72,7 +72,7 @@ internal static class Json
         var tmp = path + ".tmp";
         await using (var fs = File.Create(tmp))
             await JsonSerializer.SerializeAsync(fs, value, Options);
-        File.Move(tmp, path, overwrite: true);
+        await ReplaceAsync(tmp, path);
     }
 
     public static async Task WriteTextAtomicAsync(string path, string text)
@@ -80,7 +80,23 @@ internal static class Json
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var tmp = path + ".tmp";
         await File.WriteAllTextAsync(tmp, text);
-        File.Move(tmp, path, overwrite: true);
+        await ReplaceAsync(tmp, path);
+    }
+
+    /// <summary>
+    /// Moves the new file over the old one. On Windows that fails while something else has the old file open in a way
+    /// that doesn't allow it; readers here allow it, so this only waits out the rare other holder (antivirus, backup).
+    /// </summary>
+    private static async Task ReplaceAsync(string tmp, string path)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try { File.Move(tmp, path, overwrite: true); return; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < 8)
+            {
+                await Task.Delay(25 * attempt);
+            }
+        }
     }
 
     public static async Task<T?> ReadAsync<T>(string path)
@@ -88,7 +104,10 @@ internal static class Json
         if (!File.Exists(path)) return default;
         try
         {
-            await using var fs = File.OpenRead(path);
+            // Share delete/write so a writer can replace the file while it's being read (Windows otherwise refuses,
+            // and a sync's last save was lost that way).
+            await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+                4096, FileOptions.Asynchronous);
             return await JsonSerializer.DeserializeAsync<T>(fs, Options);
         }
         catch (JsonException) { return default; }
