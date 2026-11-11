@@ -77,7 +77,7 @@ tools** ability to use them, and each server gets its own row on the Permissions
 
 ### Add an integration (one click)
 
-Popular MCP servers, set up for you: GitHub, Notion, Home Assistant, Workbench, Meridian, files, Brave Search, library docs, Git
+Popular MCP servers, set up for you: GitHub, Notion, Home Assistant, Workbench, Meridian, Keel PLM, files, Brave Search, library docs, Git
 and time. Versions are pinned. Click one, fill in the token or folder it asks for, and **Add**. Secrets are encrypted.
 
 **Workbench** asks for your Workbench address and an API key. Create the key in Workbench under **Admin › Integrations ›
@@ -87,6 +87,20 @@ your network.
 
 **Meridian** asks for your Meridian team server's address and a personal access token (avatar menu › **API tokens**).
 Its tools read models only, and the token sees the projects and packages you can see.
+
+**Keel PLM** asks for the Keel address and the sign-in client your Keel administrator registered for AI assistants (often
+`keel-mcp`). There is no key to paste: when Hearth connects, Keel's sign-in page opens in your browser and Hearth acts as you,
+seeing only what you may see. Keel holds export-controlled data, so use it only with Hearth inside your enclave and a local
+model. The sign-in lasts until Hearth restarts. This needs the desktop app (the sign-in page has to open on the same computer).
+
+### Servers that sign you in
+
+Some HTTP servers (Keel PLM, and others that follow MCP authorization) don't take a key: they send Hearth to their own sign-in
+page. Fill in **Sign-in client id** on the server's row with the OAuth client id the server's administrator gave you. Hearth
+opens the sign-in page when it connects, catches the reply on `127.0.0.1`, and keeps the token in memory only.
+
+Header values (keys, tokens) are hidden on the server row. Type a new value to replace one; leaving the hidden text as it is
+keeps the stored value.
 
 ### Add a server by hand
 

@@ -399,7 +399,7 @@ Ollama models without support fall back to plain chat automatically.
 **DeepSearch** with tools on = multi-step research (several searches, reads pages, cites [n]).
 
 ### MCP servers
-**Tools & MCP → Add an integration**: one-click setup for GitHub, Notion, Home Assistant, Workbench, Meridian, files, Brave Search,
+**Tools & MCP → Add an integration**: one-click setup for GitHub, Notion, Home Assistant, Workbench, Meridian, Keel PLM, files, Brave Search,
 library docs, Git and time. Fill in the token or folder it asks for and it is added.
 
 **Tools & MCP → Add server** or **Import JSON** (Claude Desktop / Cursor `mcpServers` format):

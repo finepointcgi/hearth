@@ -316,6 +316,8 @@ public sealed class McpServerConfig
     public Dictionary<string, string> Environment { get; set; } = [];
     public string Url { get; set; } = "";
     public Dictionary<string, string> Headers { get; set; } = [];
+    /// <summary>HTTP servers that sign people in (MCP authorization): the OAuth client id registered for Hearth. Empty = no sign-in.</summary>
+    public string OAuthClientId { get; set; } = "";
     public bool Enabled { get; set; } = true;
     /// <summary>Run this server's tools without asking.</summary>
     public bool AutoApprove { get; set; }

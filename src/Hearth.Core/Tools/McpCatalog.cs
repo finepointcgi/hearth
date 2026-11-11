@@ -3,7 +3,7 @@ using Hearth.Core.Models;
 namespace Hearth.Core.Tools;
 
 /// <summary>A field the user fills in when adding a catalog server.</summary>
-/// <param name="Target">"env:NAME", "header:Name" (value may use {value}), "arg" (appended), or "url" (replaces {value} in the URL).</param>
+/// <param name="Target">"env:NAME", "header:Name" (value may use {value}), "arg" (appended), "url" (replaces {value} in the URL), or "oauth-client" (the OAuth client id for signing in).</param>
 public sealed record McpField(string Label, string Target, string Placeholder, bool Secret = false, string? Format = null, string? Help = null);
 
 /// <summary>A popular MCP server, ready to add with a click (versions pinned).</summary>
@@ -23,6 +23,7 @@ public sealed record McpCatalogItem(string Id, string Name, string Icon, string 
             else if (f.Target.StartsWith("header:")) c.Headers[f.Target[7..]] = formatted;
             else if (f.Target == "arg") c.Arguments = (c.Arguments + " " + Quote(formatted)).Trim();
             else if (f.Target == "url") c.Url = c.Url.Replace("{value}", formatted.TrimEnd('/'));
+            else if (f.Target == "oauth-client") c.OAuthClientId = formatted;
         }
         return c;
     }
@@ -65,6 +66,12 @@ public static class McpCatalog
              new("Personal access token", "header:Authorization", "mrd_…", Secret: true, Format: "Bearer {value}",
                 Help: "Meridian → avatar menu › API tokens. The token sees what you can see.")],
             null, "https://github.com/finepointcgi/meridian/blob/main/docs-site/docs/mcp.md"),
+        new("keel", "Keel PLM", "shield", "Parts, BOMs, documents, changes and requirements from Keel, as you (read only). Inside the enclave, with a local model only.",
+            McpTransport.Http, "", "", "{value}/api/v1/mcp",
+            [new("Keel address", "url", "https://keel.example.mil"),
+             new("Sign-in client", "oauth-client", "keel-mcp",
+                Help: "The OAuth client your Keel administrator registered for AI assistants (often keel-mcp). Hearth opens Keel's sign-in page.")],
+            null, "https://github.com/finepointcgi/Keel-PLM/blob/main/docs/integration/mcp.md"),
         new("files", "Files on this computer", "folder", "Read and edit files in one folder you choose.",
             McpTransport.Stdio, "npx", "-y @modelcontextprotocol/server-filesystem@2.2.0", "",
             [new("Folder", "arg", "/Users/you/Documents/Notes")],
