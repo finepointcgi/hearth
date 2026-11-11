@@ -82,15 +82,15 @@ and time. Versions are pinned. Click one, fill in the token or folder it asks fo
 
 **Workbench** asks for your Workbench address and an API key. Create the key in Workbench under **Admin › Integrations ›
 API keys** with the **AI assistants (MCP)** scope plus read access to the areas its tools need (projects, time, sheets,
-setup, accounting). The tools only read, and see what the key's roles may see. With a local model, the data stays on
+setup, accounting). Its tools read projects, funding and timesheets, and change sheets (rows, comments, tasks) when the key has sheets write access; they act as the key's roles and never approve or pay. With a local model, the data stays on
 your network.
 
 **Meridian** asks for your Meridian team server's address and a personal access token (avatar menu › **API tokens**).
-Its tools read models only, and the token sees the projects and packages you can see.
+Its tools read and change models as you (editor role needed to change), and the token sees the projects and packages you can see. Each change is one undo step in Meridian.
 
 **Keel PLM** asks for the Keel address and the sign-in client your Keel administrator registered for AI assistants (often
 `keel-mcp`). There is no key to paste: when Hearth connects, Keel's sign-in page opens in your browser and Hearth acts as you,
-seeing only what you may see. Keel holds export-controlled data, so use it only with Hearth inside your enclave and a local
+seeing and changing only what you may. It can create parts, documents, problem reports and ECRs, check parts out and in and edit BOM lines; releasing, approving and signing stay in Keel. Keel holds export-controlled data, so use it only with Hearth inside your enclave and a local
 model. The sign-in lasts until Hearth restarts. This needs the desktop app (the sign-in page has to open on the same computer).
 
 ### Servers that sign you in
@@ -148,4 +148,5 @@ Ask the Chief of Staff a question like "what does ECN-000042 affect, and what wi
 - A Workbench project's custom field **Keel program** (set it up in Workbench › Admin › Custom fields) holds the Keel program code;
   `list_custom_field_matches` finds the project for a program.
 
-Keel results start with a `MARKINGS:` line. The Configuration Engineer keeps the most restrictive banner at the top of its answers.
+Tools that change something ask you first (Hearth shows the call and waits for **Allow**), unless you turn on **Run this
+server's tools without asking** for that server. Keel results start with a `MARKINGS:` line. The Configuration Engineer keeps the most restrictive banner at the top of its answers.
