@@ -77,13 +77,16 @@ tools** ability to use them, and each server gets its own row on the Permissions
 
 ### Add an integration (one click)
 
-Popular MCP servers, set up for you: GitHub, Notion, Home Assistant, Workbench, files, Brave Search, library docs, Git
+Popular MCP servers, set up for you: GitHub, Notion, Home Assistant, Workbench, Meridian, files, Brave Search, library docs, Git
 and time. Versions are pinned. Click one, fill in the token or folder it asks for, and **Add**. Secrets are encrypted.
 
 **Workbench** asks for your Workbench address and an API key. Create the key in Workbench under **Admin › Integrations ›
 API keys** with the **AI assistants (MCP)** scope plus read access to the areas its tools need (projects, time, sheets,
 setup, accounting). The tools only read, and see what the key's roles may see. With a local model, the data stays on
 your network.
+
+**Meridian** asks for your Meridian team server's address and a personal access token (avatar menu › **API tokens**).
+Its tools read models only, and the token sees the projects and packages you can see.
 
 ### Add a server by hand
 

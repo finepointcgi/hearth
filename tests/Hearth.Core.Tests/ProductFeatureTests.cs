@@ -183,6 +183,9 @@ public sealed class ProductFeatureTests : IDisposable
         var wb = McpCatalog.All.Single(i => i.Id == "workbench").Build(new Dictionary<string, string>
             { ["Workbench address"] = "https://wb.example.com/", ["API key"] = "wbk_abc" });
         Assert.Equal(("https://wb.example.com/api/v1/mcp", "Bearer wbk_abc", McpTransport.Http), (wb.Url, wb.Headers["Authorization"], wb.Transport));
+        var mer = McpCatalog.All.Single(i => i.Id == "meridian").Build(new Dictionary<string, string>
+            { ["Meridian address"] = "https://mer.example.com", ["Personal access token"] = "mrd_abc" });
+        Assert.Equal(("https://mer.example.com/api/mcp", "Bearer mrd_abc"), (mer.Url, mer.Headers["Authorization"]));
         var files = McpCatalog.All.Single(i => i.Id == "files").Build(new Dictionary<string, string> { ["Folder"] = "/Users/me/My Notes" });
         Assert.EndsWith("\"/Users/me/My Notes\"", files.Arguments);
         Assert.All(McpCatalog.All.Where(i => i.Command == "npx"), i => Assert.Matches(@"@\d", i.Arguments)); // pinned versions
