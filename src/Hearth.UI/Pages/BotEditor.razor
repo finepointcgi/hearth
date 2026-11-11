@@ -56,7 +56,7 @@
             {
                 var choice = pic;
                 <button type="button" role="radio" aria-checked="@(current?.Id == choice.Id)" class="pic-choice @(current?.Id == choice.Id ? "on" : "")"
-                        title="@choice.Label" @onclick="() => _bot.AvatarImage = BotPictures.Prefix + choice.Id">@((MarkupString)choice.Svg)</button>
+                        title="@choice.Label" @onclick="() => _bot.AvatarImage = BotPictures.Prefix + choice.Id">@((MarkupString)BotPictures.Preview(choice, _bot)!.Svg)</button>
             }
             @if (_bot.AvatarImage is { } up && up.StartsWith("data:image/"))
             {
@@ -69,7 +69,7 @@
                 <InputFile OnChange="OnAvatarPicked" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" /></label>
         </div>
         @if (_avatarError is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_avatarError</MudAlert> }
-        <p class="muted small">Pick a character, the emoji, or upload your own picture. Chat apps (Telegram, Discord…) show the emoji.</p>
+        <p class="muted small">Pick a symbol, a character, the emoji, or upload your own picture. Chat apps (Telegram, Discord…) show the emoji.</p>
         <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="_bot.Title" Placeholder="e.g. Research & fact-checking" Label="Title / role" />
         <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="7" @bind-Value="_bot.Instructions" Placeholder="What this bot does, how it works, its tone, what it should never do…" Label="Instructions" />
         <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_bot.IsCoordinator" Class="check" Label='Coordinator ("chief of staff"): routes work to the other bots and combines their results' />
