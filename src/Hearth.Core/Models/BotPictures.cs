@@ -32,7 +32,73 @@ public static class BotPictures
     private static string Svg(string bg, string body) =>
         $"""<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect width="100" height="100" fill="{bg}"/>{body}</svg>""";
 
-    public static readonly IReadOnlyList<BotPicture> All =
+    /// <summary>
+    /// A ghost whose head starts at <paramref name="top"/> (lower it to make room for a hat): body, face, and whatever
+    /// it wears or holds drawn in front.
+    /// </summary>
+    private static string Ghost(string bg, double top, string front, string? mouth = null, bool wave = false)
+    {
+        var body = I($"""<path d="M22 84 V{top + 32} Q22 {top} 50 {top} Q78 {top} 78 {top + 32} V84 q-5.6 -7 -11.2 0 q-5.6 -7 -11.2 0 q-5.6 -7 -11.2 0 q-5.6 -7 -11.2 0 q-5.6 -7 -11.2 0 Z" fill="#fff"/>""");
+        var arm = wave ? """<path d="M78 70 q8 -2 9 -10" stroke="#fff" stroke-width="6" fill="none" stroke-linecap="round"/>""" : "";
+        return Svg(bg, body + arm + Eyes(40, 60, top + 30, 4.5, 6) + (mouth ?? Smile(50, top + 40, 3.5)) + Blush(31, 69, top + 38) + front);
+    }
+
+    /// <summary>The ghost family: the default pictures. One for each kind of job, and a few plain ones for everyone else.</summary>
+    public static readonly IReadOnlyList<BotPicture> Ghosts =
+    [
+        new("ghost-chief", "Chief ghost", Ghost("#FFF1D6", 30,
+            """<path d="M37 33 L36 17 L44 24 L50 13 L56 24 L64 17 L63 33 Z" fill="#F7C948" stroke="#E9B22F" stroke-width="1.5" stroke-linejoin="round"/><circle cx="50" cy="13" r="2.6" fill="#FF8FA3"/><circle cx="36" cy="17" r="2" fill="#7ED68A"/><circle cx="64" cy="17" r="2" fill="#7ED68A"/>""")),
+
+        new("ghost-chef", "Chef ghost", Ghost("#FFEBD6", 32,
+            """<g stroke="#d6cfe4" stroke-width="1.6"><circle cx="39" cy="22" r="9" fill="#fff"/><circle cx="61" cy="22" r="9" fill="#fff"/><circle cx="50" cy="16" r="11" fill="#fff"/></g>""" +
+            """<circle cx="39" cy="22" r="8.2" fill="#fff"/><circle cx="61" cy="22" r="8.2" fill="#fff"/><circle cx="50" cy="16" r="10.2" fill="#fff"/>""" +
+            """<rect x="35" y="23" width="30" height="12" rx="3" fill="#fff" stroke="#d6cfe4" stroke-width="1.6"/>""" +
+            """<path d="M78 74 q6 0 8 -6" stroke="#fff" stroke-width="6" fill="none" stroke-linecap="round"/>""" +
+            """<g transform="rotate(28 84 68)"><rect x="82" y="64" width="4" height="28" rx="2" fill="#C98B5A"/><ellipse cx="84" cy="60" rx="6" ry="8" fill="#C98B5A"/><ellipse cx="84" cy="59" rx="3.4" ry="5" fill="#B07A4F"/></g>""",
+            Cat(50, 72))),
+
+        new("ghost-researcher", "Researcher ghost", Ghost("#E3F6E8", 24,
+            """<circle cx="76" cy="78" r="9" fill="#cfeff9" fill-opacity=".75" stroke="#5b6b7a" stroke-width="3"/><path d="M82.5 84.5 L89 91" stroke="#5b6b7a" stroke-width="4" stroke-linecap="round"/>""")),
+
+        new("ghost-engineer", "Engineer ghost", Ghost("#E4EAFF", 34,
+            """<path d="M26 42 Q50 10 74 42 Z" fill="#F7C948"/><rect x="20" y="39" width="60" height="7" rx="3.5" fill="#E9B22F"/><rect x="47" y="18" width="6" height="22" rx="3" fill="#E9B22F"/>""" +
+            """<g transform="rotate(-40 82 76)"><rect x="80" y="70" width="5" height="22" rx="2" fill="#8a97a8"/><path d="M76.5 66 a6 6 0 1 0 12 0 l-3 3 h-6 Z" fill="#8a97a8"/></g>""")),
+
+        new("ghost-writer", "Writer ghost", Ghost("#FFE4EF", 24,
+            """<g transform="rotate(-38 80 70)"><rect x="76" y="56" width="7" height="30" rx="1.5" fill="#F7C948"/><path d="M76 86 L79.5 93 L83 86 Z" fill="#F3D2A2"/><path d="M78.6 90.5 L79.5 93 L80.4 90.5 Z" fill="#2b2233"/><rect x="76" y="53" width="7" height="5" rx="1.5" fill="#FF8FA3"/></g>""")),
+
+        new("ghost-critic", "Critic ghost", Ghost("#FFE3E3", 24,
+            """<circle cx="40" cy="54" r="9" fill="none" stroke="#2b2233" stroke-width="2"/><circle cx="60" cy="54" r="9" fill="none" stroke="#2b2233" stroke-width="2"/><path d="M49 54 h2" stroke="#2b2233" stroke-width="2"/>""" +
+            """<path d="M54 39 q7 -4 13 0" stroke="#2b2233" stroke-width="2" fill="none" stroke-linecap="round"/>""",
+            """<path d="M45.5 66 h9" stroke="#2b2233" stroke-width="2.2" stroke-linecap="round"/>""")),
+
+        new("ghost-planner", "Planner ghost", Ghost("#DDF3FF", 24,
+            """<rect x="63" y="68" width="20" height="24" rx="3" fill="#C98B5A"/><rect x="66" y="73" width="14" height="16" rx="1.5" fill="#fff"/><rect x="69" y="66" width="8" height="5" rx="1.5" fill="#8C8C99"/>""" +
+            """<path d="M68 78 l2 2 3 -4 M68 85 l2 2 3 -4" stroke="#4ade80" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M75 78 h3 M75 85 h3" stroke="#b9b9c6" stroke-width="1.4"/>""")),
+
+        new("ghost-comedian", "Party ghost", Ghost("#F0E4FF", 30,
+            """<path d="M50 6 L39 33 L61 33 Z" fill="#FF8FA3"/><path d="M46.5 15 L53.5 15 M43.5 24 L56.5 24" stroke="#fff" stroke-width="2.6"/><circle cx="50" cy="6" r="4" fill="#F7C948"/>""",
+            """<path d="M43 68 Q50 77 57 68 Z" fill="#ff8fa3" stroke="#2b2233" stroke-width="2.2" stroke-linejoin="round"/>""")),
+
+        new("ghost", "Ghost", Ghost("#E9E4FF", 20, "", """<ellipse cx="50" cy="62" rx="3.5" ry="4" fill="#2b2233"/>""", wave: true)),
+
+        new("ghost-bow", "Ghost with a bow", Ghost("#FFF0F6", 24,
+            """<path d="M31 27 l-9 -7 v14 z M31 27 l9 -7 v14 z" fill="#FF8FA3"/><circle cx="31" cy="27" r="3.2" fill="#ff6b8a"/>""", wave: true)),
+
+        new("ghost-headphones", "Ghost with headphones", Ghost("#E0F4FF", 26,
+            """<path d="M23 52 Q23 18 50 18 Q77 18 77 52" stroke="#7c9cff" stroke-width="4.5" fill="none" stroke-linecap="round"/><rect x="16" y="44" width="10" height="18" rx="5" fill="#7c9cff"/><rect x="74" y="44" width="10" height="18" rx="5" fill="#7c9cff"/>""" +
+            """<path d="M84 26 v10 a3 3 0 1 1 -2 -2.8 V26 l6 -2 v3 Z" fill="#c084fc"/>""")),
+
+        new("ghost-flower", "Ghost with a flower", Ghost("#E3F5E1", 24,
+            """<g fill="#FFB3CF"><circle cx="66" cy="21" r="4"/><circle cx="73" cy="25" r="4"/><circle cx="71" cy="32" r="4"/><circle cx="63" cy="32" r="4"/><circle cx="60" cy="25" r="4"/></g><circle cx="66.5" cy="27" r="3.2" fill="#F7C948"/>""", wave: true)),
+
+        new("ghost-star", "Ghost with a star", Ghost("#FFFBD1", 24,
+            """<path d="M78 72 q6 -1 8 -7" stroke="#fff" stroke-width="6" fill="none" stroke-linecap="round"/><path d="M86 64 L88 46" stroke="#C98B5A" stroke-width="2.5" stroke-linecap="round"/>""" +
+            """<path d="M88 34 l2.6 5.4 5.9 .8 -4.3 4.1 1 5.8 -5.2 -2.8 -5.2 2.8 1 -5.8 -4.3 -4.1 5.9 -.8 Z" fill="#F7C948" stroke="#E9B22F" stroke-width="1" stroke-linejoin="round"/>""")),
+    ];
+
+    /// <summary>The animals (and robot): still in the picker for anyone who prefers them.</summary>
+    public static readonly IReadOnlyList<BotPicture> Animals =
     [
         new("owl", "Owl", Svg("#FFF1D6",
             """<path d="M22 40 L27 14 L42 30 Z M78 40 L73 14 L58 30 Z" fill="#B9875A"/>""" +
@@ -97,11 +163,6 @@ public static class BotPictures
             """<circle cx="50" cy="60" r="32" fill="#FFD84D"/><ellipse cx="20" cy="66" rx="7" ry="11" transform="rotate(20 20 66)" fill="#F7C531"/><ellipse cx="80" cy="66" rx="7" ry="11" transform="rotate(-20 80 66)" fill="#F7C531"/>""" +
             Eyes(39, 61, 55) + """<path d="M45 62 L55 62 L50 69 Z" fill="#F5862F"/>""" + Blush(29, 71, 65))),
 
-        new("ghost", "Ghost", Svg("#E9E4FF",
-            """<path d="M22 92 V52 Q22 20 50 20 Q78 20 78 52 V92 q-6 -7 -11.2 0 q-5.6 -7 -11.2 0 q-5.6 -7 -11.2 0 q-5.6 -7 -11.2 0 q-5.6 -7 -11.2 0 Z" fill="#fff"/>""" +
-            Eyes(40, 60, 50, 4.5, 6) + """<ellipse cx="50" cy="62" rx="3.5" ry="4" fill="#2b2233"/>""" + Blush(31, 69, 58) +
-            """<path d="M78 70 q8 -2 9 -10" stroke="#fff" stroke-width="6" fill="none" stroke-linecap="round"/>""")),
-
         new("axolotl", "Axolotl", Svg("#FFE6F2",
             """<path d="M24 46 q-12 -6 -14 -14 M22 54 q-14 -2 -16 -8 M24 62 q-12 2 -15 -2 M76 46 q12 -6 14 -14 M78 54 q14 -2 16 -8 M76 62 q12 2 15 -2" stroke="#FF7FAF" stroke-width="5" fill="none" stroke-linecap="round"/>""" +
             """<ellipse cx="50" cy="58" rx="30" ry="27" fill="#FFB3CF"/>""" + Eyes(37, 63, 55) + Smile(50, 64, 6) + Blush(28, 72, 64) +
@@ -121,27 +182,48 @@ public static class BotPictures
             """<path d="M47 70 h6 v5 q-3 1.6 -6 0 Z" fill="#fff" stroke="#e6d6c6" stroke-width=".8"/>""")),
     ];
 
-    /// <summary>The picture each starter bot gets, by template name.</summary>
-    private static readonly Dictionary<string, string> ForTemplate = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Chief of Staff"] = "owl", ["Researcher"] = "fox", ["Engineer"] = "cat", ["Writer"] = "bunny",
-        ["Critic"] = "raccoon", ["Planner"] = "penguin", ["Comedian"] = "frog",
-    };
+    /// <summary>Every built-in picture, as the picker shows them: the ghosts first, then the animals.</summary>
+    public static readonly IReadOnlyList<BotPicture> All = [.. Ghosts, .. Animals];
+
+    /// <summary>The plain ghosts, for bots whose job doesn't match one of the job ghosts.</summary>
+    private static readonly string[] Plain = ["ghost", "ghost-bow", "ghost-headphones", "ghost-flower", "ghost-star"];
+
+    /// <summary>Words in a bot's name or title that give it a job ghost (matched at the start of a word).</summary>
+    private static readonly (string Picture, string[] Words)[] ByJob =
+    [
+        ("ghost-chef", ["chef", "cook", "recipe", "meal", "kitchen", "baker", "food"]),
+        ("ghost-chief", ["chief", "coordinator", "manager", "boss", "lead"]),
+        ("ghost-researcher", ["research", "fact", "analyst", "investigat"]),
+        ("ghost-engineer", ["engineer", "developer", "coder", "programmer", "software", "code"]),
+        ("ghost-writer", ["writ", "editor", "author", "copy"]),
+        ("ghost-critic", ["critic", "review", "skeptic", "devil"]),
+        ("ghost-planner", ["plan", "schedul", "organi", "assistant", "checklist"]),
+        ("ghost-comedian", ["comed", "joke", "funny", "entertain", "party"]),
+    ];
 
     public static BotPicture? Find(string? id) => id is null ? null : All.FirstOrDefault(p => p.Id == id);
 
     /// <summary>
-    /// The built-in picture a bot shows: the one it picked, or — when it never picked a picture or an emoji — its
-    /// starter picture, or one chosen from its id so every bot has its own cute face. Null when it uses an upload or
-    /// an emoji.
+    /// The built-in picture a bot shows: the one it picked, or (when it never picked a picture or an emoji) the ghost
+    /// for its job, going by its name and then its title, or else a plain ghost chosen from its id. Null when it uses
+    /// an upload or an emoji.
     /// </summary>
     public static BotPicture? For(Bot bot)
     {
         if (bot.AvatarImage is { } chosen)
             return chosen.StartsWith(Prefix, StringComparison.Ordinal) ? Find(chosen[Prefix.Length..]) : null;
-        if (ForTemplate.TryGetValue(bot.Name, out var id)) return Find(id);
+        if ((JobGhost(bot.Name) ?? JobGhost(bot.Title)) is { } job) return Find(job);
         var hash = 0;
         foreach (var c in bot.Id) hash = unchecked(hash * 31 + c);
-        return All[(int)((uint)hash % (uint)All.Count)];
+        return Find(Plain[(int)((uint)hash % (uint)Plain.Length)]);
+    }
+
+    private static string? JobGhost(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var words = text.Split((char[])[' ', '-', '_', '&', '/', ',', '.', '(', ')', '\'', '\u2019'], StringSplitOptions.RemoveEmptyEntries);
+        foreach (var (picture, starts) in ByJob)
+            if (words.Any(w => starts.Any(s => w.StartsWith(s, StringComparison.OrdinalIgnoreCase)))) return picture;
+        return null;
     }
 }
