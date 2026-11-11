@@ -180,6 +180,9 @@ public sealed class ProductFeatureTests : IDisposable
         var ha = McpCatalog.All.Single(i => i.Id == "home-assistant").Build(new Dictionary<string, string>
             { ["Home Assistant address"] = "http://ha.local:8123/", ["Long-lived access token"] = "abc" });
         Assert.Equal("http://ha.local:8123/api/mcp", ha.Url);
+        var wb = McpCatalog.All.Single(i => i.Id == "workbench").Build(new Dictionary<string, string>
+            { ["Workbench address"] = "https://wb.example.com/", ["API key"] = "wbk_abc" });
+        Assert.Equal(("https://wb.example.com/api/v1/mcp", "Bearer wbk_abc", McpTransport.Http), (wb.Url, wb.Headers["Authorization"], wb.Transport));
         var files = McpCatalog.All.Single(i => i.Id == "files").Build(new Dictionary<string, string> { ["Folder"] = "/Users/me/My Notes" });
         Assert.EndsWith("\"/Users/me/My Notes\"", files.Arguments);
         Assert.All(McpCatalog.All.Where(i => i.Command == "npx"), i => Assert.Matches(@"@\d", i.Arguments)); // pinned versions
