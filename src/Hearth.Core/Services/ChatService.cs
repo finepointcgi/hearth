@@ -788,6 +788,9 @@ public sealed class ChatService(
                     round--; // continuing isn't a tool step
                     continue;
                 }
+                // Out of steps: the model had to stop and answer, which can look like it gave up. Say why.
+                if (lastRound && round > 0)
+                    reply.Notice ??= $"This reply used all {maxRounds} tool steps before finishing. Ask it to continue, or raise \"Max tool rounds per reply\" under Tools.";
                 if (calls.Count == 0) break;
 
                 // Text in a round that ends with tool calls is work in progress ("Let me search…", or a draft answer
@@ -821,6 +824,10 @@ public sealed class ChatService(
                         reply.ToolCalls.Add(tc);
                         await RunToolAsync(tc, byName.GetValueOrDefault(tc.Name), ctx, onUpdate, ct);
                     }
+                // Using the computer or a browser takes many small steps (each grocery item is search, type, Enter,
+                // click Add, look): once it starts, give the reply the long budget code sessions get.
+                if (batch.Any(tc => NeedsManySteps(tc.Name)))
+                    maxRounds = Math.Max(maxRounds, LongTaskRounds(settings, roundLimit));
             }
 
             // Check before answering: after research, the model re-reads its answer against the tool results and fixes
@@ -1667,6 +1674,16 @@ public sealed class ChatService(
     /// Text from several tool rounds runs together with piles of blank lines (models often send "\n\n" before a
     /// call): keep at most one blank line, except inside code blocks.
     /// </summary>
+    /// <summary>Tools that work in many small steps: driving the computer or a web browser.</summary>
+    public static bool NeedsManySteps(string tool) => tool.StartsWith("desktop_", StringComparison.Ordinal) || tool.StartsWith("browser_", StringComparison.Ordinal);
+
+    /// <summary>The step budget once a reply starts using the computer or a browser (never above a caller's own limit).</summary>
+    public static int LongTaskRounds(AppSettings settings, int? roundLimit)
+    {
+        var rounds = Math.Max(settings.Tools.MaxRounds, settings.Tools.CodeMaxRounds);
+        return roundLimit is > 0 ? Math.Min(rounds, roundLimit.Value) : rounds;
+    }
+
     public static string TidyRounds(string text)
     {
         if (!text.Contains("\n\n\n")) return text;

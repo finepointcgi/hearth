@@ -164,6 +164,47 @@ public sealed class ChatRunsTests : IDisposable
     }
 
     [Fact]
+    public async Task RunningOutOfStepsIsAlwaysExplained()
+    {
+        // The model obediently answers on the last step (no late calls): the user still learns it ran out, rather than
+        // seeing a bot that seems to have stopped halfway on its own.
+        var sp = StartApp();
+        var store = sp.GetRequiredService<SettingsStore>();
+        var s = await store.GetAsync();
+        s.Tools.MaxRounds = 2;
+        await store.SaveAsync(s);
+        _team.Script = (_, _, req) => req.Tools is { Count: > 0 }
+            ? ScriptedTeam.Call("calculate", new { expression = "1+1" })
+            : new LlmChunk("Partway there.");
+        var conv = await NewChatAsync(sp, "keep calculating");
+        await sp.GetRequiredService<ChatRuns>().ReplyAsync(conv, Opts);
+        Assert.Equal("Partway there.", conv.Messages.Last().Content);
+        Assert.Contains("used all 2 tool steps", conv.Messages.Last().Notice);
+
+        // Finishing with steps to spare says nothing.
+        s.Tools.MaxRounds = 5;
+        await store.SaveAsync(s);
+        var calls = 0;
+        _team.Script = (_, _, _) => calls++ == 0 ? ScriptedTeam.Call("calculate", new { expression = "1+1" }) : new LlmChunk("It's 2.");
+        var done = await NewChatAsync(sp, "add one and one");
+        await sp.GetRequiredService<ChatRuns>().ReplyAsync(done, Opts);
+        Assert.Null(done.Messages.Last().Notice);
+    }
+
+    [Fact]
+    public void ComputerAndBrowserUseGetTheLongStepBudget()
+    {
+        Assert.True(ChatService.NeedsManySteps("desktop_click"));
+        Assert.True(ChatService.NeedsManySteps("browser_open"));
+        Assert.False(ChatService.NeedsManySteps("web_search"));
+        var s = new AppSettings();
+        s.Tools.MaxRounds = 12;
+        s.Tools.CodeMaxRounds = 60;
+        Assert.Equal(60, ChatService.LongTaskRounds(s, null));
+        Assert.Equal(8, ChatService.LongTaskRounds(s, 8)); // a team member's tighter limit still wins
+    }
+
+    [Fact]
     public async Task LastStepKeepsToolsListedAndFallsBackWhenTheServerIgnoresIt()
     {
         var sp = StartApp();
