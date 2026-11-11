@@ -23,6 +23,11 @@
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="bots/new">＋ New bot</MudButton>
             <MudButton Variant="Variant.Text" Color="Color.Primary" Disabled="@(State.Bots.Count < 2)" OnClick="() => _picking = !_picking">👥 New group chat</MudButton>
             <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddStarterTeam" Disabled="@(State.Bots.Count + Missing().Count > Bot.MaxBots || Missing().Count == 0)">✨ Add starter team</MudButton>
+            @if (_suite.Count > 0)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Primary" OnClick="AddSuiteTeam" Disabled="@(State.Bots.Count + _suite.Count > Bot.MaxBots)"
+                           title="@string.Join(", ", _suite.Select(b => b.Name))">🏗️ Add engineering team</MudButton>
+            }
         </div>
         @if (_error is not null) { <MudAlert Severity="Severity.Error" Variant="Variant.Text" Dense="true" Class="hearth-alert error-box">@_error</MudAlert> }
     </MudPaper>
@@ -129,6 +134,20 @@
         _defaultBot = s.DefaultBotId switch { null => null, "" => "none", var id => id };
         _plan = s.Teamwork.Plan;
         _review = s.Teamwork.Review;
+        _servers = s.McpServers.Where(m => m.Enabled).Select(m => m.Name).ToList();
+        RefreshSuite();
+    }
+
+    // Engineering team: one bot per Workbench, Meridian and Keel MCP server that is set up (Tools and MCP).
+    private List<string> _servers = [];
+    private List<Bot> _suite = [];
+    private void RefreshSuite() => _suite = BotTemplates.SuiteToAdd(_servers, State.Bots.Select(b => b.Name));
+
+    private async Task AddSuiteTeam()
+    {
+        _error = null;
+        try { foreach (var b in _suite) await Store.SaveAsync(b); RefreshSuite(); }
+        catch (Exception ex) { _error = ex.Message; }
     }
 
     private async Task SetDefault(ChangeEventArgs e)

@@ -125,3 +125,27 @@ keeps the stored value.
 
 - Local (stdio) servers run on desktop hosts, and on the web host only with `AllowLocalProcesses`.
 - iOS and Android can only use HTTP MCP servers (the page says *This platform can only use HTTP MCP servers*).
+
+
+### Engineering team (Workbench, Meridian and Keel)
+
+With any of the **Workbench**, **Meridian** or **Keel PLM** integrations added, **Bots › Add engineering team** adds one bot per app,
+plus the Chief of Staff to route questions that span them:
+
+| Bot | App | Tools |
+| --- | --- | --- |
+| Program Manager | Workbench | `workbench_*`, memory, calculator |
+| Systems Architect | Meridian | `meridian_*`, memory |
+| Configuration Engineer | Keel PLM | `keel_*` only (no memory: Keel data is export-controlled) |
+
+Each bot is limited to its own app's tools (`Selected` tools with a `server_*` prefix, so tools the server adds later are included).
+Ask the Chief of Staff a question like "what does ECN-000042 affect, and what will it cost?" and it hands the pieces to the right bot.
+
+**How the apps point at each other.** The bots follow a thread from one app to the next through shared ids:
+
+- A Meridian element's tagged values `keel.part` (a Keel part number), `keel.spec` (a Keel specification number) and
+  `workbench.project` (a Workbench project code). Find them with `search_elements`, e.g. `kind:Block where tag:keel.part = P-000123`.
+- A Workbench project's custom field **Keel program** (set it up in Workbench › Admin › Custom fields) holds the Keel program code;
+  `list_custom_field_matches` finds the project for a program.
+
+Keel results start with a `MARKINGS:` line. The Configuration Engineer keeps the most restrictive banner at the top of its answers.

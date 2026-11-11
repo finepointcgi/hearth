@@ -186,6 +186,13 @@ public sealed class ProductFeatureTests : IDisposable
         var mer = McpCatalog.All.Single(i => i.Id == "meridian").Build(new Dictionary<string, string>
             { ["Meridian address"] = "https://mer.example.com", ["Personal access token"] = "mrd_abc" });
         Assert.Equal(("https://mer.example.com/api/mcp", "Bearer mrd_abc"), (mer.Url, mer.Headers["Authorization"]));
+        var suite = BotTemplates.SuiteToAdd(["workbench", "keel"], ["Chief of Staff"]);
+        Assert.Equal(["Program Manager", "Configuration Engineer"], suite.Select(b => b.Name));
+        Assert.True(suite[0].AllowsSelected("workbench_get_project_financials"));
+        Assert.False(suite[0].AllowsSelected("keel_get_part"));
+        Assert.False(suite[1].AllowsSelected("save_memory"));   // Keel data stays out of memory
+        Assert.Equal("Chief of Staff", BotTemplates.SuiteToAdd(["meridian"], []).First().Name);
+        Assert.Empty(BotTemplates.SuiteToAdd(["github"], []));
         var keel = McpCatalog.All.Single(i => i.Id == "keel").Build(new Dictionary<string, string>
             { ["Keel address"] = "https://keel.test", ["Sign-in client"] = "keel-mcp" });
         Assert.Equal(("https://keel.test/api/v1/mcp", "keel-mcp", 0), (keel.Url, keel.OAuthClientId, keel.Headers.Count));
