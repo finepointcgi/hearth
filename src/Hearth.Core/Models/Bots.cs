@@ -254,7 +254,7 @@ public sealed class Bot
     /// </summary>
     public string? AvatarImage { get; set; }
     /// <summary>How the avatar moves while the bot is thinking or working: one of <see cref="WorkingAnimations"/>.</summary>
-    public string WorkingAnimation { get; set; } = "hop";
+    public string WorkingAnimation { get; set; } = "pulse";
 
     /// <summary>The working animations a bot can pick: id and label.</summary>
     public static readonly (string Id, string Label)[] WorkingAnimations =
@@ -360,7 +360,7 @@ public static class BotTemplates
     [
         ("workbench", new Bot
         {
-            Name = "Program Manager", AvatarImage = BotPictures.Prefix + "owl", WorkingAnimation = "dots", Emoji = "📊", Color = "#f59e0b", Title = "Workbench: cost, schedule, staffing",
+            Name = "Program Manager", WorkingAnimation = "dots", Emoji = "📊", Color = "#f59e0b", Title = "Workbench: cost, schedule, staffing",
             Abilities = new() { Browser = false, Images = false, WebSearch = false },
             ToolMode = BotToolMode.Selected, AllowedTools = ["workbench_*", "save_memory", "recall_memory", "calculate", "get_current_datetime"],
             Instructions = "You answer for Workbench, the project ERP: projects, contracts and CLINs, budgets, earned value, ceilings, " +
@@ -369,7 +369,7 @@ public static class BotTemplates
         }),
         ("meridian", new Bot
         {
-            Name = "Systems Architect", AvatarImage = BotPictures.Prefix + "fox", WorkingAnimation = "look", Emoji = "🧩", Color = "#38bdf8", Title = "Meridian: SysML model and traceability",
+            Name = "Systems Architect", WorkingAnimation = "pulse", Emoji = "🧩", Color = "#38bdf8", Title = "Meridian: SysML model and traceability",
             Abilities = new() { Browser = false, Images = false, WebSearch = false },
             ToolMode = BotToolMode.Selected, AllowedTools = ["meridian_*", "save_memory", "recall_memory", "get_current_datetime"],
             Instructions = "You answer for Meridian, the SysML modeling tool: requirements, blocks, behavior, diagrams and traceability. " +
@@ -378,7 +378,7 @@ public static class BotTemplates
         }),
         ("keel", new Bot
         {
-            Name = "Configuration Engineer", AvatarImage = BotPictures.Prefix + "cat", WorkingAnimation = "sparkle", Emoji = "🔩", Color = "#a78bfa", Title = "Keel: parts, BOMs, changes",
+            Name = "Configuration Engineer", WorkingAnimation = "pulse", Emoji = "🔩", Color = "#a78bfa", Title = "Keel: parts, BOMs, changes",
             Abilities = new() { Browser = false, Images = false, WebSearch = false, Files = false },
             ToolMode = BotToolMode.Selected, AllowedTools = ["keel_*", "get_current_datetime"],
             Instructions = "You answer for Keel PLM, the system of record for parts, BOMs, documents, engineering changes, requirement " +
@@ -390,32 +390,32 @@ public static class BotTemplates
 
     public static IReadOnlyList<Bot> All =>
     [
-        new() { Name = "Chief of Staff", AvatarImage = BotPictures.Prefix + "ghost-chief", WorkingAnimation = "dots", Emoji = "🧭", Color = "#f5b942", Title = "Coordinator", IsCoordinator = true,
+        new() { Name = "Chief of Staff", WorkingAnimation = "dots", Emoji = "🧭", Color = "#f5b942", Title = "Coordinator", IsCoordinator = true,
             Abilities = new() { Browser = false, Images = false },
             Instructions = "You run the user's team of bots. Understand what the user wants, break it into pieces, hand each " +
                            "piece to the right specialist by @mentioning them, then pull their results together into one clear " +
                            "answer. Do small things yourself. Ask the user only for real judgment calls." },
-        new() { Name = "Researcher", AvatarImage = BotPictures.Prefix + "ghost-researcher", WorkingAnimation = "look", Emoji = "🔎", Color = "#4ade80", Title = "Research & fact-checking",
+        new() { Name = "Researcher", WorkingAnimation = "pulse", Emoji = "🔎", Color = "#4ade80", Title = "Research & fact-checking",
             Abilities = new() { Images = false },
             Instructions = "You find out what's true. Search the web, read primary sources, compare them and cite everything " +
                            "with [n]. Say clearly when evidence is weak or conflicting." },
-        new() { Name = "Engineer", AvatarImage = BotPictures.Prefix + "ghost-engineer", WorkingAnimation = "sparkle", Emoji = "🛠️", Color = "#7c9cff", Title = "Software engineer",
+        new() { Name = "Engineer", WorkingAnimation = "pulse", Emoji = "🛠️", Color = "#7c9cff", Title = "Software engineer",
             Abilities = new() { Code = true, Images = false },
             Instructions = "You write and debug code. In a code session, work in the project like a careful senior engineer: read " +
                            "before changing, make small exact edits, run the build and tests, and report what you verified. " +
                            "Otherwise prefer complete, runnable solutions and test with run_python when it helps. Point out bugs and edge cases." },
-        new() { Name = "Writer", AvatarImage = BotPictures.Prefix + "ghost-writer", WorkingAnimation = "float", Emoji = "✍️", Color = "#f472b6", Title = "Writing & editing",
+        new() { Name = "Writer", WorkingAnimation = "pulse", Emoji = "✍️", Color = "#f472b6", Title = "Writing & editing",
             Abilities = new() { Browser = false },
             Instructions = "You write clear, vivid, well-structured prose in the user's voice: emails, posts, docs, stories. " +
                            "Keep it tight; offer one strong draft rather than many options." },
-        new() { Name = "Critic", AvatarImage = BotPictures.Prefix + "ghost-critic", WorkingAnimation = "wobble", Emoji = "🧐", Color = "#ff6b6b", Title = "Reviewer & devil's advocate",
+        new() { Name = "Critic", WorkingAnimation = "pulse", Emoji = "🧐", Color = "#ff6b6b", Title = "Reviewer & devil's advocate",
             Abilities = new() { Browser = false, Images = false, Files = false },
             Instructions = "You review other bots' work and the user's ideas. Find the weakest points, missing cases and " +
                            "risks, and say how to fix them. Be direct but constructive. Don't rewrite everything." },
-        new() { Name = "Planner", AvatarImage = BotPictures.Prefix + "ghost-planner", WorkingAnimation = "hop", Emoji = "🗓️", Color = "#38bdf8", Title = "Plans, schedules & checklists",
+        new() { Name = "Planner", WorkingAnimation = "pulse", Emoji = "🗓️", Color = "#38bdf8", Title = "Plans, schedules & checklists",
             Instructions = "You turn goals into concrete plans: steps, owners, timelines and checklists. Keep plans realistic " +
                            "and flag dependencies." },
-        new() { Name = "Comedian", AvatarImage = BotPictures.Prefix + "ghost-comedian", WorkingAnimation = "hearts", Emoji = "🎭", Color = "#c084fc", Title = "Entertainment",
+        new() { Name = "Comedian", WorkingAnimation = "pulse", Emoji = "🎭", Color = "#c084fc", Title = "Entertainment",
             Abilities = new() { Browser = false, Files = false, Documents = false }, Memory = new() { ShareWhatItLearns = false },
             Instructions = "You're the funny one: witty, sarcastic, irreverent. Roast gently, riff on what others say, " +
                            "and keep the group chat fun — but stay accurate if facts come up." },

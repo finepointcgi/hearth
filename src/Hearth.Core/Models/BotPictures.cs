@@ -43,6 +43,73 @@ public static class BotPictures
         return Svg(bg, body + arm + Eyes(40, 60, top + 30, 4.5, 6) + (mouth ?? Smile(50, top + 40, 3.5)) + Blush(31, 69, top + 38) + front);
     }
 
+    /// <summary>
+    /// Job symbols for the default avatars: a solid circle in the bot's own colour with a clean line symbol.
+    /// Drawn from Lucide (lucide-static 0.460.0, ISC License; see THIRD-PARTY-NOTICES.md).
+    /// </summary>
+    private static readonly (string Id, string Label, string Paths)[] JobSymbols =
+    [
+        ("job-chief", "Coordinator", """<path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/><circle cx="12" cy="12" r="10"/>"""),
+        ("job-manager", "Manager", """<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>"""),
+        ("job-chef", "Chef", """<path d="M17 21a1 1 0 0 0 1-1v-5.35c0-.457.316-.844.727-1.041a4 4 0 0 0-2.134-7.589 5 5 0 0 0-9.186 0 4 4 0 0 0-2.134 7.588c.411.198.727.585.727 1.041V20a1 1 0 0 0 1 1Z"/><path d="M6 17h12"/>"""),
+        ("job-researcher", "Research", """<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>"""),
+        ("job-architect", "Architecture", """<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/>"""),
+        ("job-configuration", "Configuration", """<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>"""),
+        ("job-engineer", "Engineering", """<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>"""),
+        ("job-writer", "Writing", """<path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/>"""),
+        ("job-critic", "Review", """<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>"""),
+        ("job-planner", "Planning", """<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/>"""),
+        ("job-support", "Support", """<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>"""),
+        ("job-entertainer", "Entertainment", """<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/>"""),
+    ];
+
+    /// <summary>Id of the avatar that shows the bot's initial.</summary>
+    public const string Initial = "initial";
+
+    private const string Neutral = "#64748b";
+
+    /// <summary>True for avatars drawn from the bot itself (its colour, its initial) rather than a fixed picture.</summary>
+    public static bool IsBadge(string id) => id == Initial || id.StartsWith("job-", StringComparison.Ordinal);
+
+    /// <summary>A badge avatar drawn for this bot: its colour, with a job symbol or its initial.</summary>
+    private static BotPicture Badge(string id, string label, string? color, string? name)
+    {
+        var bg = SafeColor(color);
+        var ink = IsLight(bg) ? "#1f2430" : "#ffffff";
+        string mark;
+        if (id == Initial)
+        {
+            var letter = name?.Trim().FirstOrDefault(char.IsLetterOrDigit) is { } c and not '\0' ? char.ToUpperInvariant(c).ToString() : "?";
+            mark = $"""<text x="50" y="50" dy=".35em" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="44" font-weight="600" fill="{ink}">{System.Security.SecurityElement.Escape(letter)}</text>""";
+        }
+        else
+        {
+            var paths = JobSymbols.First(j => j.Id == id).Paths;
+            mark = $"""<g transform="translate(27 27) scale(1.9167)" fill="none" stroke="{ink}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">{paths}</g>""";
+        }
+        return new BotPicture(id, label, Svg(bg, mark));
+    }
+
+    /// <summary>Only a plain hex colour goes into the picture (it is drawn as markup).</summary>
+    private static string SafeColor(string? color) =>
+        color is { Length: 4 or 7 } && color[0] == '#' && color.Skip(1).All(Uri.IsHexDigit) ? color : Neutral;
+
+    private static bool IsLight(string hex)
+    {
+        var h = hex.Length == 4 ? string.Concat(hex.Skip(1).Select(c => $"{c}{c}")) : hex[1..];
+        double Channel(int i)
+        {
+            var v = Convert.ToInt32(h.Substring(i * 2, 2), 16) / 255.0;
+            return v <= 0.03928 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+        }
+        var luminance = 0.2126 * Channel(0) + 0.7152 * Channel(1) + 0.0722 * Channel(2);
+        return luminance > 0.45;
+    }
+
+    /// <summary>The professional avatars, as the picker lists them (drawn in a neutral colour; <see cref="Preview"/> uses the bot's).</summary>
+    public static readonly IReadOnlyList<BotPicture> Badges =
+        [Badge(Initial, "Initial", Neutral, "A"), .. JobSymbols.Select(j => Badge(j.Id, j.Label, Neutral, null))];
+
     /// <summary>The ghost family: the default pictures. One for each kind of job, and a few plain ones for everyone else.</summary>
     public static readonly IReadOnlyList<BotPicture> Ghosts =
     [
@@ -182,41 +249,46 @@ public static class BotPictures
             """<path d="M47 70 h6 v5 q-3 1.6 -6 0 Z" fill="#fff" stroke="#e6d6c6" stroke-width=".8"/>""")),
     ];
 
-    /// <summary>Every built-in picture, as the picker shows them: the ghosts first, then the animals.</summary>
-    public static readonly IReadOnlyList<BotPicture> All = [.. Ghosts, .. Animals];
+    /// <summary>Every built-in picture, as the picker shows them: the professional ones first, then the ghosts and animals.</summary>
+    public static readonly IReadOnlyList<BotPicture> All = [.. Badges, .. Ghosts, .. Animals];
 
-    /// <summary>The plain ghosts, for bots whose job doesn't match one of the job ghosts.</summary>
-    private static readonly string[] Plain = ["ghost", "ghost-bow", "ghost-headphones", "ghost-flower", "ghost-star"];
-
-    /// <summary>Words in a bot's name or title that give it a job ghost (matched at the start of a word).</summary>
+    /// <summary>Words in a bot's name or title that give it a job symbol (matched at the start of a word; first match wins).</summary>
     private static readonly (string Picture, string[] Words)[] ByJob =
     [
-        ("ghost-chef", ["chef", "cook", "recipe", "meal", "kitchen", "baker", "food"]),
-        ("ghost-chief", ["chief", "coordinator", "manager", "boss", "lead"]),
-        ("ghost-researcher", ["research", "fact", "analyst", "investigat"]),
-        ("ghost-engineer", ["engineer", "developer", "coder", "programmer", "software", "code"]),
-        ("ghost-writer", ["writ", "editor", "author", "copy"]),
-        ("ghost-critic", ["critic", "review", "skeptic", "devil"]),
-        ("ghost-planner", ["plan", "schedul", "organi", "assistant", "checklist"]),
-        ("ghost-comedian", ["comed", "joke", "funny", "entertain", "party"]),
+        ("job-chef", ["chef", "cook", "recipe", "meal", "kitchen", "baker", "food"]),
+        ("job-chief", ["chief", "coordinator", "boss", "lead"]),
+        ("job-manager", ["manager", "program", "project", "cost", "budget", "finance"]),
+        ("job-architect", ["architect", "systems", "sysml", "model"]),
+        ("job-configuration", ["configuration", "bom", "parts"]),
+        ("job-researcher", ["research", "fact", "analyst", "investigat"]),
+        ("job-engineer", ["engineer", "developer", "coder", "programmer", "software", "code"]),
+        ("job-writer", ["writ", "editor", "author", "copy"]),
+        ("job-critic", ["critic", "review", "skeptic", "devil"]),
+        ("job-planner", ["plan", "schedul", "organi", "assistant", "checklist"]),
+        ("job-support", ["support", "help", "admin", "helpdesk"]),
+        ("job-entertainer", ["comed", "joke", "funny", "entertain", "party"]),
     ];
 
     public static BotPicture? Find(string? id) => id is null ? null : All.FirstOrDefault(p => p.Id == id);
 
     /// <summary>
-    /// The built-in picture a bot shows: the one it picked, or (when it never picked a picture or an emoji) the ghost
-    /// for its job, going by its name and then its title, or else a plain ghost chosen from its id. Null when it uses
-    /// an upload or an emoji.
+    /// The built-in picture a bot shows: the one it picked, or (when it never picked a picture or an emoji) the
+    /// symbol for its job, going by its name and then its title, or else its initial. Professional avatars are drawn
+    /// in the bot's own colour. Null when it uses an upload or an emoji.
     /// </summary>
     public static BotPicture? For(Bot bot)
     {
+        string? id;
         if (bot.AvatarImage is { } chosen)
-            return chosen.StartsWith(Prefix, StringComparison.Ordinal) ? Find(chosen[Prefix.Length..]) : null;
-        if ((JobGhost(bot.Name) ?? JobGhost(bot.Title)) is { } job) return Find(job);
-        var hash = 0;
-        foreach (var c in bot.Id) hash = unchecked(hash * 31 + c);
-        return Find(Plain[(int)((uint)hash % (uint)Plain.Length)]);
+            id = chosen.StartsWith(Prefix, StringComparison.Ordinal) ? chosen[Prefix.Length..] : null;
+        else
+            id = JobGhost(bot.Name) ?? JobGhost(bot.Title) ?? Initial;
+        return id is null ? null : Preview(Find(id), bot);
     }
+
+    /// <summary>How a picture looks for this bot (professional avatars take its colour and initial).</summary>
+    public static BotPicture? Preview(BotPicture? picture, Bot bot) =>
+        picture is not null && IsBadge(picture.Id) ? Badge(picture.Id, picture.Label, bot.Color, bot.Name) : picture;
 
     private static string? JobGhost(string? text)
     {
