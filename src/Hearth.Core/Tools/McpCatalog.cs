@@ -3,7 +3,7 @@ using Hearth.Core.Models;
 namespace Hearth.Core.Tools;
 
 /// <summary>A field the user fills in when adding a catalog server.</summary>
-/// <param name="Target">"env:NAME", "header:Name" (value may use {value}), "arg" (appended), or "url" (replaces {value} in the URL).</param>
+/// <param name="Target">"env:NAME", "header:Name" (value may use {value}), "arg" (appended), "url" (replaces {value} in the URL), or "oauth-client" (the OAuth client id for signing in).</param>
 public sealed record McpField(string Label, string Target, string Placeholder, bool Secret = false, string? Format = null, string? Help = null);
 
 /// <summary>A popular MCP server, ready to add with a click (versions pinned).</summary>
@@ -23,6 +23,7 @@ public sealed record McpCatalogItem(string Id, string Name, string Icon, string 
             else if (f.Target.StartsWith("header:")) c.Headers[f.Target[7..]] = formatted;
             else if (f.Target == "arg") c.Arguments = (c.Arguments + " " + Quote(formatted)).Trim();
             else if (f.Target == "url") c.Url = c.Url.Replace("{value}", formatted.TrimEnd('/'));
+            else if (f.Target == "oauth-client") c.OAuthClientId = formatted;
         }
         return c;
     }
@@ -53,6 +54,24 @@ public static class McpCatalog
              new("Long-lived access token", "header:Authorization", "eyJ…", Secret: true, Format: "Bearer {value}",
                 Help: "Add the \"Model Context Protocol Server\" integration in Home Assistant; create the token under your profile → Security")],
             null, "https://www.home-assistant.io/integrations/mcp_server/"),
+        new("workbench", "Workbench", "chart-bar", "Projects, funding, budgets, earned value, timesheets, approvals and sheets from your Workbench (read only).",
+            McpTransport.Http, "", "", "{value}/api/v1/mcp",
+            [new("Workbench address", "url", "https://workbench.example.com"),
+             new("API key", "header:Authorization", "wbk_…", Secret: true, Format: "Bearer {value}",
+                Help: "Workbench → Admin › Integrations › API keys: give it the AI assistants (MCP) scope plus the areas it may read")],
+            null, "https://finepointcgi.github.io/workbench/integrations/mcp/"),
+        new("meridian", "Meridian", "layout-dashboard", "SysML models from your Meridian team server: requirements, blocks, traceability and checks (read only).",
+            McpTransport.Http, "", "", "{value}/api/mcp",
+            [new("Meridian address", "url", "https://meridian.example.com"),
+             new("Personal access token", "header:Authorization", "mrd_…", Secret: true, Format: "Bearer {value}",
+                Help: "Meridian → avatar menu › API tokens. The token sees what you can see.")],
+            null, "https://github.com/finepointcgi/meridian/blob/main/docs-site/docs/mcp.md"),
+        new("keel", "Keel PLM", "shield", "Parts, BOMs, documents, changes and requirements from Keel, as you (read only). Inside the enclave, with a local model only.",
+            McpTransport.Http, "", "", "{value}/api/v1/mcp",
+            [new("Keel address", "url", "https://keel.example.mil"),
+             new("Sign-in client", "oauth-client", "keel-mcp",
+                Help: "The OAuth client your Keel administrator registered for AI assistants (often keel-mcp). Hearth opens Keel's sign-in page.")],
+            null, "https://github.com/finepointcgi/Keel-PLM/blob/main/docs/integration/mcp.md"),
         new("files", "Files on this computer", "folder", "Read and edit files in one folder you choose.",
             McpTransport.Stdio, "npx", "-y @modelcontextprotocol/server-filesystem@2.2.0", "",
             [new("Folder", "arg", "/Users/you/Documents/Notes")],

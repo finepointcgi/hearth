@@ -180,6 +180,22 @@ public sealed class ProductFeatureTests : IDisposable
         var ha = McpCatalog.All.Single(i => i.Id == "home-assistant").Build(new Dictionary<string, string>
             { ["Home Assistant address"] = "http://ha.local:8123/", ["Long-lived access token"] = "abc" });
         Assert.Equal("http://ha.local:8123/api/mcp", ha.Url);
+        var wb = McpCatalog.All.Single(i => i.Id == "workbench").Build(new Dictionary<string, string>
+            { ["Workbench address"] = "https://wb.example.com/", ["API key"] = "wbk_abc" });
+        Assert.Equal(("https://wb.example.com/api/v1/mcp", "Bearer wbk_abc", McpTransport.Http), (wb.Url, wb.Headers["Authorization"], wb.Transport));
+        var mer = McpCatalog.All.Single(i => i.Id == "meridian").Build(new Dictionary<string, string>
+            { ["Meridian address"] = "https://mer.example.com", ["Personal access token"] = "mrd_abc" });
+        Assert.Equal(("https://mer.example.com/api/mcp", "Bearer mrd_abc"), (mer.Url, mer.Headers["Authorization"]));
+        var suite = BotTemplates.SuiteToAdd(["workbench", "keel"], ["Chief of Staff"]);
+        Assert.Equal(["Program Manager", "Configuration Engineer"], suite.Select(b => b.Name));
+        Assert.True(suite[0].AllowsSelected("workbench_get_project_financials"));
+        Assert.False(suite[0].AllowsSelected("keel_get_part"));
+        Assert.False(suite[1].AllowsSelected("save_memory"));   // Keel data stays out of memory
+        Assert.Equal("Chief of Staff", BotTemplates.SuiteToAdd(["meridian"], []).First().Name);
+        Assert.Empty(BotTemplates.SuiteToAdd(["github"], []));
+        var keel = McpCatalog.All.Single(i => i.Id == "keel").Build(new Dictionary<string, string>
+            { ["Keel address"] = "https://keel.test", ["Sign-in client"] = "keel-mcp" });
+        Assert.Equal(("https://keel.test/api/v1/mcp", "keel-mcp", 0), (keel.Url, keel.OAuthClientId, keel.Headers.Count));
         var files = McpCatalog.All.Single(i => i.Id == "files").Build(new Dictionary<string, string> { ["Folder"] = "/Users/me/My Notes" });
         Assert.EndsWith("\"/Users/me/My Notes\"", files.Arguments);
         Assert.All(McpCatalog.All.Where(i => i.Command == "npx"), i => Assert.Matches(@"@\d", i.Arguments)); // pinned versions

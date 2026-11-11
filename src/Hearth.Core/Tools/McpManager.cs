@@ -74,7 +74,7 @@ public sealed partial class McpManager(PlatformInfo platform, IHttpClientFactory
             try
             {
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                timeout.CancelAfter(TimeSpan.FromSeconds(45));
+                timeout.CancelAfter(string.IsNullOrWhiteSpace(server.OAuthClientId) ? TimeSpan.FromSeconds(45) : McpOAuth.SignInTimeout + TimeSpan.FromSeconds(30));
                 conn.Client = await McpClient.CreateAsync(CreateTransport(server), cancellationToken: timeout.Token);
                 conn.Tools = await conn.Client.ListToolsAsync(cancellationToken: timeout.Token);
             }
@@ -96,6 +96,7 @@ public sealed partial class McpManager(PlatformInfo platform, IHttpClientFactory
         {
             var opts = new HttpClientTransportOptions { Endpoint = new Uri(s.Url), Name = s.Name };
             if (s.Headers.Count > 0) opts.AdditionalHeaders = new Dictionary<string, string>(s.Headers);
+            opts.OAuth = McpOAuth.OptionsFor(s, platform);   // sign-in through the server's identity provider, when it uses one
             return new HttpClientTransport(opts, http.CreateClient("mcp"), ownsHttpClient: false);
         }
         if (!platform.CanUseComputer)

@@ -279,6 +279,13 @@ public sealed class Bot
     public BotToolMode ToolMode { get; set; } = BotToolMode.All;
     public List<string> AllowedTools { get; set; } = [];
 
+    /// <summary>
+    /// Whether <see cref="AllowedTools"/> lets this bot use <paramref name="toolName"/>: an exact name, or a prefix ending in
+    /// <c>*</c> such as <c>workbench_*</c> for every tool of the MCP server named workbench (tools it adds later included).
+    /// </summary>
+    public bool AllowsSelected(string toolName) =>
+        AllowedTools.Any(a => a.EndsWith('*') ? toolName.StartsWith(a[..^1], StringComparison.Ordinal) : a == toolName);
+
     /// <summary>The browser profile this bot uses: its id for its own profile, or "shared".</summary>
     public string BrowserProfileKey => Abilities.BrowserProfile == BrowserProfile.Own ? Id : "shared";
     /// <summary>Coordinators route work to specialists and summarise results ("chief of staff").</summary>
@@ -320,6 +327,67 @@ public sealed class BotVersion
 
 public static class BotTemplates
 {
+    /// <summary>
+    /// How the engineering apps point at each other (the shared ids), told to every suite bot so they can follow a thread
+    /// from one app to the next: Meridian elements carry tagged values naming Keel and Workbench records, and a Workbench
+    /// project's "Keel program" custom field names the Keel program it pays for.
+    /// </summary>
+    public const string SuiteLinks =
+        "The engineering apps link to each other by ids: a Meridian element's tagged values keel.part (a Keel part number, " +
+        "e.g. P-000123), keel.spec (a Keel specification number) and workbench.project (a Workbench project code); a Workbench " +
+        "project's custom field \"Keel program\" holds the Keel program code. To follow a thread, read the id in one app and " +
+        "ask the teammate who owns the other app (@mention them) rather than guessing. Keel results start with a MARKINGS line: " +
+        "keep that line with anything you repeat from them, and never send Keel data outside this chat.";
+
+    /// <summary>
+    /// The suite bots to add for the MCP servers that are set up (by name, as the catalog names them) and are not on the team
+    /// yet, with the Chief of Staff to route between them when it's missing.
+    /// </summary>
+    public static List<Bot> SuiteToAdd(IEnumerable<string> serverNames, IEnumerable<string> existingBotNames)
+    {
+        var servers = serverNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var have = existingBotNames.ToHashSet(StringComparer.Ordinal);
+        var bots = Suite.Where(x => servers.Contains(x.Server) && !have.Contains(x.Bot.Name)).Select(x => x.Bot).ToList();
+        if (bots.Count > 0 && All.First(b => b.IsCoordinator) is { } chief && !have.Contains(chief.Name)) bots.Insert(0, chief);
+        return bots;
+    }
+
+    /// <summary>
+    /// Bots for the engineering suite, each limited to its app's MCP tools (servers named as in the catalog: workbench,
+    /// meridian, keel) plus memory. They work with the Chief of Staff, who routes questions that span the apps.
+    /// </summary>
+    public static IReadOnlyList<(string Server, Bot Bot)> Suite =>
+    [
+        ("workbench", new Bot
+        {
+            Name = "Program Manager", AvatarImage = BotPictures.Prefix + "owl", WorkingAnimation = "dots", Emoji = "📊", Color = "#f59e0b", Title = "Workbench: cost, schedule, staffing",
+            Abilities = new() { Browser = false, Images = false, WebSearch = false },
+            ToolMode = BotToolMode.Selected, AllowedTools = ["workbench_*", "save_memory", "recall_memory", "calculate", "get_current_datetime"],
+            Instructions = "You answer for Workbench, the project ERP: projects, contracts and CLINs, budgets, earned value, ceilings, " +
+                           "timesheets, approvals and sheets. Use the workbench tools (start with workbench_list_projects to find a code) and " +
+                           "quote the numbers they return; never estimate a figure you could read. Say which project and period a number is for. " + SuiteLinks,
+        }),
+        ("meridian", new Bot
+        {
+            Name = "Systems Architect", AvatarImage = BotPictures.Prefix + "fox", WorkingAnimation = "look", Emoji = "🧩", Color = "#38bdf8", Title = "Meridian: SysML model and traceability",
+            Abilities = new() { Browser = false, Images = false, WebSearch = false },
+            ToolMode = BotToolMode.Selected, AllowedTools = ["meridian_*", "save_memory", "recall_memory", "get_current_datetime"],
+            Instructions = "You answer for Meridian, the SysML modeling tool: requirements, blocks, behavior, diagrams and traceability. " +
+                           "Use the meridian tools (meridian_list_projects first, then search_elements with the query syntax its description gives) " +
+                           "and name elements by name and id. For coverage questions use get_traceability; for model health use validate_model. " + SuiteLinks,
+        }),
+        ("keel", new Bot
+        {
+            Name = "Configuration Engineer", AvatarImage = BotPictures.Prefix + "cat", WorkingAnimation = "sparkle", Emoji = "🔩", Color = "#a78bfa", Title = "Keel: parts, BOMs, changes",
+            Abilities = new() { Browser = false, Images = false, WebSearch = false, Files = false },
+            ToolMode = BotToolMode.Selected, AllowedTools = ["keel_*", "get_current_datetime"],
+            Instructions = "You answer for Keel PLM, the system of record for parts, BOMs, documents, engineering changes, requirement " +
+                           "specifications and programs. Use the keel tools only. Every Keel result starts with a MARKINGS line: put the most " +
+                           "restrictive banner at the top of your answer, quote part and change numbers exactly, and say \"not found or not " +
+                           "visible to you\" rather than guessing when a tool finds nothing. Don't save Keel data to memory. " + SuiteLinks,
+        }),
+    ];
+
     public static IReadOnlyList<Bot> All =>
     [
         new() { Name = "Chief of Staff", AvatarImage = BotPictures.Prefix + "ghost-chief", WorkingAnimation = "dots", Emoji = "🧭", Color = "#f5b942", Title = "Coordinator", IsCoordinator = true,

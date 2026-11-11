@@ -494,7 +494,7 @@ public sealed class ChatService(
                 available = bot.ToolMode switch
                 {
                     BotToolMode.None => [],
-                    BotToolMode.Selected => available.Where(t => bot.AllowedTools.Contains(t.Name)).ToList(),
+                    BotToolMode.Selected => available.Where(t => bot.AllowsSelected(t.Name)).ToList(),
                     _ => available.Where(t => bot.Abilities.Allows(t.Name, bot.Memory)).ToList(),
                 };
                 var others = allBots.Where(b => b.Id != bot.Id).ToList();

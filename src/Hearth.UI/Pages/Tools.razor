@@ -134,7 +134,8 @@
                 else
                 {
                     <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="server.Url" Placeholder="https://host/mcp" />
-                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="2" Placeholder="Headers, one Name: value per line (e.g. Authorization: Bearer …)" Value="@(Pairs(server.Headers, ": "))" ValueChanged="(string v) => server.Headers = ParsePairs(v, ':')" T="string" />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" Lines="2" Placeholder="Headers, one Name: value per line (e.g. Authorization: Bearer …)" Value="@(McpHeaderMask.Show(server.Headers))" ValueChanged="(string v) => server.Headers = McpHeaderMask.Parse(v, server.Headers)" T="string" HelperText="Values are hidden; type a new value to replace one." />
+                    <MudTextField Variant="Variant.Outlined" Margin="Margin.Dense" @bind-Value="server.OAuthClientId" Placeholder="Sign-in client id (only for servers that sign you in, e.g. keel-mcp)" />
                 }
                 <div class="row">
                     <MudSwitch T="bool" Color="Color.Primary" @bind-Value="server.AutoApprove" Class="check grow" Label="Run this server's tools without asking" />
