@@ -27,9 +27,14 @@
             <MudSelect Label="Every" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(_s.IntervalMinutes.ToString())" ValueChanged="Ev.Change<string>(e => Change(s => s.IntervalMinutes = int.Parse(e.Value!.ToString()!)))" T="string">
                     @foreach (var m in new[] { 15, 30, 60, 120, 240 }) { <MudSelectItem Value="@(m)">@(m < 60 ? $"{m} min" : $"{m / 60} h")</MudSelectItem> }
                 </MudSelect>
+            <MudSelect Label="Message me about" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(_s.Interrupt)" ValueChanged="(string v) => Change(s => s.Interrupt = v)" T="string">
+                    <MudSelectItem Value="@("anything")">Anything worth knowing</MudSelectItem>
+                    <MudSelectItem Value="@("urgent")">Only urgent things</MudSelectItem>
+                </MudSelect>
             <label>Quiet from <input type="time" value="@_s.QuietFrom" @onchange="e => Change(s => s.QuietFrom = e.Value?.ToString() ?? s.QuietFrom)" /></label>
             <label>until <input type="time" value="@_s.QuietUntil" @onchange="e => Change(s => s.QuietUntil = e.Value?.ToString() ?? s.QuietUntil)" /></label>
         </div>
+        @if (_s.UrgentOnly) { <span class="muted small">Things that can wait are kept in the Heartbeat chat without a notification.</span> }
         <span class="muted small">Each check-in is a short model call; with a cloud model that adds up, so pick a longer interval there.</span>
     </div>
     <div class="row end">
