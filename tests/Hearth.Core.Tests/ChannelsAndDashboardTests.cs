@@ -207,6 +207,44 @@ public sealed class TelegramHubTests : IDisposable
         Assert.Equal("Quiet hours off.", await _server.NextReply());
     }
 
+    [Fact]
+    public async Task QuietHoursHoldTaskNewsButNotQuestions()
+    {
+        var channels = _sp.GetRequiredService<ChannelStore>();
+        await channels.UpdateAsync(c => c.TelegramApiBase = _server.Url + "/tg");
+        await channels.SetTokenAsync("telegram", "123:ABC");
+        var hub = _sp.GetRequiredService<ChannelHub>();
+        await hub.EnsureStartedAsync();
+        await _server.UserSays(hub.NewPairingCode());
+        Assert.Contains("Linked to Hearth", await _server.NextReply());
+        await _server.UserSays("/quiet 00:00-23:59");
+        Assert.Contains("task updates wait until it ends", await _server.NextReply());
+
+        var link = Assert.Single((await channels.GetAsync()).Links);
+        var task = new AgentTask { Goal = "Find a flat", Origin = $"telegram:{link.ChatId}" };
+        var runner = _sp.GetRequiredService<TaskRunner>();
+        var announce = typeof(TaskRunner).GetMethod("Announce", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+
+        announce.Invoke(runner, [task, "📍 Find a flat: one landlord can show it Saturday"]); // news: held
+        task.State = TaskState.WaitingForYou;
+        task.Question = "Which neighbourhood?";
+        announce.Invoke(runner, [task, "❓ Find a flat\nWhich neighbourhood?"]);               // a question: sent now
+        Assert.Contains("Which neighbourhood?", await _server.NextReply());
+        for (var i = 0; i < 100 && (await channels.GetAsync()).Links[0].Held.Count == 0; i++) await Task.Delay(20);
+        Assert.Single((await channels.GetAsync()).Links[0].Held);
+
+        await hub.FlushHeldAsync(DateTimeOffset.Now);                                          // still quiet: kept
+        Assert.Single((await channels.GetAsync()).Links[0].Held);
+
+        await _server.UserSays("/quiet off");
+        Assert.Equal("Quiet hours off.", await _server.NextReply());
+        await hub.FlushHeldAsync(DateTimeOffset.Now);
+        var digest = await _server.NextReply();
+        Assert.Contains("While it was quiet (1 update)", digest);
+        Assert.Contains("show it Saturday", digest);
+        Assert.Empty((await channels.GetAsync()).Links[0].Held);
+    }
+
     public void Dispose()
     {
         _server.Dispose();
