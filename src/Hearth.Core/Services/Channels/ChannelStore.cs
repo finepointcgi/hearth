@@ -30,6 +30,9 @@ public sealed class ChannelLink
     public string QuietFrom { get; set; } = "";
     public string QuietTo { get; set; } = "";
     public DateTimeOffset LinkedAt { get; set; } = DateTimeOffset.Now;
+    /// <summary>News that arrived during quiet hours, sent together when they end (newest <see cref="MaxHeld"/> kept).</summary>
+    public List<HeldMessage> Held { get; set; } = [];
+    public const int MaxHeld = 20;
     /// <summary>Answer voice notes with a voice note too (/voice on).</summary>
     public bool VoiceReplies { get; set; }
     /// <summary>Send the documents a reply made (cover letters, notes, spreadsheets) as files (/files off to stop).</summary>
@@ -56,6 +59,9 @@ public sealed class ChannelLink
         return from < to ? t >= from && t < to : t >= from || t < to;
     }
 }
+
+/// <summary>A message kept back during quiet hours.</summary>
+public sealed record HeldMessage(DateTimeOffset At, string Text);
 
 public sealed class ChannelConfig
 {
