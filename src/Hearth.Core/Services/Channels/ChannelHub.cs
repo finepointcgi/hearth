@@ -329,7 +329,7 @@ public sealed class ChannelHub
                 await a.SendTextAsync(link.ChatId, $"🎯 On it: {t.Title}\nI'll post the plan, progress and the result here. /tasks to see all, /answer when I ask something.");
                 break;
             case "/tasks":
-                var tasks = (await _taskStore.ListAsync()).Where(x => x.State is TaskState.Running or TaskState.WaitingForYou or TaskState.Paused).ToList();
+                var tasks = (await _taskStore.ListAsync()).Where(x => x.State is TaskState.Running or TaskState.WaitingForYou or TaskState.Paused or TaskState.Scheduled).ToList();
                 await a.SendTextAsync(link.ChatId, tasks.Count == 0 ? "No active tasks. Start one with /task …"
                     : string.Join("\n", tasks.Select(x => $"{Icon(x.State)} {x.Title} — {x.DoneSteps}/{x.Plan.Count} steps{(x.Question is null ? "" : $"\n   ❓ {x.Question}")}")));
                 break;
@@ -761,7 +761,7 @@ public sealed class ChannelHub
 
     private static string Icon(TaskState s) => s switch
     {
-        TaskState.Running => "⏳", TaskState.WaitingForYou => "❓", TaskState.Paused => "⏸", TaskState.Done => "✅", TaskState.Failed => "❌", _ => "✖",
+        TaskState.Running => "⏳", TaskState.WaitingForYou => "❓", TaskState.Paused => "⏸", TaskState.Done => "✅", TaskState.Failed => "❌", TaskState.Scheduled => "⏰", _ => "✖",
     };
 
     /// <summary>Task progress goes to the chat that started it, or else to chats with notifications on.</summary>
