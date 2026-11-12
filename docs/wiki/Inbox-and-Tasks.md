@@ -53,10 +53,15 @@ comparison"*.
 2. The bot writes a plan (`task_plan`), then works through it in the background in cycles (`task_step`), and finishes
    with a report (`task_done`).
 3. When it needs a decision it asks you (`task_ask`). Answer on the task page, or with `/answer` in a chat app.
-4. Milestones are posted to the chat that started the task.
+4. When the next step depends on time passing (replies to emails, a price, a date), it sets the task aside
+   (`task_wait`, from six minutes up to a month) and picks it up again on its own, even while you're away. The task
+   shows **⏰ Waiting until…** with the reason; **Continue now** wakes it early. One goal can run for days or weeks.
+5. You hear about the plan, questions, the result, and progress the bot marks as news for you. Routine steps and
+   waiting stay on the task page.
 
-You can **pause**, **resume** or **cancel** a task at any time. Each task has a cycle budget so it can't run forever,
-and tasks survive restarts.
+You can **pause**, **resume** or **cancel** a task at any time. Each task has a budget of work cycles: it asks
+"keep going?" when it runs out, each wake-up adds 10 more, and no task goes past 200 without asking. Tasks survive
+restarts.
 
 **Follow-ups** (on the same page) are times a bot scheduled to come back to a chat on its own, for example *"check
 whether the package shipped tomorrow"*. They post only when there's something new. **Open chat** or **Run now**.

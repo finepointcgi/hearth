@@ -26,7 +26,7 @@
         </div>
     </MudPaper>
 
-    @foreach (var group in _tasks.GroupBy(t => t.State is TaskState.Running or TaskState.WaitingForYou or TaskState.Paused).OrderByDescending(g => g.Key))
+    @foreach (var group in _tasks.GroupBy(t => t.State is TaskState.Running or TaskState.WaitingForYou or TaskState.Paused or TaskState.Scheduled).OrderByDescending(g => g.Key))
     {
         <MudPaper Class="card" Elevation="0">
             <h3>@(group.Key ? "Active" : "Finished")</h3>
@@ -41,6 +41,7 @@
                             @(bot is null ? "Hearth" : $"{bot.Emoji} {bot.Name}") · @t.DoneSteps/@t.Plan.Count steps · updated @t.UpdatedAt.ToString("MMM d h:mm tt")
                         </span>
                         @if (t.State == TaskState.WaitingForYou) { <span class="task-q">❓ @t.Question</span> }
+                        @if (t.State == TaskState.Scheduled) { <span class="task-q muted">⏰ Back @t.WakeAt?.ToString("ddd MMM d h:mm tt"): @t.WaitReason</span> }
                     </span>
                     @if (t.Plan.Count > 0) { <span class="progress"><span style="width:@(100 * t.DoneSteps / t.Plan.Count)%"></span></span> }
                 </a>
@@ -110,7 +111,7 @@
 
     public static string Icon(AgentTask t) => t.State switch
     {
-        TaskState.Running => "⏳", TaskState.WaitingForYou => "❓", TaskState.Paused => "⏸", TaskState.Done => "✅", TaskState.Failed => "❌", _ => "✖",
+        TaskState.Running => "⏳", TaskState.WaitingForYou => "❓", TaskState.Paused => "⏸", TaskState.Done => "✅", TaskState.Failed => "❌", TaskState.Scheduled => "⏰", _ => "✖",
     };
 
     private void OpenSidebar() { State.SidebarOpen = true; State.NotifyChanged(); }

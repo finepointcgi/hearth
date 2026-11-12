@@ -1,6 +1,11 @@
 namespace Hearth.Core.Models;
 
-public enum TaskState { Running, WaitingForYou, Paused, Done, Failed, Cancelled }
+/// <summary>
+/// Where a task is. <see cref="Scheduled"/>: waiting on the world rather than the user (a reply, a price, a date) and
+/// picks itself up again at <see cref="AgentTask.WakeAt"/>. New values go at the end: states are saved by name, but
+/// keep the order stable anyway.
+/// </summary>
+public enum TaskState { Running, WaitingForYou, Paused, Done, Failed, Cancelled, Scheduled }
 
 public sealed class TaskStep
 {
@@ -26,7 +31,18 @@ public sealed class AgentTask
     public string? Question { get; set; }
     public string? Result { get; set; }
     public int Cycles { get; set; }
+    /// <summary>Work cycles before it checks in with the user. Each wake-up adds a little more, up to <see cref="HardCycleLimit"/>.</summary>
     public int MaxCycles { get; set; } = 30;
+    /// <summary>A task that spans days still stops for a "keep going?" here, however often it wakes up.</summary>
+    public const int HardCycleLimit = 200;
+    /// <summary>Cycles each wake-up may use, so a goal that runs for weeks can't burn through its budget early.</summary>
+    public const int CyclesPerWake = 10;
+    /// <summary>While <see cref="TaskState.Scheduled"/>: when to pick the work up again, and why it's waiting.</summary>
+    public DateTimeOffset? WakeAt { get; set; }
+    public string? WaitReason { get; set; }
+    public int Wakes { get; set; }
+    /// <summary>Something the bot said the user should hear now (task_step with tell_user); sent once, then cleared.</summary>
+    public string? News { get; set; }
     public int IdleCycles { get; set; }
     /// <summary>Who started it, for notifications ("app", "telegram:123"…).</summary>
     public string? Origin { get; set; }

@@ -7,7 +7,8 @@ namespace Hearth.Core.Services;
 /// <summary>
 /// Works through long-running tasks in the background, one cycle at a time: each cycle the bot sees the goal,
 /// its plan with progress, and recent history, uses tools to advance, and reports with task_step / task_ask /
-/// task_done. State is saved after every cycle, so tasks pick up again after a restart.
+/// task_done. State is saved after every cycle, so tasks pick up again after a restart. A task can also set itself aside
+/// with task_wait (waiting for replies, a date, a change) and wakes up on its own, so one goal can run for days.
 /// </summary>
 public sealed class TaskRunner(TaskStore store, ConversationStore conversations, ChatService chat, BotStore bots,
     ModelPicker models, ActivityLog activity, ChatRuns runs)
@@ -99,10 +100,43 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         if (state == TaskState.Running) _wake.Release();
     }
 
+    /// <summary>
+    /// Wakes the set-aside tasks whose time has come: they go back to work with a fresh, small budget of cycles.
+    /// Returns how many woke.
+    /// </summary>
+    public async Task<int> WakeDueAsync(DateTimeOffset now)
+    {
+        var woke = 0;
+        foreach (var t in (await store.ListAsync()).Where(t => t.State == TaskState.Scheduled && (t.WakeAt is null || t.WakeAt <= now)))
+        {
+            t.State = TaskState.Running;
+            t.Wakes++;
+            t.IdleCycles = 0;
+            t.MaxCycles = Math.Min(AgentTask.HardCycleLimit, Math.Max(t.MaxCycles, t.Cycles + AgentTask.CyclesPerWake));
+            t.Note($"Picked up again: {t.WaitReason}");
+            t.WakeAt = null;
+            await store.SaveAsync(t);
+            woke++;
+        }
+        if (woke > 0 && _started) _wake.Release();
+        return woke;
+    }
+
+    /// <summary>Wakes a set-aside task now instead of at its time.</summary>
+    public async Task WakeNowAsync(string taskId)
+    {
+        if (await store.GetAsync(taskId) is not { State: TaskState.Scheduled } task) return;
+        task.WakeAt = DateTimeOffset.Now;
+        await store.SaveAsync(task);
+        EnsureStarted();
+        await WakeDueAsync(DateTimeOffset.Now);
+    }
+
     private async Task LoopAsync()
     {
         while (true)
         {
+            try { await WakeDueAsync(DateTimeOffset.Now); } catch { /* checked again next time round */ }
             var next = (await store.ListAsync()).Where(t => t.State == TaskState.Running).OrderBy(t => t.UpdatedAt).FirstOrDefault();
             if (next is null)
             {
@@ -132,7 +166,6 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         _running[task.Id] = cts;
         CurrentTaskId = task.Id;
         var planBefore = task.Plan.Count;
-        var doneBefore = task.DoneSteps;
         ChatMessage? reply;
         try
         {
@@ -172,13 +205,18 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
                 task.Question = $"I've used my budget of {task.MaxCycles} work cycles ({task.DoneSteps}/{task.Plan.Count} steps done). Keep going?";
             }
         }
+        // Waiting on the world isn't being stuck.
+        if (task.State == TaskState.Scheduled) task.IdleCycles = 0;
+        var news = task.News;
+        task.News = null;
         await store.SaveAsync(task);
 
-        // Notifications.
+        // Notifications: the plan, news the bot flagged for the user, questions and the result. Routine progress
+        // and waiting stay on the task page.
         if (planBefore == 0 && task.Plan.Count > 0)
             Announce(task, $"🗺️ Plan for \"{task.Title}\":\n" + string.Join("\n", task.Plan.Select((s, i) => $"{i + 1}. {s.Text}")));
-        else if (task.DoneSteps > doneBefore && task.State == TaskState.Running)
-            Announce(task, $"📍 {task.Title}: {task.DoneSteps}/{task.Plan.Count} steps done — {task.Plan.LastOrDefault(s => s.Status == "done")?.Text}");
+        else if (news is not null && task.State is TaskState.Running or TaskState.Scheduled)
+            Announce(task, $"📍 {task.Title}: {news}");
         if (task.State == TaskState.WaitingForYou)
             Announce(task, $"❓ {task.Title}\n{task.Question}");
         if (task.State == TaskState.Done)
@@ -194,13 +232,19 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
             return $"TASK: {task.Goal}\n\n" +
                    "You're doing this as a long-running task that may take many steps. First call task_plan with 3–8 concrete steps. " +
                    "Then start on step 1 using your tools. After each step call task_step. If you need a decision or information " +
-                   "only the user has, call task_ask and stop. When everything is done, call task_done with a clear final report. " +
-                   "Keep chat text short — do the work with tools.";
-        var sb = new StringBuilder($"Continue the task.\nGoal: {task.Goal}\n\nPlan:\n");
+                   "only the user has, call task_ask and stop. If the next step depends on time passing (replies, prices, a date), " +
+                   "call task_wait and stop: the task can run for days or weeks. When everything is done, call task_done with a " +
+                   "clear final report. Keep chat text short — do the work with tools.";
+        var sb = new StringBuilder($"Continue the task.\nGoal: {task.Goal}\n");
+        if (task.Log.LastOrDefault()?.Text is { } last && last.StartsWith("Picked up again: "))
+            sb.Append($"It's now {DateTimeOffset.Now:dddd MMM d, h:mm tt}. You set this aside, waiting for: {last["Picked up again: ".Length..]}. " +
+                      "Check whether it happened before going on.\n");
+        sb.Append("\nPlan:\n");
         for (var i = 0; i < task.Plan.Count; i++)
             sb.AppendLine($"{i + 1}. [{task.Plan[i].Status}] {task.Plan[i].Text}{(task.Plan[i].Note is { } n ? $" — {n}" : "")}");
         if (task.Plan.Count == 0) sb.AppendLine("(no plan yet — call task_plan first)");
-        sb.Append("\nWork on the next unfinished step now. Call task_step when it's done, task_ask if you're blocked on the user, task_done when finished.");
+        sb.Append("\nWork on the next unfinished step now. Call task_step when it's done (tell_user only for news the user would want now), " +
+                  "task_ask if you're blocked on the user, task_wait if the next step needs time to pass, task_done when finished.");
         return sb.ToString();
     }
 

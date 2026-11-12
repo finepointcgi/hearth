@@ -23,7 +23,8 @@
                     <b>@StateText(_task)</b><br />
                     <span class="muted small">@(bot is null ? "Hearth" : $"{bot.Emoji} {bot.Name}") · @_task.Cycles work cycles · started @_task.CreatedAt.ToString("MMM d h:mm tt")</span>
                 </span>
-                @if (_task.State is TaskState.Running or TaskState.WaitingForYou) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Runner.SetStateAsync(_task.Id, TaskState.Paused)">⏸ Pause</MudButton> }
+                @if (_task.State == TaskState.Scheduled) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Runner.WakeNowAsync(_task.Id)">▶ Continue now</MudButton> }
+                @if (_task.State is TaskState.Running or TaskState.WaitingForYou or TaskState.Scheduled) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Runner.SetStateAsync(_task.Id, TaskState.Paused)">⏸ Pause</MudButton> }
                 @if (_task.State is TaskState.Paused or TaskState.Failed) { <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" OnClick="() => Runner.SetStateAsync(_task.Id, TaskState.Running)">▶ Resume</MudButton> }
                 @if (_task.State is not (TaskState.Done or TaskState.Cancelled)) { <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" OnClick="() => Runner.SetStateAsync(_task.Id, TaskState.Cancelled)">Cancel</MudButton> }
                 <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="@($"c/{_task.ConversationId}")">Open work chat</MudButton>
@@ -112,7 +113,8 @@ else
     private static string StateText(AgentTask t) => t.State switch
     {
         TaskState.Running => "Working on it", TaskState.WaitingForYou => "Waiting for you", TaskState.Paused => "Paused",
-        TaskState.Done => "Done", TaskState.Failed => "Stopped with a problem", _ => "Cancelled",
+        TaskState.Done => "Done", TaskState.Failed => "Stopped with a problem",
+        TaskState.Scheduled => $"Waiting until {t.WakeAt:ddd MMM d h:mm tt}: {t.WaitReason}", _ => "Cancelled",
     };
 
     private static string Mark(string status) => status switch
