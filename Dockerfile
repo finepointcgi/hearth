@@ -11,7 +11,10 @@ COPY src/Hearth.Computer/Hearth.Computer.csproj src/Hearth.Computer/
 COPY src/Hearth.Web/Hearth.Web.csproj src/Hearth.Web/
 RUN dotnet restore src/Hearth.Web/Hearth.Web.csproj
 COPY src/ src/
-RUN dotnet publish src/Hearth.Web/Hearth.Web.csproj -c Release -o /app --no-restore
+# Restore again now the sources are here: .NET 10 only adds the package with Blazor's framework scripts
+# (_framework/blazor.web.js) when it sees the .razor files, so `--no-restore` gave a blank page after sign-in.
+# The first restore above still caches the other packages.
+RUN dotnet publish src/Hearth.Web/Hearth.Web.csproj -c Release -o /app
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
