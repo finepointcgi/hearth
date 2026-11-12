@@ -71,7 +71,8 @@ Shown only when Hearth runs on a Mac.
 - What else a chat gets is up to you, per chat, under **Connections → Chat apps**: approval requests and routine
   results are on for a new chat; progress of tasks started elsewhere, heartbeat check-ins and model-server alerts are
   off until you turn them on. Tasks you start from the chat always report back to it. **Quiet hours** hold everything
-  but approval requests.
+  but approval requests and task questions (and failures). Task updates that arrive then are sent together as one
+  "While it was quiet" message when quiet hours end.
 
 ### Commands
 
@@ -85,6 +86,6 @@ Shown only when Hearth runs on a Mac.
 | `/stop` | Stop the current reply |
 | `/notify` | Show what this chat gets |
 | `/notify on` / `/notify off` / `/notify approvals` | Everything, nothing, or only approval requests |
-| `/quiet 22:00-07:00` / `/quiet off` | Quiet hours: only approval requests come through |
+| `/quiet 22:00-07:00` / `/quiet off` | Quiet hours: only approvals and task questions come through; task updates arrive together when it ends |
 | `/task <goal>` | Start a [task](Inbox-and-Tasks.md#tasks) |
 | `/answer …` | Answer a task's question |

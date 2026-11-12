@@ -14,7 +14,7 @@ namespace Hearth.Core.Services.Channels;
 /// <item>Notifications: routine results (and approvals from elsewhere) are pushed to linked chats.</item>
 /// </list>
 /// </summary>
-public sealed class ChannelHub
+public sealed class ChannelHub : IDisposable
 {
     private readonly ChannelStore _store;
     private readonly ChatService _chat;
@@ -95,6 +95,7 @@ public sealed class ChannelHub
         _heartbeat.Alert += OnHeartbeatAlert;
         _recap.Ready += OnRecapReady;
         _health.EnsureStarted();
+        _heldTimer = new Timer(_ => _ = FlushHeldAsync(DateTimeOffset.Now), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         await _store.GetAsync();
         foreach (var ch in _adapters.Keys)
         {
@@ -402,7 +403,7 @@ public sealed class ChannelHub
                 else if (range.Length == 2 && TimeOnly.TryParse(range[0], out var qf) && TimeOnly.TryParse(range[1], out var qt))
                 {
                     await _store.UpdateAsync(c => { var l = Find(c, link)!; l.QuietFrom = qf.ToString("HH:mm"); l.QuietTo = qt.ToString("HH:mm"); });
-                    await a.SendTextAsync(link.ChatId, $"🌙 Quiet from {qf:HH:mm} to {qt:HH:mm}: only approval requests come through then.");
+                    await a.SendTextAsync(link.ChatId, $"🌙 Quiet from {qf:HH:mm} to {qt:HH:mm}: only approvals and task questions come through then; task updates wait until it ends.");
                 }
                 else await a.SendTextAsync(link.ChatId, "Use /quiet 22:00-07:00, or /quiet off.");
                 break;
@@ -764,22 +765,66 @@ public sealed class ChannelHub
         TaskState.Running => "⏳", TaskState.WaitingForYou => "❓", TaskState.Paused => "⏸", TaskState.Done => "✅", TaskState.Failed => "❌", TaskState.Scheduled => "⏰", _ => "✖",
     };
 
-    /// <summary>Task progress goes to the chat that started it, or else to chats with notifications on.</summary>
+    /// <summary>
+    /// Task progress goes to the chat that started it, or else to chats with task notifications on. In quiet hours
+    /// only what can't wait (a question for the user, a failure) is sent; the rest is held until they end.
+    /// </summary>
     private async void OnTaskMilestone(AgentTask task, string message)
     {
         try
         {
             var links = (await _store.GetAsync()).Links;
             var targets = task.Origin is { } o && o.Contains(':')
-                ? links.Where(l => $"{l.Channel}:{l.ChatId}" == o)
-                : links.Where(l => l.Wants(ChannelLink.Kind.Task, DateTimeOffset.Now));
+                ? links.Where(l => $"{l.Channel}:{l.ChatId}" == o).ToList()
+                : links.Where(l => l.NotifyTasks).ToList();
             if (Sendable(message) is not { } said) return;
             var text = said + (task.State == TaskState.WaitingForYou ? "\n\nReply with /answer your answer" : "");
+            var urgent = task.State is TaskState.WaitingForYou or TaskState.Failed;
+            var now = DateTimeOffset.Now;
             foreach (var l in targets)
-                if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendTextAsync(l.ChatId, text);
+            {
+                if (!urgent && l.IsQuiet(now)) await HoldAsync(l, text, now);
+                else if (_adapters[l.Channel].Running) await _adapters[l.Channel].SendTextAsync(l.ChatId, text);
+            }
         }
         catch { /* best effort */ }
     }
+
+    private Timer? _heldTimer;
+
+    private Task HoldAsync(ChannelLink link, string text, DateTimeOffset now) => _store.UpdateAsync(c =>
+    {
+        if (c.Links.FirstOrDefault(l => l.Channel == link.Channel && l.ChatId == link.ChatId) is not { } saved) return;
+        saved.Held.Add(new HeldMessage(now, text));
+        if (saved.Held.Count > ChannelLink.MaxHeld) saved.Held.RemoveRange(0, saved.Held.Count - ChannelLink.MaxHeld);
+    });
+
+    /// <summary>Once a chat's quiet hours are over, sends what was held as one message. Runs every minute.</summary>
+    public async Task FlushHeldAsync(DateTimeOffset now)
+    {
+        try
+        {
+            foreach (var l in (await _store.GetAsync()).Links.Where(l => l.Held.Count > 0 && !l.IsQuiet(now)).ToList())
+            {
+                if (!_adapters[l.Channel].Running) continue;
+                var held = l.Held.ToList();
+                await _adapters[l.Channel].SendTextAsync(l.ChatId, HeldDigest(held));
+                await _store.UpdateAsync(c =>
+                {
+                    if (c.Links.FirstOrDefault(x => x.Channel == l.Channel && x.ChatId == l.ChatId) is { } saved)
+                        saved.Held.RemoveAll(h => held.Contains(h));
+                });
+            }
+        }
+        catch { /* tried again next minute */ }
+    }
+
+    public void Dispose() => _heldTimer?.Dispose();
+
+    /// <summary>The one message that replaces everything held during quiet hours.</summary>
+    public static string HeldDigest(IReadOnlyList<HeldMessage> held) =>
+        $"🌙 While it was quiet ({held.Count} {(held.Count == 1 ? "update" : "updates")}):\n\n" +
+        string.Join("\n\n", held.Select(h => $"{h.At:h:mm tt}: {h.Text}"));
 
     /// <summary>
     /// Text a bot produced on its own, made fit to send: tool calls it wrote as text but never ran are taken out, and
