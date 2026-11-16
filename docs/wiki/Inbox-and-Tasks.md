@@ -59,6 +59,19 @@ comparison"*.
 5. You hear about the plan, questions, the result, and progress the bot marks as news for you. Routine steps and
    waiting stay on the task page.
 
+When something goes wrong:
+
+- **Temporary problems** (the model server is down or busy, a timeout) don't stop the task: it tries again after 1,
+  5 and 15 minutes, quietly. If the problem is still there, it asks you, with the error and what to check.
+- **The same error three times in a row**, or a deleted work chat, stops it. The message says which step it was on,
+  the last error, and what to do next; **Resume** carries on from there.
+- **A step that drags on**: after 4 work cycles on one step without finishing it, the task asks whether to keep at it,
+  skip it or try another way. On the task page, **When one step takes too long → Skip it and move on** skips instead.
+- **Only talking** (no tools, no finished step) twice in a row: it asks you how to get past the current step.
+- Re-planning keeps the steps already finished, and is capped at three times in a row.
+- Bots keep key findings on the task's **Notes** (`task_note`), which they see every cycle, even after waiting for days.
+  After a wait they first check whether what they waited for happened (`done_when`), instead of carrying on blindly.
+
 You can **pause**, **resume** or **cancel** a task at any time. Each task has a budget of work cycles: it asks
 "keep going?" when it runs out, each wake-up adds 10 more, and no task goes past 200 without asking. Tasks survive
 restarts.
