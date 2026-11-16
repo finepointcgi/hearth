@@ -74,6 +74,15 @@ When something goes wrong:
 - Bots keep key findings on the task's **Notes** (`task_note`), which they see every cycle, even after waiting for days.
   After a wait they first check whether what they waited for happened (`done_when`), instead of carrying on blindly.
 
+On the task page:
+
+- **Retry from here** (hover a step, while the task isn't working): that step and the ones after it start again.
+  Finished steps and notes stay; the error, question and counters are cleared, and the bot is told you asked to redo
+  from there.
+- **Timeline**: one line per work cycle: what it did (made a plan, worked, finished a step, set aside, asked you,
+  stopped to ask, problem and retry, error, stopped), which step it was on, how long it took and how many tools it
+  used. Handy for a run that has gone on for days.
+
 You can **pause**, **resume** or **cancel** a task at any time. Each task has a budget of work cycles: it asks
 "keep going?" when it runs out, each wake-up adds 10 more, and no task goes past 200 without asking. Tasks survive
 restarts.

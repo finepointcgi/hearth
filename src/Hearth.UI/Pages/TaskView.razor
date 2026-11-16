@@ -67,11 +67,21 @@
             <h3>Plan @if (_task.Plan.Count > 0) { <span class="muted small">@_task.DoneSteps/@_task.Plan.Count done</span> }</h3>
             @if (_task.Plan.Count == 0) { <p class="muted">Making a plan…</p> }
             <ol class="plan">
-                @foreach (var s in _task.Plan)
+                @for (var i = 0; i < _task.Plan.Count; i++)
                 {
-                    <li class="@s.Status"><span class="step-mark">@Mark(s.Status)</span> @s.Text @if (s.Note is not null) { <span class="muted small"> — @s.Note</span> }</li>
+                    var s = _task.Plan[i];
+                    var number = i + 1;
+                    <li class="@s.Status"><span class="step-mark">@Mark(s.Status)</span> @s.Text @if (s.Note is not null) { <span class="muted small"> — @s.Note</span> }
+                        @if (_task.State != TaskState.Running)
+                        {
+                            <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Class="retry-step"
+                                       title="@($"Redo from step {number}: it and the steps after it start again; finished steps and notes stay")"
+                                       OnClick="() => RetryFrom(number)">↻ Retry from here</MudButton>
+                        }
+                    </li>
                 }
             </ol>
+            @if (_retryError is not null) { <p class="error-box small">@_retryError</p> }
         </MudPaper>
 
         @if (_task.Scratchpad.Count > 0)
@@ -91,6 +101,27 @@
                     <MudSelectItem Value="@("skip")">Skip it and move on</MudSelectItem>
                 </MudSelect>
                 <span class="muted small">After @AgentTask.MaxStepCycles work cycles on one step without finishing it.</span>
+            </MudPaper>
+        }
+
+        @if (_task.Timeline.Count > 0)
+        {
+            <MudPaper Class="card" Elevation="0">
+                <h3>Timeline <span class="muted small">@_task.Timeline.Count(c => c.Outcome is not "restarted") work cycles</span></h3>
+                <div class="task-timeline">
+                    @foreach (var c in Enumerable.Reverse(_task.Timeline).Take(60))
+                    {
+                        <div class="activity cycle @c.Outcome">
+                            <span class="when" title="@c.At.ToString("f")">@c.At.ToString("ddd h:mm tt")</span>
+                            <span class="cycle-mark" title="@c.Outcome">@CycleMark(c.Outcome)</span>
+                            <span class="grow">
+                                <b>@CycleLabel(c.Outcome)</b>@if (c.Step is { } st) { <span class="muted"> · step @st</span> }
+                                @if (c.Detail is { Length: > 0 } d) { <span class="muted small"> — @d</span> }
+                            </span>
+                            <span class="muted small">@Duration(c.DurationMs)@(c.Tools > 0 ? $" · {c.Tools} tool{(c.Tools == 1 ? "" : "s")}" : "")</span>
+                        </div>
+                    }
+                </div>
             </MudPaper>
         }
 
@@ -125,6 +156,29 @@ else
     private void OnSaved(AgentTask t) { if (t.Id == Id) InvokeAsync(() => { _task = t; StateHasChanged(); }); }
     private void OnApproval(PendingApproval _) => InvokeAsync(StateHasChanged);
     private void OnResolved(PendingApproval _, bool __) => InvokeAsync(StateHasChanged);
+
+    private string? _retryError;
+
+    private async Task RetryFrom(int step)
+    {
+        try { _retryError = null; await Runner.RetryFromStepAsync(Id, step); }
+        catch (InvalidOperationException ex) { _retryError = ex.Message; }
+    }
+
+    private static string CycleMark(string outcome) => outcome switch
+    {
+        "step" => "✅", "planned" => "🗺️", "worked" => "⚙️", "idle" => "💤", "waited" => "⏰", "asked" => "❓", "stuck" => "⚠️",
+        "done" => "🏁", "retry" => "🔁", "error" => "❗", "failed" => "❌", "interrupted" => "⏸", "restarted" => "↻", _ => "·",
+    };
+
+    private static string CycleLabel(string outcome) => outcome switch
+    {
+        "step" => "Finished a step", "planned" => "Made a plan", "worked" => "Worked", "idle" => "No progress", "waited" => "Set aside",
+        "asked" => "Asked you", "stuck" => "Stopped to ask you", "done" => "Done", "retry" => "Problem, trying again",
+        "error" => "Error", "failed" => "Stopped", "interrupted" => "Interrupted", "restarted" => "Retried from a step", _ => outcome,
+    };
+
+    private static string Duration(long ms) => ms <= 0 ? "" : ms < 60_000 ? $"{ms / 1000.0:0}s" : $"{ms / 60_000.0:0.#} min";
 
     private async Task SetOnStuck(string value)
     {

@@ -580,6 +580,13 @@ code.audit { display: block; font-size: .72rem; margin-top: .15rem; white-space:
 .card.attention { border-color: #f5b942; }
 .plan { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: .35rem; }
 .plan li { display: flex; gap: .5rem; align-items: baseline; }
+.plan li .retry-step { margin-left: auto; opacity: 0; min-width: 0; padding: 0 .4rem; font-size: .75rem; }
+.plan li:hover .retry-step, .plan li .retry-step:focus-visible { opacity: 1; }
+@media (hover: none) { .plan li .retry-step { opacity: .8; } }
+.task-timeline .activity .when { width: 5.6rem; }
+.task-timeline .cycle-mark { width: 1.2rem; text-align: center; flex-shrink: 0; }
+.task-timeline .cycle.failed .grow, .task-timeline .cycle.error .grow { color: var(--danger); }
+.task-timeline .cycle.stuck .grow b, .task-timeline .cycle.retry .grow b { color: var(--warn, #d97706); }
 .plan li.done { color: var(--muted); }
 .plan li.working { font-weight: 600; }
 
