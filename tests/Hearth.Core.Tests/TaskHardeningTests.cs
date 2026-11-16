@@ -234,6 +234,78 @@ public sealed class TaskHardeningTests : IDisposable
         Assert.Equal("n3", task.Scratchpad[0]);
     }
 
+    [Fact]
+    public async Task EveryCycleLandsOnTheTimeline()
+    {
+        _model.Script = n => n switch
+        {
+            1 => Plan,
+            2 => Call("calculate", """{"expression":"2*21"}"""),
+            3 => Call("task_step", """{"step":1,"status":"done","note":"Found them"}"""),
+            4 => Call("task_wait", """{"hours":5,"reason":"the shop's price update"}"""),
+            5 => throw new HttpRequestException("Connection refused"),
+            _ => Call("task_done", """{"report":"Done."}"""),
+        };
+        var task = await Runner.StartAsync("Compare e-bike prices", null);
+        await WaitFor(task.Id, t => t.State == TaskState.Scheduled && !t.Retrying);
+        await Runner.WakeDueAsync(DateTimeOffset.Now.AddHours(6));
+        await WaitFor(task.Id, t => t.State == TaskState.Scheduled && t.Retrying);
+        await Runner.WakeDueAsync(DateTimeOffset.Now.AddHours(7));
+        var done = await WaitFor(task.Id, t => t.State == TaskState.Done);
+
+        Assert.Equal(["planned", "worked", "step", "waited", "retry", "done"], done.Timeline.Select(c => c.Outcome));
+        Assert.Equal("calculate", done.Timeline[1].Detail);
+        Assert.Equal(1, done.Timeline[1].Tools);
+        Assert.Equal(1, done.Timeline[1].Step);
+        Assert.StartsWith("Step 1 done: Look up prices", done.Timeline[2].Detail);
+        Assert.Contains("the shop's price update", done.Timeline[3].Detail);
+        Assert.Contains("Connection refused", done.Timeline[4].Detail);
+        Assert.Equal(2, done.Timeline[5].Step);
+    }
+
+    [Fact]
+    public async Task AStoppedTaskCanBeRetriedFromAStep()
+    {
+        _model.Script = n => n switch
+        {
+            1 => Call("task_plan", """{"steps":["Find flats","Email landlords","Book viewings"]}"""),
+            2 => Call("task_step", """{"step":1,"status":"done","note":"Found 5"}"""),
+            <= 5 => throw new InvalidOperationException("The mail server rejected the login."),
+            _ => Call("task_done", """{"report":"Viewings booked."}"""),
+        };
+        await Tasks.SaveAsync(new AgentTask()); // something else in the list, untouched
+        var task = await Runner.StartAsync("Find me a flat", null);
+        var failed = await WaitFor(task.Id, t => t.State == TaskState.Failed);
+        Assert.Equal("failed", failed.Timeline[^1].Outcome);
+        failed.Scratchpad.Add("Elm St looks best");
+        await Tasks.SaveAsync(failed);
+
+        await Runner.RetryFromStepAsync(task.Id, 2);
+        var done = await WaitFor(task.Id, t => t.State == TaskState.Done);
+        Assert.Equal("done", done.Plan[0].Status);
+        Assert.Equal("Found 5", done.Plan[0].Note);          // finished work kept
+        Assert.Equal(["Elm St looks best"], done.Scratchpad); // notes kept
+        Assert.Contains(done.Timeline, c => c.Outcome == "restarted" && c.Step == 2);
+        Assert.Null(done.Nudge);                             // said once
+        lock (_model.Prompts)
+        {
+            var retry = _model.Prompts[^1];
+            Assert.Contains("redo the task from step 2 (Email landlords)", retry);
+            Assert.DoesNotContain("Last error", retry); // cleared
+        }
+    }
+
+    [Fact]
+    public async Task RetryingNeedsAStoppedTaskAndARealStep()
+    {
+        var t = new AgentTask { Goal = "g", State = TaskState.Running, Plan = [new TaskStep { Text = "a" }] };
+        await Tasks.SaveAsync(t);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Runner.RetryFromStepAsync(t.Id, 1));
+        t.State = TaskState.Paused;
+        await Tasks.SaveAsync(t);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Runner.RetryFromStepAsync(t.Id, 2));
+    }
+
     [Theory]
     [InlineData("Connection refused (localhost:11434)", true)]
     [InlineData("Response status code does not indicate success: 503 (Service Unavailable).", true)]

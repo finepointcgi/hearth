@@ -17,6 +17,13 @@ public sealed class TaskStep
 
 public sealed record TaskEvent(DateTimeOffset Time, string Text);
 
+/// <summary>
+/// One work cycle, for the task's timeline. <see cref="Outcome"/>: planned, worked, step (a step finished), idle,
+/// waited, asked (the bot asked), stuck (the runner asked: no progress or a step dragging on), done, retry (temporary
+/// problem, trying again), error (a one-off hard error), failed, interrupted, or restarted (retry from a step).
+/// </summary>
+public sealed record TaskCycle(int Number, DateTimeOffset At, long DurationMs, int? Step, string Outcome, string? Detail, int Tools);
+
 /// <summary>A long-running job a bot works through on its own: plan → steps → final report.</summary>
 public sealed class AgentTask
 {
@@ -62,6 +69,17 @@ public sealed class AgentTask
     public string OnStuckStep { get; set; } = "ask";
     /// <summary>Short findings the bot keeps (task_note): shown every cycle, so they survive the chat window and wake-ups.</summary>
     public List<string> Scratchpad { get; set; } = [];
+    /// <summary>What happened in each work cycle (newest <see cref="MaxTimeline"/>), for the task page.</summary>
+    public List<TaskCycle> Timeline { get; set; } = [];
+    public const int MaxTimeline = 200;
+    /// <summary>A one-off instruction for the next cycle's prompt (e.g. "the user asked you to redo from step 3").</summary>
+    public string? Nudge { get; set; }
+
+    public void Record(TaskCycle cycle)
+    {
+        Timeline.Add(cycle);
+        if (Timeline.Count > MaxTimeline) Timeline.RemoveRange(0, Timeline.Count - MaxTimeline);
+    }
 
     public const int MaxRetries = 3;
     public const int MaxStepCycles = 4;

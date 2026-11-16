@@ -104,6 +104,33 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
     }
 
     /// <summary>
+    /// Starts a stopped task again from a step: that step and the ones after it go back to to-do, finished steps and
+    /// notes stay, and the error, question and counters are cleared. The bot is told once that this was asked for.
+    /// </summary>
+    public async Task RetryFromStepAsync(string taskId, int step)
+    {
+        var task = await store.GetAsync(taskId) ?? throw new InvalidOperationException("No such task.");
+        if (task.State == TaskState.Running) throw new InvalidOperationException("It's working right now. Pause it first.");
+        if (step < 1 || step > task.Plan.Count) throw new InvalidOperationException($"There is no step {step}.");
+        foreach (var s in task.Plan.Skip(step - 1)) { s.Status = "todo"; s.Note = null; }
+        task.IdleCycles = task.StepCycles = task.PlansInARow = task.Retries = 0;
+        task.LastError = task.Question = task.WaitReason = task.WaitCondition = null;
+        task.WakeAt = null;
+        task.JustWoke = task.Retrying = false;
+        task.Result = null;
+        task.MaxCycles = Math.Max(task.MaxCycles, task.Cycles + 15);
+        var text = task.Plan[step - 1].Text;
+        task.Nudge = $"The user asked you to redo the task from step {step} ({text}). Steps before it are finished; start step {step} " +
+                     "fresh rather than relying on what you found last time.";
+        task.Note($"Retrying from step {step}: {text}");
+        task.Record(new TaskCycle(task.Cycles, DateTimeOffset.Now, 0, step, "restarted", $"From step {step}: {text}", 0));
+        task.State = TaskState.Running;
+        await store.SaveAsync(task);
+        EnsureStarted();
+        _wake.Release();
+    }
+
+    /// <summary>
     /// Wakes the set-aside tasks whose time has come: they go back to work with a fresh, small budget of cycles.
     /// Returns how many woke.
     /// </summary>
@@ -152,7 +179,7 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
             catch (Exception ex)
             {
                 var gone = ex is TaskGoneException;
-                await ProblemAsync(next, ex.Message, temporary: !gone && IsTemporary(ex), hard: gone);
+                await ProblemAsync(next, ex.Message, temporary: !gone && IsTemporary(ex), hard: gone, cycle: (DateTimeOffset.Now, 0));
             }
         }
     }
@@ -173,6 +200,9 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         var planBefore = task.Plan.Count;
         var finishedBefore = task.FinishedSteps;
         var woke = task.JustWoke;
+        var stepAtStart = task.CurrentStep?.Number;
+        var stateBefore = task.State;
+        task.Nudge = null; // shown in this cycle's prompt
         ChatMessage? reply;
         try
         {
@@ -196,25 +226,30 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         {
             if (DateTimeOffset.Now - startedAt >= cycleLimit - TimeSpan.FromSeconds(5))
             {
-                await ProblemAsync(task, "A work cycle took longer than 30 minutes and was stopped.", temporary: true, hard: false);
+                await ProblemAsync(task, "A work cycle took longer than 30 minutes and was stopped.", temporary: true, hard: false, cycle: (startedAt, ToolCount(reply)));
                 return;
             }
             // Paused (and maybe resumed) mid-cycle: not a problem, just pick up from here.
             task.Note("Interrupted mid-cycle.");
+            task.Record(new TaskCycle(task.Cycles, startedAt, Ms(startedAt), stepAtStart, "interrupted", "Paused mid-cycle", ToolCount(reply)));
             await store.SaveAsync(task);
             return;
         }
         if (reply?.Error is { } error)
         {
-            await ProblemAsync(task, error, temporary: IsTemporary(error), hard: false);
+            await ProblemAsync(task, error, temporary: IsTemporary(error), hard: false, cycle: (startedAt, ToolCount(reply)));
             return;
         }
         task.Retries = 0;
         task.LastError = LastToolError(reply);
         if (task.FinishedSteps > finishedBefore) task.PlansInARow = 0;
-        if (task.State == TaskState.Running) Judge(task, reply, finishedBefore, firstPlan: planBefore == 0 && task.Plan.Count > 0, woke);
+        var idleBefore = task.IdleCycles;
+        var askedByBot = task.State == TaskState.WaitingForYou; // task_ask, before the runner judges
+        var firstPlan = planBefore == 0 && task.Plan.Count > 0;
+        if (task.State == TaskState.Running) Judge(task, reply, finishedBefore, firstPlan, woke);
         // Waiting on the world isn't being stuck.
         if (task.State == TaskState.Scheduled) task.IdleCycles = 0;
+        task.Record(Summarise(task, reply, startedAt, stepAtStart, finishedBefore, firstPlan, idleBefore, askedByBot));
         var news = task.News;
         task.News = null;
         await store.SaveAsync(task);
@@ -296,8 +331,10 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
     /// 15 minutes and then put to the user; the same hard error three times in a row stops the task; a deleted work
     /// chat stops it at once. Every stop says what went wrong, where, and what to do next.
     /// </summary>
-    private async Task ProblemAsync(AgentTask task, string message, bool temporary, bool hard)
+    private async Task ProblemAsync(AgentTask task, string message, bool temporary, bool hard, (DateTimeOffset StartedAt, int Tools) cycle)
     {
+        void Log(string outcome) => task.Record(new TaskCycle(task.Cycles, cycle.StartedAt, Ms(cycle.StartedAt), task.CurrentStep?.Number,
+            outcome, Clip(message, 200), cycle.Tools));
         var same = task.LastError == message;
         task.LastError = message;
         task.JustWoke = false;
@@ -306,6 +343,7 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
             task.State = TaskState.Failed;
             task.Note($"Stopped: {message}");
             task.Question = null;
+            Log("failed");
             await store.SaveAsync(task);
             Announce(task, "❌ " + Explain(task, $"Task stopped: {task.Title}", "Start it again from the goal if you still need it."));
             return;
@@ -320,6 +358,7 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
             task.WaitReason = "a temporary problem to clear";
             task.WaitCondition = null;
             task.Note($"Problem (try {task.Retries} of {AgentTask.MaxRetries}, again in {wait.TotalMinutes:0} min): {message}");
+            Log("retry");
             await store.SaveAsync(task);
             return; // quiet: the task page shows it
         }
@@ -334,15 +373,41 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         {
             task.State = TaskState.Failed;
             task.Question = null;
+            Log("failed");
             await store.SaveAsync(task);
             Announce(task, "❌ " + Explain(task, $"Task stopped: the same error {AgentTask.MaxRetries} times in a row.",
                 "Fix what the error points to, then press Resume on the task page."));
             return;
         }
         // A one-off hard error: the next cycle tries again.
+        Log(task.State == TaskState.WaitingForYou ? "stuck" : "error");
         await store.SaveAsync(task);
         if (task.State == TaskState.WaitingForYou) Announce(task, $"❓ {task.Title}\n{task.Question}");
     }
+
+    /// <summary>What a finished cycle did, in one line for the timeline.</summary>
+    private static TaskCycle Summarise(AgentTask task, ChatMessage? reply, DateTimeOffset startedAt, int? step, int finishedBefore,
+        bool firstPlan, int idleBefore, bool askedByBot)
+    {
+        var tools = (reply?.ToolCalls ?? []).Where(c => !c.Name.StartsWith("task_")).Select(c => c.Name).Distinct().ToList();
+        var used = tools.Count == 0 ? null : string.Join(", ", tools.Take(3)) + (tools.Count > 3 ? $" +{tools.Count - 3}" : "");
+        var (outcome, detail) = task.State switch
+        {
+            TaskState.Done => ("done", "Finished"),
+            TaskState.Scheduled => ("waited", $"Until {task.WakeAt:ddd MMM d h:mm tt}: {task.WaitReason}"),
+            TaskState.WaitingForYou => (askedByBot ? "asked" : "stuck", Clip(task.Question?.Split('\n')[0], 160)),
+            _ when task.FinishedSteps > finishedBefore =>
+                ("step", task.Plan.LastOrDefault(p => p.Status is "done" or "skipped" or "failed") is { } last
+                    ? $"Step {task.Plan.IndexOf(last) + 1} {last.Status}: {Clip(last.Text, 120)}" : "A step finished"),
+            _ when firstPlan => ("planned", $"{task.Plan.Count} steps"),
+            _ when task.IdleCycles > idleBefore => ("idle", used is null ? "No tools, no finished step" : $"Only {used}"),
+            _ => ("worked", used),
+        };
+        return new TaskCycle(task.Cycles, startedAt, Ms(startedAt), step, outcome, detail, reply?.ToolCalls.Count(c => !c.Name.StartsWith("task_")) ?? 0);
+    }
+
+    private static long Ms(DateTimeOffset since) => (long)(DateTimeOffset.Now - since).TotalMilliseconds;
+    private static int ToolCount(ChatMessage? reply) => reply?.ToolCalls.Count(c => !c.Name.StartsWith("task_")) ?? 0;
 
     /// <summary>A message the user (or another bot) can act on: what happened, the step, the last error, what to do.</summary>
     public static string Explain(AgentTask task, string what, string next)
@@ -383,6 +448,7 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
                    "call task_wait and stop: the task can run for days or weeks. Keep key findings with task_note. When everything is done, call task_done with a " +
                    "clear final report. Keep chat text short — do the work with tools.";
         var sb = new StringBuilder($"Continue the task.\nGoal: {task.Goal}\n");
+        if (task.Nudge is { Length: > 0 } nudge) sb.Append($"\n{nudge}\n");
         if (task.JustWoke)
             sb.Append($"\nIt's now {DateTimeOffset.Now:dddd MMM d, h:mm tt}. You were waiting for: {task.WaitReason}." +
                       (task.WaitCondition is { Length: > 0 } cond ? $" It counts as happened when: {cond}." : "") +
