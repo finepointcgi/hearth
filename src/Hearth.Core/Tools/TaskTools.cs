@@ -22,10 +22,19 @@ public static class TaskTools
                 if (node is JsonValue v && v.TryGetValue<string>(out var s)) node = JsonNode.Parse(s);
                 var steps = (node as JsonArray ?? []).Select(x => x?.ToString() ?? "").Where(x => x.Length > 0).ToList();
                 if (steps.Count == 0) return "Give at least one step.";
-                var done = task.Plan.Where(p => p.Status == "done").ToList();
-                task.Plan = steps.Select(x => done.FirstOrDefault(d => d.Text == x) ?? new TaskStep { Text = x }).ToList();
-                task.Note($"Plan: {string.Join(" · ", steps)}");
-                return $"Plan saved with {steps.Count} steps.";
+                if (task.Plan.Count > 0 && task.PlansInARow >= AgentTask.MaxPlansInARow)
+                    return $"You've re-planned {task.PlansInARow} times without finishing a step. Keep this plan and work on the next " +
+                           "unfinished step, or task_ask the user if you're blocked.";
+                var hadPlan = task.Plan.Count > 0;
+                // Finished work stays: only the unfinished part of the plan is replaced.
+                var finished = task.Plan.Where(p => p.Status is "done" or "skipped" or "failed").ToList();
+                var rest = steps.Where(x => finished.All(f => !string.Equals(f.Text, x, StringComparison.OrdinalIgnoreCase)))
+                    .Select(x => new TaskStep { Text = x }).ToList();
+                task.Plan = [.. finished, .. rest];
+                if (hadPlan) task.PlansInARow++;
+                task.Note($"Plan: {string.Join(" · ", task.Plan.Select(p => p.Text))}");
+                return finished.Count == 0 ? $"Plan saved with {task.Plan.Count} steps."
+                    : $"Plan updated: the {finished.Count} finished steps are kept, {rest.Count} to go.";
             }),
         new TaskTool("task_step", "Progress", "📍",
             "Report progress on a step: status working, done, skipped or failed, with a short note of what you found or did.",
@@ -39,7 +48,6 @@ public static class TaskTools
                 var step = task.Plan[n - 1];
                 step.Status = (a.Str("status") ?? "done").ToLowerInvariant() is var st && st is "working" or "done" or "skipped" or "failed" ? st : "done";
                 step.Note = a.Str("note");
-                task.IdleCycles = 0;
                 task.Note($"Step {n} {step.Status}: {step.Text}{(step.Note is null ? "" : " — " + step.Note)}");
                 if (a.Bool("tell_user")) task.News = step.Note is { Length: > 0 } said ? $"{step.Text}: {said}" : step.Text;
                 return $"Step {n} marked {step.Status}. {task.DoneSteps}/{task.Plan.Count} done.";
@@ -59,7 +67,8 @@ public static class TaskTools
             "a date, a page to update. It picks itself up again then, even if the user is away. Not for questions to the user (task_ask).",
             Schema.Object(("hours", "number", "How long to wait, in hours (0.1 to 720)", false),
                 ("until", "string", "Or wake at this local date/time, e.g. 2026-11-20T09:00", false),
-                ("reason", "string", "What you're waiting for and what you'll do then", true)),
+                ("reason", "string", "What you're waiting for and what you'll do then", true),
+                ("done_when", "string", "How you'll know it happened, e.g. \"at least two landlords replied\"", false)),
             a =>
             {
                 var now = DateTimeOffset.Now;
@@ -71,9 +80,23 @@ public static class TaskTools
                 at = at < now.AddMinutes(6) ? now.AddMinutes(6) : at > now.AddDays(30) ? now.AddDays(30) : at;
                 task.WakeAt = at;
                 task.WaitReason = a.Str("reason") ?? "waiting";
+                task.WaitCondition = a.Str("done_when");
+                task.Retrying = false;
                 task.State = TaskState.Scheduled;
                 task.Note($"Waiting until {at:ddd MMM d h:mm tt}: {task.WaitReason}");
                 return $"Set aside until {at:ddd MMM d h:mm tt}. Stop here; you'll continue then.";
+            }),
+        new TaskTool("task_note", "Note", "📝",
+            "Keep a short finding on the task's scratchpad (prices, names, links, decisions). You see the last " +
+            $"{AgentTask.MaxScratchpad} notes every cycle, even after waiting for days, so you don't have to dig through the chat.",
+            Schema.Object(("note", "string", "One short finding", true)),
+            a =>
+            {
+                var note = (a.Str("note") ?? "").Trim();
+                if (note.Length == 0) return "Write the note.";
+                task.Scratchpad.Add(note.Length > 300 ? note[..300] + "…" : note);
+                if (task.Scratchpad.Count > AgentTask.MaxScratchpad) task.Scratchpad.RemoveRange(0, task.Scratchpad.Count - AgentTask.MaxScratchpad);
+                return "Noted.";
             }),
         new TaskTool("task_done", "Finish", "🏁",
             "Finish the task with a final report: what was done, the results, and anything the user should do next.",

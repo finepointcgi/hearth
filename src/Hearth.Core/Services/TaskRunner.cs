@@ -82,6 +82,9 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         task.Note($"You answered: {answer}");
         task.Question = null;
         task.IdleCycles = 0;
+        task.StepCycles = 0;
+        task.PlansInARow = 0;
+        task.Retries = 0;
         if (task.Cycles >= task.MaxCycles) task.MaxCycles = task.Cycles + 15;
         task.State = TaskState.Running;
         await store.SaveAsync(task);
@@ -113,7 +116,9 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
             t.Wakes++;
             t.IdleCycles = 0;
             t.MaxCycles = Math.Min(AgentTask.HardCycleLimit, Math.Max(t.MaxCycles, t.Cycles + AgentTask.CyclesPerWake));
-            t.Note($"Picked up again: {t.WaitReason}");
+            t.Note(t.Retrying ? "Trying again." : $"Picked up again: {t.WaitReason}");
+            t.JustWoke = !t.Retrying;
+            t.Retrying = false;
             t.WakeAt = null;
             await store.SaveAsync(t);
             woke++;
@@ -146,10 +151,8 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
             try { await CycleAsync(next); }
             catch (Exception ex)
             {
-                next.State = TaskState.Failed;
-                next.Note($"Failed: {ex.Message}");
-                await store.SaveAsync(next);
-                Announce(next, $"❌ Task failed: {next.Title}\n{ex.Message}");
+                var gone = ex is TaskGoneException;
+                await ProblemAsync(next, ex.Message, temporary: !gone && IsTemporary(ex), hard: gone);
             }
         }
     }
@@ -157,15 +160,19 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
     private async Task CycleAsync(AgentTask task)
     {
         var conv = await conversations.GetAsync(task.ConversationId)
-                   ?? throw new InvalidOperationException("The task's conversation was deleted.");
+                   ?? throw new TaskGoneException("The task's work chat was deleted.");
         var bot = task.BotId is null ? null : await bots.GetAsync(task.BotId);
-        var model = await models.PickAsync(bot) ?? throw new InvalidOperationException("No model is available.");
+        var model = await models.PickAsync(bot) ?? throw new TemporaryProblemException("No model is available (is the model server running?).");
 
         conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = Prompt(task), RoutineName = "Task" });
-        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        var cycleLimit = TimeSpan.FromMinutes(30);
+        using var cts = new CancellationTokenSource(cycleLimit);
+        var startedAt = DateTimeOffset.Now;
         _running[task.Id] = cts;
         CurrentTaskId = task.Id;
         var planBefore = task.Plan.Count;
+        var finishedBefore = task.FinishedSteps;
+        var woke = task.JustWoke;
         ChatMessage? reply;
         try
         {
@@ -181,30 +188,31 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         // Someone may have paused/cancelled while this cycle ran.
         var latest = await store.GetAsync(task.Id);
         if (latest is { State: TaskState.Paused or TaskState.Cancelled }) { latest.Cycles = task.Cycles + 1; await store.SaveAsync(latest); return; }
+        if (latest is not null) task.OnStuckStep = latest.OnStuckStep; // changed on the task page meanwhile
 
         task.Cycles++;
-        if (reply?.Error is not null)
+        task.JustWoke = false;
+        if (cts.IsCancellationRequested && reply?.Error is null)
         {
-            task.Note($"Problem: {reply.Error}");
-            task.IdleCycles++;
-            if (task.IdleCycles >= 3) { task.State = TaskState.Failed; Announce(task, $"❌ Task failed: {task.Title}\n{reply.Error}"); }
+            if (DateTimeOffset.Now - startedAt >= cycleLimit - TimeSpan.FromSeconds(5))
+            {
+                await ProblemAsync(task, "A work cycle took longer than 30 minutes and was stopped.", temporary: true, hard: false);
+                return;
+            }
+            // Paused (and maybe resumed) mid-cycle: not a problem, just pick up from here.
+            task.Note("Interrupted mid-cycle.");
+            await store.SaveAsync(task);
+            return;
         }
-        else if (task.State == TaskState.Running)
+        if (reply?.Error is { } error)
         {
-            var progressed = reply?.ToolCalls.Any(t => !t.Name.StartsWith("task_") || t.Name is "task_plan" or "task_step") == true;
-            task.IdleCycles = progressed ? 0 : task.IdleCycles + 1;
-            if (reply?.Content is { Length: > 0 } said) task.Note(said.Length > 300 ? said[..300] + "…" : said);
-            if (task.IdleCycles >= 2)
-            {
-                task.State = TaskState.WaitingForYou;
-                task.Question = reply?.Content is { Length: > 0 } c ? $"I'm not making progress. Last thing I said: {c}" : "I'm stuck — how should I continue?";
-            }
-            else if (task.Cycles >= task.MaxCycles)
-            {
-                task.State = TaskState.WaitingForYou;
-                task.Question = $"I've used my budget of {task.MaxCycles} work cycles ({task.DoneSteps}/{task.Plan.Count} steps done). Keep going?";
-            }
+            await ProblemAsync(task, error, temporary: IsTemporary(error), hard: false);
+            return;
         }
+        task.Retries = 0;
+        task.LastError = LastToolError(reply);
+        if (task.FinishedSteps > finishedBefore) task.PlansInARow = 0;
+        if (task.State == TaskState.Running) Judge(task, reply, finishedBefore, firstPlan: planBefore == 0 && task.Plan.Count > 0, woke);
         // Waiting on the world isn't being stuck.
         if (task.State == TaskState.Scheduled) task.IdleCycles = 0;
         var news = task.News;
@@ -226,6 +234,145 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         }
     }
 
+    /// <summary>
+    /// Whether the cycle moved the task forward, and what to do if not. Progress is a step finishing (done, skipped or
+    /// failed), the bot waiting, asking or finishing (handled before this), or a tool that changed something (sent,
+    /// wrote, created…). Talking, reading and re-planning alone aren't progress.
+    /// </summary>
+    private static void Judge(AgentTask task, ChatMessage? reply, int finishedBefore, bool firstPlan, bool woke)
+    {
+        var calls = reply?.ToolCalls ?? [];
+        var stepFinished = task.FinishedSteps > finishedBefore;
+        var changedSomething = calls.Any(c => c.Status == ToolCallStatus.Done && !c.Name.StartsWith("task_") && (c.Undoable || ActsOnTheWorld(c.Name)));
+        var usedTools = calls.Any(c => !c.Name.StartsWith("task_") && c.Status == ToolCallStatus.Done);
+        if (reply?.Content is { Length: > 0 } said) task.Note(said.Length > 300 ? said[..300] + "…" : said);
+
+        if (firstPlan) task.IdleCycles = 0; // making the first plan is getting started
+        else if (stepFinished || changedSomething)
+        {
+            task.IdleCycles = 0;
+            if (stepFinished) task.StepCycles = 0; else task.StepCycles++;
+        }
+        else
+        {
+            task.StepCycles++;
+            // Only talking or re-planning: idle. Looking things up counts as working on the step (the step budget limits it).
+            // After waking, reporting on the step (task_step) is the check it was asked for; anything else is idle.
+            if (woke ? calls.All(c => c.Name != "task_step") : !usedTools) task.IdleCycles++;
+        }
+
+        var current = task.CurrentStep;
+        if (task.IdleCycles >= 2)
+        {
+            task.State = TaskState.WaitingForYou;
+            task.Question = Explain(task, "I'm not making progress.",
+                current is { } c ? $"Tell me how to get past step {c.Number}, or say \"skip it\"." : "Tell me how you'd like me to continue.");
+        }
+        else if (task.StepCycles >= AgentTask.MaxStepCycles && current is { } stuck)
+        {
+            if (task.OnStuckStep == "skip")
+            {
+                stuck.Step.Status = "failed";
+                stuck.Step.Note = $"Gave up after {task.StepCycles} work cycles" + (stuck.Step.Note is { } n ? $" ({n})" : "");
+                task.Note($"Step {stuck.Number} skipped after {task.StepCycles} cycles: {stuck.Step.Text}");
+                task.StepCycles = 0;
+            }
+            else
+            {
+                task.State = TaskState.WaitingForYou;
+                task.Question = Explain(task, $"Step {stuck.Number} has taken {task.StepCycles} work cycles without finishing.",
+                    "Should I keep at it, skip it, or try another way?");
+            }
+        }
+        else if (task.Cycles >= task.MaxCycles)
+        {
+            task.State = TaskState.WaitingForYou;
+            task.Question = Explain(task, $"I've used my budget of {task.MaxCycles} work cycles ({task.DoneSteps}/{task.Plan.Count} steps done).", "Keep going?");
+        }
+    }
+
+    /// <summary>
+    /// A problem with a cycle. Temporary ones (model server down, timeouts, rate limits) are retried after 1, 5 and
+    /// 15 minutes and then put to the user; the same hard error three times in a row stops the task; a deleted work
+    /// chat stops it at once. Every stop says what went wrong, where, and what to do next.
+    /// </summary>
+    private async Task ProblemAsync(AgentTask task, string message, bool temporary, bool hard)
+    {
+        var same = task.LastError == message;
+        task.LastError = message;
+        task.JustWoke = false;
+        if (hard)
+        {
+            task.State = TaskState.Failed;
+            task.Note($"Stopped: {message}");
+            task.Question = null;
+            await store.SaveAsync(task);
+            Announce(task, "❌ " + Explain(task, $"Task stopped: {task.Title}", "Start it again from the goal if you still need it."));
+            return;
+        }
+        task.Retries = temporary || same ? task.Retries + 1 : 1;
+        if (temporary && task.Retries <= AgentTask.MaxRetries)
+        {
+            var wait = TimeSpan.FromMinutes(task.Retries switch { 1 => 1, 2 => 5, _ => 15 });
+            task.State = TaskState.Scheduled;
+            task.Retrying = true;
+            task.WakeAt = DateTimeOffset.Now + wait;
+            task.WaitReason = "a temporary problem to clear";
+            task.WaitCondition = null;
+            task.Note($"Problem (try {task.Retries} of {AgentTask.MaxRetries}, again in {wait.TotalMinutes:0} min): {message}");
+            await store.SaveAsync(task);
+            return; // quiet: the task page shows it
+        }
+        task.Note($"Problem: {message}");
+        if (temporary)
+        {
+            task.State = TaskState.WaitingForYou;
+            task.Question = Explain(task, $"I couldn't work for a while: the same problem came back {AgentTask.MaxRetries} times.",
+                "Check the model server (Settings → Models), then answer here to continue.");
+        }
+        else if (task.Retries >= AgentTask.MaxRetries)
+        {
+            task.State = TaskState.Failed;
+            task.Question = null;
+            await store.SaveAsync(task);
+            Announce(task, "❌ " + Explain(task, $"Task stopped: the same error {AgentTask.MaxRetries} times in a row.",
+                "Fix what the error points to, then press Resume on the task page."));
+            return;
+        }
+        // A one-off hard error: the next cycle tries again.
+        await store.SaveAsync(task);
+        if (task.State == TaskState.WaitingForYou) Announce(task, $"❓ {task.Title}\n{task.Question}");
+    }
+
+    /// <summary>A message the user (or another bot) can act on: what happened, the step, the last error, what to do.</summary>
+    public static string Explain(AgentTask task, string what, string next)
+    {
+        var sb = new StringBuilder(what);
+        if (task.CurrentStep is { } c) sb.Append($"\nStep {c.Number} of {task.Plan.Count}: {c.Step.Text}");
+        if (task.LastError is { Length: > 0 } e) sb.Append($"\nLast error: {Clip(e, 300)}");
+        sb.Append($"\nNext: {next}");
+        return sb.ToString();
+    }
+
+    /// <summary>Problems worth retrying: the model server down or busy, the network, timeouts.</summary>
+    public static bool IsTemporary(Exception ex) =>
+        ex is TemporaryProblemException or HttpRequestException or TimeoutException or TaskCanceledException || IsTemporary(ex.Message);
+
+    public static bool IsTemporary(string message) =>
+        new[] { "timed out", "timeout", "connection refused", "actively refused", "no connection", "unreachable", "no model is available",
+                "rate limit", "too many requests", "overloaded", "429", "502", "503", "504", "bad gateway", "service unavailable",
+                "server error", "connection reset", "name or service not known", "no such host" }
+            .Any(w => message.Contains(w, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Tool names that change something rather than look something up.</summary>
+    private static bool ActsOnTheWorld(string tool) =>
+        new[] { "send", "write", "create", "draft", "edit", "delete", "save", "update", "post", "move", "add", "upload", "book", "schedule", "reply", "forward", "rename", "commit" }
+            .Any(v => tool.Contains(v, StringComparison.OrdinalIgnoreCase));
+
+    private static string? LastToolError(ChatMessage? reply) =>
+        reply?.ToolCalls.LastOrDefault(c => c.Status == ToolCallStatus.Error && !c.Name.StartsWith("task_")) is { } bad
+            ? $"{bad.Name}: {Clip(bad.Result, 200)}" : null;
+
     private static string Prompt(AgentTask task)
     {
         if (task.Cycles == 0)
@@ -233,20 +380,34 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
                    "You're doing this as a long-running task that may take many steps. First call task_plan with 3–8 concrete steps. " +
                    "Then start on step 1 using your tools. After each step call task_step. If you need a decision or information " +
                    "only the user has, call task_ask and stop. If the next step depends on time passing (replies, prices, a date), " +
-                   "call task_wait and stop: the task can run for days or weeks. When everything is done, call task_done with a " +
+                   "call task_wait and stop: the task can run for days or weeks. Keep key findings with task_note. When everything is done, call task_done with a " +
                    "clear final report. Keep chat text short — do the work with tools.";
         var sb = new StringBuilder($"Continue the task.\nGoal: {task.Goal}\n");
-        if (task.Log.LastOrDefault()?.Text is { } last && last.StartsWith("Picked up again: "))
-            sb.Append($"It's now {DateTimeOffset.Now:dddd MMM d, h:mm tt}. You set this aside, waiting for: {last["Picked up again: ".Length..]}. " +
-                      "Check whether it happened before going on.\n");
+        if (task.JustWoke)
+            sb.Append($"\nIt's now {DateTimeOffset.Now:dddd MMM d, h:mm tt}. You were waiting for: {task.WaitReason}." +
+                      (task.WaitCondition is { Length: > 0 } cond ? $" It counts as happened when: {cond}." : "") +
+                      " First check whether that happened. If it did, call task_step on the current step with a note saying what you " +
+                      "found, then carry on. If not, call task_wait again or task_ask the user. Do not invent progress.\n");
+        else if (task.IdleCycles > 0 && task.CurrentStep is { } c)
+            sb.Append($"\nThe last cycle didn't move the task forward. Which part of step {c.Number} are you blocked on? Finish it " +
+                      "(task_step done), skip it (task_step skipped, with why), or task_ask the user. Don't re-plan.\n");
+        if (task.LastError is { Length: > 0 } err) sb.Append($"\nLast error: {Clip(err, 300)}\n");
+        if (task.Scratchpad.Count > 0) sb.Append("\nYour notes:\n" + string.Join("\n", task.Scratchpad.Select(n => "- " + n)) + "\n");
         sb.Append("\nPlan:\n");
         for (var i = 0; i < task.Plan.Count; i++)
             sb.AppendLine($"{i + 1}. [{task.Plan[i].Status}] {task.Plan[i].Text}{(task.Plan[i].Note is { } n ? $" — {n}" : "")}");
         if (task.Plan.Count == 0) sb.AppendLine("(no plan yet — call task_plan first)");
         sb.Append("\nWork on the next unfinished step now. Call task_step when it's done (tell_user only for news the user would want now), " +
-                  "task_ask if you're blocked on the user, task_wait if the next step needs time to pass, task_done when finished.");
+                  "task_note to keep a finding, task_ask if you're blocked on the user, task_wait if the next step needs time to pass, " +
+                  "task_done when finished.");
         return sb.ToString();
     }
 
     private static string? Clip(string? s, int n) => s is null ? null : s.Length <= n ? s : s[..n] + "…";
 }
+
+/// <summary>The task can't go on at all (its work chat was deleted).</summary>
+public sealed class TaskGoneException(string message) : Exception(message);
+
+/// <summary>A problem worth retrying later (no model available right now).</summary>
+public sealed class TemporaryProblemException(string message) : Exception(message);

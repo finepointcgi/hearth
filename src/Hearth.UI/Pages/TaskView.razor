@@ -30,6 +30,8 @@
                 <MudButton Variant="Variant.Text" Color="Color.Primary" Size="Size.Small" Href="@($"c/{_task.ConversationId}")">Open work chat</MudButton>
             </div>
             <p class="goal">@_task.Goal</p>
+            @if (_task.State == TaskState.Scheduled && _task.WaitCondition is { Length: > 0 } cond) { <p class="muted small">Counts as happened when: @cond</p> }
+            @if (_task.State is TaskState.Failed or TaskState.WaitingForYou or TaskState.Scheduled && _task.LastError is { Length: > 0 } err) { <p class="muted small">Last error: @err</p> }
         </MudPaper>
 
         @foreach (var p in pending)
@@ -72,6 +74,26 @@
             </ol>
         </MudPaper>
 
+        @if (_task.Scratchpad.Count > 0)
+        {
+            <MudPaper Class="card" Elevation="0">
+                <h3>Notes</h3>
+                <ul>@foreach (var n in _task.Scratchpad) { <li>@n</li> }</ul>
+            </MudPaper>
+        }
+
+        @if (_task.State is not (TaskState.Done or TaskState.Cancelled))
+        {
+            <MudPaper Class="card" Elevation="0">
+                <MudSelect Label="When one step takes too long" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" T="string"
+                           Value="@_task.OnStuckStep" ValueChanged="SetOnStuck">
+                    <MudSelectItem Value="@("ask")">Ask me</MudSelectItem>
+                    <MudSelectItem Value="@("skip")">Skip it and move on</MudSelectItem>
+                </MudSelect>
+                <span class="muted small">After @AgentTask.MaxStepCycles work cycles on one step without finishing it.</span>
+            </MudPaper>
+        }
+
         <MudPaper Class="card" Elevation="0">
             <h3>Log</h3>
             @foreach (var e in Enumerable.Reverse(_task.Log).Take(80))
@@ -103,6 +125,13 @@ else
     private void OnSaved(AgentTask t) { if (t.Id == Id) InvokeAsync(() => { _task = t; StateHasChanged(); }); }
     private void OnApproval(PendingApproval _) => InvokeAsync(StateHasChanged);
     private void OnResolved(PendingApproval _, bool __) => InvokeAsync(StateHasChanged);
+
+    private async Task SetOnStuck(string value)
+    {
+        if (await Store.GetAsync(Id) is not { } t) return;
+        t.OnStuckStep = value;
+        await Store.SaveAsync(t);
+    }
 
     private async Task Answer()
     {

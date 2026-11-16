@@ -43,6 +43,36 @@ public sealed class AgentTask
     public int Wakes { get; set; }
     /// <summary>Something the bot said the user should hear now (task_step with tell_user); sent once, then cleared.</summary>
     public string? News { get; set; }
+    /// <summary>While waiting: what counts as "it happened" (task_wait's done_when), checked first on waking.</summary>
+    public string? WaitCondition { get; set; }
+    /// <summary>Woken from a wait and not yet checked whether what it waited for happened.</summary>
+    public bool JustWoke { get; set; }
+    /// <summary>Waiting only to retry after a temporary problem (model server down, timeout), not on the world.</summary>
+    public bool Retrying { get; set; }
+
+    /// <summary>Temporary problems in a row (retried with backoff), or the same error in a row (for hard ones).</summary>
+    public int Retries { get; set; }
+    /// <summary>The last problem: a model or tool error. Shown when the task stops so it can be resumed cleanly.</summary>
+    public string? LastError { get; set; }
+    /// <summary>Work cycles since a step last finished (done, skipped or failed).</summary>
+    public int StepCycles { get; set; }
+    /// <summary>task_plan calls since a step last finished: caps re-planning loops.</summary>
+    public int PlansInARow { get; set; }
+    /// <summary>What to do when one step takes <see cref="MaxStepCycles"/> cycles: "ask" the user, or "skip" it (mark failed, move on).</summary>
+    public string OnStuckStep { get; set; } = "ask";
+    /// <summary>Short findings the bot keeps (task_note): shown every cycle, so they survive the chat window and wake-ups.</summary>
+    public List<string> Scratchpad { get; set; } = [];
+
+    public const int MaxRetries = 3;
+    public const int MaxStepCycles = 4;
+    public const int MaxPlansInARow = 3;
+    public const int MaxScratchpad = 10;
+
+    /// <summary>The step being worked on: the first one not finished.</summary>
+    public (int Number, TaskStep Step)? CurrentStep =>
+        Plan.Select((s, i) => (i + 1, s)).FirstOrDefault(x => x.s.Status is "todo" or "working") is var (n, step) && step is not null ? (n, step) : null;
+
+    public int FinishedSteps => Plan.Count(s => s.Status is "done" or "skipped" or "failed");
     public int IdleCycles { get; set; }
     /// <summary>Who started it, for notifications ("app", "telegram:123"…).</summary>
     public string? Origin { get; set; }
