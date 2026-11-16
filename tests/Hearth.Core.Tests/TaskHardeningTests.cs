@@ -162,12 +162,12 @@ public sealed class TaskHardeningTests : IDisposable
     {
         _model.Script = n => n == 1 ? Plan : n <= 1 + AgentTask.MaxStepCycles ? Call("calculate", """{"expression":"1+1"}""")
             : Call("task_done", """{"report":"Summary written without step 1."}""");
-        var task = await Runner.StartAsync("Compare e-bike prices", null);
-        await Runner.SetStateAsync(task.Id, TaskState.Paused);
-        var t = (await Tasks.GetAsync(task.Id))!;
-        t.OnStuckStep = "skip";
-        await Tasks.SaveAsync(t);
-        await Runner.SetStateAsync(task.Id, TaskState.Running);
+        // Set to skip before it starts (pausing mid-cycle to change it would race the scripted turns).
+        var conv = new Conversation { Title = "work" };
+        await _sp.GetRequiredService<ConversationStore>().SaveAsync(conv);
+        var task = new AgentTask { Goal = "Compare e-bike prices", ConversationId = conv.Id, OnStuckStep = "skip" };
+        await Tasks.SaveAsync(task);
+        Runner.EnsureStarted();
         var done = await WaitFor(task.Id, x => x.State == TaskState.Done);
         Assert.StartsWith("Gave up after", done.Plan[0].Note);
         Assert.Contains(done.Log, e => e.Text.StartsWith("Step 1 skipped after"));
