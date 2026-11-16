@@ -327,6 +327,49 @@ public sealed class HistoryAndHeartbeatTests : IDisposable
     }
 
     [Fact]
+    public async Task UrgentOnlyHeartbeatKeepsThingsThatCanWaitWithoutAlerting()
+    {
+        var settings = _sp.GetRequiredService<SettingsStore>();
+        var s = await settings.GetAsync();
+        s.Heartbeat = new HeartbeatSettings { Enabled = true, QuietFrom = "00:00", QuietUntil = "00:00", Interrupt = "urgent" };
+        await settings.SaveAsync(s);
+        var heartbeat = _sp.GetRequiredService<HeartbeatRunner>();
+        var alerts = new List<string>();
+        heartbeat.Alert += (_, text) => alerts.Add(text);
+        var answer = "";
+        string? prompt = null;
+        _team.Script = (_, messages, _) => { prompt = messages[^1].Content; return new LlmChunk(answer); };
+
+        answer = "[fyi] Your dentist moved next month's cleaning to the 14th.";
+        Assert.Contains("can wait", await heartbeat.RunNowAsync());
+        Assert.Contains("[urgent]", prompt);
+        Assert.Empty(alerts);
+        var state = await heartbeat.StateAsync();
+        var conv = await _sp.GetRequiredService<ConversationStore>().GetAsync(state.ConversationId!);
+        Assert.Equal("Your dentist moved next month's cleaning to the 14th.", conv!.Messages.Last().Content); // kept, so it isn't repeated
+        Assert.False(conv.Unread);
+        Assert.Equal(0, state.Alerts);
+
+        answer = "**[urgent]** Your server stopped answering at 10:40.";
+        Assert.Equal("Sent you a message.", await heartbeat.RunNowAsync());
+        Assert.Equal("Your server stopped answering at 10:40.", Assert.Single(alerts));
+
+        // "Anything" sends both, without the tag.
+        s.Heartbeat.Interrupt = "anything";
+        await settings.SaveAsync(s);
+        answer = "[fyi] The library book is due Monday.";
+        Assert.Equal("Sent you a message.", await heartbeat.RunNowAsync());
+        Assert.Equal("The library book is due Monday.", alerts[^1]);
+    }
+
+    [Theory]
+    [InlineData("[urgent] Server down", "urgent", "Server down")]
+    [InlineData("[FYI]: Package arrives Tuesday", "fyi", "Package arrives Tuesday")]
+    [InlineData("Untagged news", "urgent", "Untagged news")] // a forgotten tag never hides something important
+    public void HeartbeatUrgencyTag(string message, string urgency, string text) =>
+        Assert.Equal((urgency, text), HeartbeatRunner.Urgency(message));
+
+    [Fact]
     public async Task CoordinatorAsksTwoBotsAtTheSameTime()
     {
         var bots = _sp.GetRequiredService<BotStore>();

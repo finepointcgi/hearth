@@ -36,7 +36,9 @@ through a checklist you write, for example:
 > Anything due today, important email, finished tasks, things I asked you to watch.
 
 It uses its tools to look, and messages you (here and on your linked chat apps) **only when something needs your
-attention**. Quiet check-ins leave no trace. Set **Quiet from … until …** for the night. **Check in now** runs one
+attention**. Quiet check-ins leave no trace. **Message me about → Only urgent things** narrows it to what needs you
+within a few hours (due today, something broke, someone waiting on you); findings that can wait are kept in the
+Heartbeat chat without a notification, so you can read them later and they aren't repeated. Set **Quiet from … until …** for the night. **Check in now** runs one
 straight away.
 
 Each check-in is a model call; on a paid cloud model, pick a longer interval.

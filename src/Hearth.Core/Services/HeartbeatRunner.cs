@@ -16,6 +16,12 @@ public sealed class HeartbeatSettings
         "- Long-running tasks that finished, failed or need my answer\n" +
         "- Anything I asked you to watch for";
     /// <summary>No check-ins between these times (24h "HH:mm"; equal = never quiet).</summary>
+    /// <summary>
+    /// "anything": message about anything worth knowing. "urgent": only what needs the user within a few hours; other
+    /// findings are kept in the Heartbeat chat without a notification.
+    /// </summary>
+    public string Interrupt { get; set; } = "anything";
+    public bool UrgentOnly => Interrupt == "urgent";
     public string QuietFrom { get; set; } = "22:00";
     public string QuietUntil { get; set; } = "08:00";
 
@@ -90,7 +96,8 @@ public sealed class HeartbeatRunner(SettingsStore settingsStore, BotStore bots, 
                     "never report that you checked, that all is well, or what you can't access. Earlier check-ins are above; " +
                     "don't repeat something you already told the user unless it changed.\n" +
                     $"If there's nothing concrete to report, your whole reply must be exactly {Ok}. " +
-                    "Otherwise write a short, direct message with just what matters.",
+                    "Otherwise write a short, direct message with just what matters, starting with [urgent] if it needs the " +
+                    "user within the next few hours (due today, something broke, someone waiting on them) or [fyi] if it can wait.",
             };
             conv.Messages.Add(prompt);
             var reply = await chat.RunAgentAsync(conv, bot, new SendOptions(model, false, false, true), () => Task.CompletedTask, ct,
@@ -115,7 +122,8 @@ public sealed class HeartbeatRunner(SettingsStore settingsStore, BotStore bots, 
                 await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Error, "Heartbeat skipped", state.LastResult, bot?.Id, conv.Id, Ok: false));
                 return state.LastResult;
             }
-            reply.Content = message;
+            var (urgency, said) = Urgency(message);
+            reply.Content = said;
             if (IsOk(reply.Content))
             {
                 // Nothing to say: drop the exchange so the chat only holds real alerts.
@@ -123,6 +131,14 @@ public sealed class HeartbeatRunner(SettingsStore settingsStore, BotStore bots, 
                 conv.Messages.Remove(reply);
                 await conversations.SaveAsync(conv, notify: false);
                 return state.LastResult = "Nothing to report.";
+            }
+            if (s.UrgentOnly && urgency == "fyi")
+            {
+                // Worth knowing, not worth interrupting for: kept in the Heartbeat chat (so it isn't repeated), no alert.
+                await conversations.SaveAsync(conv, notify: false);
+                await activity.AddAsync(new Activity(DateTimeOffset.Now, ActivityKind.Routine, $"💓 {bot?.Name ?? "Hearth"} noted something (not urgent)",
+                    reply.Content.Length > 280 ? reply.Content[..280] + "…" : reply.Content, bot?.Id, conv.Id));
+                return state.LastResult = "Noted something that can wait: it's in the Heartbeat chat, no notification.";
             }
             conv.Unread = true;
             await conversations.SaveAsync(conv);
@@ -143,6 +159,16 @@ public sealed class HeartbeatRunner(SettingsStore settingsStore, BotStore bots, 
             Interlocked.Exchange(ref _busy, 0);
             Changed?.Invoke();
         }
+    }
+
+    /// <summary>
+    /// Reads and removes the [urgent] / [fyi] tag the check-in starts with. Untagged counts as urgent, so a model that
+    /// forgets the tag never hides something important.
+    /// </summary>
+    public static (string urgency, string text) Urgency(string message)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(message, @"^\s*[*_]*\[(urgent|fyi)\][*_]*[\s:—-]*", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return m.Success ? (m.Groups[1].Value.ToLowerInvariant(), message[m.Length..].Trim()) : ("urgent", message);
     }
 
     /// <summary>Models sometimes decorate the token; anything short that contains it counts as "nothing to report".</summary>
