@@ -191,6 +191,7 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
     public static RouteHint? RouteFor(AgentTask task) =>
         task.Plan.Count == 0 ? new(true, "planning the task")
         : task.LastError is not null ? new(true, "getting past a problem")
+        : task.Nudge is not null ? new(true, "redoing steps you asked to retry")
         : task.StepCycles >= 2 ? new(true, "a step is taking a while")
         : task.JustWoke ? new(false, "wake check")
         : null;

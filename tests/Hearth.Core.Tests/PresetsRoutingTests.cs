@@ -161,6 +161,9 @@ public sealed class PresetsRoutingTests
         task.LastError = "timeout";
         Assert.Equal("getting past a problem", TaskRunner.RouteFor(task)!.Reason);
         task.LastError = null;
+        task.Nudge = "redo from step 1";
+        Assert.Equal("redoing steps you asked to retry", TaskRunner.RouteFor(task)!.Reason);
+        task.Nudge = null;
         task.StepCycles = 3;
         Assert.True(TaskRunner.RouteFor(task)!.Strong);
     }
