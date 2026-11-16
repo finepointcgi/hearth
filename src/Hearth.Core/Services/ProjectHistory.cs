@@ -44,6 +44,27 @@ public sealed class ProjectHistory(IAppPaths paths)
         return change;
     }
 
+    /// <summary>
+    /// Copies the saved version beside the file, then renames it into place. Copying straight over the file fails
+    /// on macOS and Linux while anything else has it open, even only to read it (the folder sync, a backup, an
+    /// editor): .NET takes an exclusive lock on the destination. A rename doesn't need one. On Windows a reader
+    /// that doesn't allow deleting can still block it for a moment, so it retries briefly.
+    /// </summary>
+    private static async Task RestoreAsync(string backup, string path)
+    {
+        var tmp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path)!, $".{System.IO.Path.GetFileName(path)}.hearth-undo.tmp");
+        File.Copy(backup, tmp, overwrite: true);
+        try
+        {
+            for (var attempt = 1; ; attempt++)
+            {
+                try { File.Move(tmp, path, overwrite: true); return; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < 8) { await Task.Delay(25 * attempt); }
+            }
+        }
+        finally { try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best effort */ } }
+    }
+
     /// <summary>Puts a file back the way it was before a change. Returns an error, or null.</summary>
     public async Task<string?> UndoAsync(string id)
     {
@@ -59,7 +80,7 @@ public sealed class ProjectHistory(IAppPaths paths)
             {
                 if (!File.Exists(Backup(id))) return "The saved copy is missing.";
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(change.Path)!);
-                File.Copy(Backup(id), change.Path, overwrite: true);
+                await RestoreAsync(Backup(id), change.Path);
             }
             else if (File.Exists(change.Path)) File.Delete(change.Path); // the bot created it
             list.Remove(change);

@@ -86,6 +86,25 @@ public sealed class ProjectCodingTests : IDisposable
     }
 
     [Fact]
+    public async Task UndoWorksWhileSomethingIsReadingTheFile()
+    {
+        // The folder sync (or a backup, or an editor) may be reading the file at the moment undo puts it back.
+        var sp = Services();
+        var file = Path.Combine(_project, "Notes.md");
+        File.WriteAllText(file, "before");
+        var history = sp.GetRequiredService<ProjectHistory>();
+        var change = await history.RecordAsync("f", file, "Edited Notes.md", null, null);
+        File.WriteAllText(file, "after");
+
+        string? error;
+        using (var reader = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            error = await history.UndoAsync(change.Id);
+        Assert.Null(error);
+        Assert.Equal("before", File.ReadAllText(file));
+        Assert.Empty(Directory.GetFiles(_project, "*.tmp")); // no leftovers next to the user's files
+    }
+
+    [Fact]
     public async Task UndoGoesNewestFirstAndHiddenFilesAreOffLimits()
     {
         var sp = Services();

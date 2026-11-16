@@ -159,7 +159,14 @@ public sealed class LinkedFolders(IAppPaths paths, DocumentStore docs, PlatformI
                 if (i % 10 == 0) Changed?.Invoke();
                 try
                 {
-                    var data = await File.ReadAllBytesAsync(f.FullName, ct);
+                    // Shared fully, so indexing never stops the user, an editor or a bot's undo from saving the file.
+                    byte[] data;
+                    await using (var stream = new FileStream(f.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 81920, useAsync: true))
+                    using (var buffer = new MemoryStream())
+                    {
+                        await stream.CopyToAsync(buffer, ct);
+                        data = buffer.ToArray();
+                    }
                     var text = TextExtractor.Extract(f.Name, data);
                     if (string.IsNullOrWhiteSpace(text)) continue;
                     var info = await docs.AddAsync(f.Name, text, null, ct,
