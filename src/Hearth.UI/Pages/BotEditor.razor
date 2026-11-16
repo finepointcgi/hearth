@@ -159,7 +159,21 @@
     {
     <MudPaper Class="card" Elevation="0">
         <h3>Abilities</h3>
-        <p class="muted">Switch on what @(string.IsNullOrWhiteSpace(_bot.Name) ? "this bot" : _bot.Name) may do. Things that also need setting up elsewhere say so.</p>
+        <p class="muted">Pick a starting point, or switch on what @(string.IsNullOrWhiteSpace(_bot.Name) ? "this bot" : _bot.Name) may do one by one. Things that also need setting up elsewhere say so.</p>
+        @{ var matching = AbilityPresets.Matching(_bot.Abilities); }
+        <div class="preset-row" role="group" aria-label="Ability presets">
+            @foreach (var p in AbilityPresets.All)
+            {
+                var preset = p;
+                <button class="preset @(matching?.Id == preset.Id ? "on" : "")" title="@preset.Description" @onclick="() => preset.Apply(_bot.Abilities)">
+                    <b>@preset.Name</b><span class="muted small">@preset.Description</span>
+                </button>
+            }
+        </div>
+        <div class="can-do muted small">
+            @if (matching is null) { <span class="chip">Custom</span> }
+            @foreach (var line in AbilityPresets.Describe(_bot.Abilities, _bot.Memory.Enabled)) { <span>@line</span> }
+        </div>
         <div class="ability-list">
             @foreach (var a in AbilityList())
             {

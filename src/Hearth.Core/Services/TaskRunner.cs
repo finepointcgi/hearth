@@ -184,6 +184,17 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         }
     }
 
+    /// <summary>
+    /// What this cycle needs from automatic model choice: planning, a problem to get past and a step that's dragging
+    /// go to the strong model; a wake check (is it time to carry on?) to the fast one; the rest decides as usual.
+    /// </summary>
+    public static RouteHint? RouteFor(AgentTask task) =>
+        task.Plan.Count == 0 ? new(true, "planning the task")
+        : task.LastError is not null ? new(true, "getting past a problem")
+        : task.StepCycles >= 2 ? new(true, "a step is taking a while")
+        : task.JustWoke ? new(false, "wake check")
+        : null;
+
     private async Task CycleAsync(AgentTask task)
     {
         var conv = await conversations.GetAsync(task.ConversationId)
@@ -191,7 +202,7 @@ public sealed class TaskRunner(TaskStore store, ConversationStore conversations,
         var bot = task.BotId is null ? null : await bots.GetAsync(task.BotId);
         var model = await models.PickAsync(bot) ?? throw new TemporaryProblemException("No model is available (is the model server running?).");
 
-        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = Prompt(task), RoutineName = "Task" });
+        conv.Messages.Add(new ChatMessage { Role = ChatRole.User, Content = Prompt(task), RoutineName = "Task", Route = RouteFor(task) });
         var cycleLimit = TimeSpan.FromMinutes(30);
         using var cts = new CancellationTokenSource(cycleLimit);
         var startedAt = DateTimeOffset.Now;

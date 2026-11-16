@@ -679,6 +679,11 @@ input:where(:not([class*="mud-"])):focus, select:where(:not([class*="mud-"])):fo
 .tab-badge { font-size: .7rem; background: var(--bg-3); color: var(--muted); border-radius: 999px; padding: 0 .4rem; min-width: 1.2rem; text-align: center; }
 .tab.on .tab-badge { background: var(--accent-soft); color: var(--brand); }
 /* ---------- ability rows + switch ---------- */
+.preset-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .5rem; margin-bottom: .6rem; }
+.preset-row .preset { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem; text-align: left; padding: .6rem .75rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--bg); color: inherit; cursor: pointer; font: inherit; }
+.preset-row .preset:hover { border-color: var(--accent); }
+.preset-row .preset.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.can-do { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .6rem; margin-bottom: .8rem; }
 .ability-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
 .ability-row { display: flex !important; flex-direction: row !important; align-items: center; gap: .75rem; padding: .65rem .85rem; border-top: 1px solid var(--line); cursor: pointer; background: var(--bg); }
 .ability-row:first-child { border-top: 0; }

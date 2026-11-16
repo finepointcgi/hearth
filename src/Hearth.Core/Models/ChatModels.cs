@@ -32,6 +32,11 @@ public sealed class ChatMessage
     /// <summary>For user-role messages sent by another bot (bot-to-bot messages) or a routine.</summary>
     public string? FromBotId { get; set; }
     public string? RoutineName { get; set; }
+    /// <summary>
+    /// For automatic model choice: how much this turn needs, set by whoever wrote it (a task's wake check is light,
+    /// planning is hard). Not saved: it only matters while the reply runs.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore] public RouteHint? Route { get; set; }
     /// <summary>Data from the event that triggered a routine (webhook body, file, feed item…).</summary>
     public string? EventPayload { get; set; }
     /// <summary>The message carries content from somewhere untrusted (a web page attached with @): runs are guarded.</summary>
@@ -247,3 +252,6 @@ public sealed class Nudge
     /// <summary>What "Make it a routine" puts in the message box.</summary>
     [JsonIgnore] public string RoutineDraft => $"Make this a routine: {When?.Trim()}, {Task?.Trim()}".Trim(' ', ',');
 }
+
+/// <summary>A hint for automatic model choice: send this turn to the strong model (or the fast one), and why.</summary>
+public sealed record RouteHint(bool Strong, string Reason);

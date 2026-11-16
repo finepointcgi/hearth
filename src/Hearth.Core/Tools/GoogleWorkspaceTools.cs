@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 using Hearth.Core.Models;
+using Hearth.Core.Services;
 using Hearth.Core.Services.Google;
 
 namespace Hearth.Core.Tools;
@@ -98,6 +99,31 @@ public sealed class GoogleWorkspaceToolProvider(GoogleAuth auth, WorkspaceClient
                     var e = await google.CreateEventAsync(a.Str("title") ?? "Event", start, end, allDay, a.Str("location"), a.Str("description"), attendees, default);
                     return $"Created:\n{WorkspaceClient.Describe(e)}\n{e.Link}";
                 }));
+            tools.Add(new GTool("calendar_free_time", "Find free time", "🕒",
+                "Find open slots in the user's Google Calendar: when they're free for a meeting of a given length. Working hours only " +
+                "(default 9:00–17:00, weekdays). Use it before proposing times or creating an event.",
+                FreeTimeTools.Parameters, false,
+                async a =>
+                {
+                    var (from, to, minutes) = FreeTimeTools.Range(a, Date);
+                    var events = await google.EventsAsync(from, to, null, 100, default);
+                    var busy = events.Where(e => e is { Start: not null, End: not null }).Select(e => (e.Start!.Value, e.End!.Value));
+                    return FreeTimeTools.Answer(a, busy, from, to, minutes);
+                }));
+            tools.Add(new GTool("calendar_update", "Change event", "✏️",
+                "Reschedule or edit an event by id (from calendar_events): a new start (its length is kept unless you give an end), " +
+                "a new title, location or notes. Attendees are told about the change. Leave out what shouldn't change.",
+                Schema.Object(("id", "string", "Event id", true), ("start", "string", "New start, ISO date/time (optional)", false),
+                    ("end", "string", "New end, ISO date/time (optional)", false), ("title", "string", "New title (optional)", false),
+                    ("location", "string", "New location (optional)", false), ("description", "string", "New notes (optional)", false)), askEdit,
+                async a =>
+                {
+                    var start = a.Str("start") is { Length: > 0 } st ? Date(st) ?? throw new ArgumentException("Couldn't read the start time; use ISO format like 2026-11-05T14:00.") : (DateTimeOffset?)null;
+                    var end = a.Str("end") is { Length: > 0 } en ? Date(en) ?? throw new ArgumentException("Couldn't read the end time.") : (DateTimeOffset?)null;
+                    var (before, after) = await google.UpdateEventAsync(a.Str("id") ?? "", a.Str("title"), start, end, a.Str("location"), a.Str("description"), default);
+                    return $"Changed.\nWas: {WorkspaceClient.Describe(before)[2..]}\nNow: {WorkspaceClient.Describe(after)[2..]}" +
+                           (after.Attendees.Count > 0 ? "\nAttendees were sent the update." : "");
+                }));
             tools.Add(new GTool("calendar_delete", "Delete event", "🗑️",
                 "Delete an event by id (from calendar_events).",
                 Schema.Object(("id", "string", "Event id", true)), askEdit,
@@ -124,5 +150,33 @@ internal sealed class GTool(string name, string displayName, string icon, string
     {
         try { return new ToolResult(Schema.Truncate(await run(args), 24000)); }
         catch (Exception ex) when (ex is not OperationCanceledException) { return ToolResult.Error(ex.Message); }
+    }
+}
+
+/// <summary>The shared parts of the free-time tools (Google and Outlook): parameters, the date range and the answer.</summary>
+internal static class FreeTimeTools
+{
+    public static JsonObject Parameters => Schema.Object(
+        ("minutes", "integer", "How long the slot must be, in minutes (default 30)", false),
+        ("from", "string", "Start of the search, ISO date/time (default now)", false),
+        ("to", "string", "End of the search, ISO date/time (default 7 days later)", false),
+        ("day_start", "string", "Start of the working day, e.g. 09:00 (default 09:00)", false),
+        ("day_end", "string", "End of the working day, e.g. 17:30 (default 17:00)", false),
+        ("weekends", "boolean", "Include Saturdays and Sundays (default false)", false));
+
+    public static (DateTimeOffset from, DateTimeOffset to, int minutes) Range(JsonObject a, Func<string?, DateTimeOffset?> date)
+    {
+        var from = date(a.Str("from")) ?? DateTimeOffset.Now;
+        var to = date(a.Str("to")) ?? from.AddDays(7);
+        if (to <= from) to = from.AddDays(1);
+        if (to - from > TimeSpan.FromDays(31)) to = from.AddDays(31);
+        return (from, to, (int)Math.Clamp(a.Num("minutes") ?? 30, 5, 600));
+    }
+
+    public static string Answer(JsonObject a, IEnumerable<(DateTimeOffset, DateTimeOffset)> busy, DateTimeOffset from, DateTimeOffset to, int minutes)
+    {
+        var slots = FreeTime.Find(busy, from, to, minutes, FreeTime.Time(a.Str("day_start"), new TimeOnly(9, 0)),
+            FreeTime.Time(a.Str("day_end"), new TimeOnly(17, 0)), a["weekends"]?.ToString() is "true" or "True");
+        return FreeTime.Describe(slots, minutes, from, to);
     }
 }

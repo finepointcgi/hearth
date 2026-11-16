@@ -447,8 +447,9 @@ public sealed class ChatService(
         var lastUser = history.LastOrDefault(m => m.Role == ChatRole.User)
             ?? throw new InvalidOperationException("No user message to reply to.");
         // Automatic model choice: everyday messages to the fast model, hard work to the strong one.
+        // Heartbeats and a task's wake checks go to the fast model, planning to the strong one, pictures to the vision model.
         var route = ModelRouter.Pick(settings, bot, lastUser.Content, lastUser.Images.Count + lastUser.AttachedFiles.Count,
-            CodeTools.SessionFor(conv, bot) is not null);
+            CodeTools.SessionFor(conv, bot) is not null, lastUser.RoutineName, lastUser.Route, lastUser.Images.Count);
         var routedBot = route is { } rt ? (bot is null ? new Bot { ProviderId = rt.provider.Id } : bot.WithVersion(new BotVersion { ProviderId = rt.provider.Id, Model = rt.model })) : bot;
         var client = factory.CreateForBot(settings, routedBot);
         // A bot on its own server uses its model, or that server's default — not the model picked for the chat.
@@ -630,8 +631,19 @@ public sealed class ChatService(
             // A step that hit the length limit with nothing to show: the server dropped an unfinished tool call
             // (usually a long answer being written into a file). Say so, rather than "continue where you stopped".
             var lostStep = false;
+            // Once a screenshot comes back the rest of the reply has a picture in it: switch to the vision model, if one is set.
+            var seeing = route?.reason.StartsWith("vision") == true;
             for (var round = 0; round < maxRounds; round++)
             {
+                if (!seeing && reply.ToolCalls.Any(t => t.Image is not null) && ModelRouter.VisionFor(settings, bot) is { } eyes)
+                {
+                    seeing = true;
+                    client = factory.CreateForBot(settings, bot is null ? new Bot { ProviderId = eyes.provider.Id }
+                        : bot.WithVersion(new BotVersion { ProviderId = eyes.provider.Id, Model = eyes.model }));
+                    model = eyes.model;
+                    reply.Model = model;
+                    reply.Trace.Add(new TraceStep("route", "vision model: a screenshot came back", 0));
+                }
                 var room = budget - toolTokens;
                 var messages = baseMessages.Concat(ToolRounds(reply)).ToList();
                 if (ContextWindow.Tokens(messages) is var used && used > room)
