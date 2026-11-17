@@ -53,6 +53,27 @@ public sealed class MicrosoftToolProvider(MicrosoftAuth auth, GraphClient graph)
                     return graph.CreateEventAsync(a.Str("subject") ?? "Event", start, Date(a.Str("end")) ?? start.AddHours(1),
                         a.Str("location"), a.Str("attendees"), a.Str("notes"), default);
                 }),
+            new GTool("outlook_free_time", "Find free time (Outlook)", "🕒",
+                "Find open slots in the user's Outlook calendar: when they're free for a meeting of a given length. Working hours only " +
+                "(default 9:00–17:00, weekdays). Use it before proposing times or adding an event.",
+                FreeTimeTools.Parameters, false,
+                async a =>
+                {
+                    var (from, to, minutes) = FreeTimeTools.Range(a, Date);
+                    return FreeTimeTools.Answer(a, await graph.BusyAsync(from, to, default), from, to, minutes);
+                }),
+            new GTool("outlook_update_event", "Change Outlook event", "✏️",
+                "Reschedule or edit an Outlook event by id (from outlook_calendar): a new start (its length is kept unless you give an end), " +
+                "subject, location or notes. Leave out what shouldn't change.",
+                Schema.Object(("id", "string", "Event id", true), ("start", "string", "New local start, e.g. 2026-11-09 14:00 (optional)", false),
+                    ("end", "string", "New local end (optional)", false), ("subject", "string", "New title (optional)", false),
+                    ("location", "string", "New location (optional)", false), ("notes", "string", "New description (optional)", false)), true,
+                a =>
+                {
+                    var start = a.Str("start") is { Length: > 0 } st ? Date(st) ?? throw new InvalidOperationException("Give start as a date and time, e.g. 2026-11-09 14:00.") : (DateTimeOffset?)null;
+                    var end = a.Str("end") is { Length: > 0 } en ? Date(en) ?? throw new InvalidOperationException("Couldn't read the end time.") : (DateTimeOffset?)null;
+                    return graph.UpdateEventAsync(a.Str("id") ?? "", a.Str("subject"), start, end, a.Str("location"), a.Str("notes"), default);
+                }),
             new GTool("onedrive_search", "Search OneDrive", "🔎",
                 "Find files in the user's OneDrive (and SharePoint files shared to it) by name or content. Returns name, folder, date and id.",
                 Schema.Object(("query", "string", "Words to search for", true)), false,

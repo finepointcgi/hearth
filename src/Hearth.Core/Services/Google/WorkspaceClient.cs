@@ -166,6 +166,43 @@ public sealed class WorkspaceClient(GoogleAuth auth, IHttpClientFactory http)
         return made;
     }
 
+    public async Task<CalendarEvent> GetEventAsync(string id, CancellationToken ct)
+    {
+        var (_, cal) = await auth.WorkspaceEndpointsAsync();
+        return ToEvent(await SendAsync(HttpMethod.Get, $"{cal}/calendars/primary/events/{Uri.EscapeDataString(id)}", null, ct));
+    }
+
+    /// <summary>
+    /// Changes an event: any of its title, time, place or notes (null leaves that part alone). Moving the start without
+    /// a new end keeps the event's length. Attendees are told about the change.
+    /// </summary>
+    public async Task<(CalendarEvent before, CalendarEvent after)> UpdateEventAsync(string id, string? title, DateTimeOffset? start,
+        DateTimeOffset? end, string? location, string? description, CancellationToken ct)
+    {
+        var (_, cal) = await auth.WorkspaceEndpointsAsync();
+        var before = await GetEventAsync(id, ct);
+        var body = new JsonObject();
+        if (!string.IsNullOrWhiteSpace(title)) body["summary"] = title;
+        if (location is not null) body["location"] = location;
+        if (description is not null) body["description"] = description;
+        if (start is not null || end is not null)
+        {
+            var length = before is { Start: { } s0, End: { } e0 } ? e0 - s0 : TimeSpan.FromHours(before.AllDay ? 24 : 1);
+            var newStart = start ?? before.Start ?? throw new ArgumentException("The event has no start time to keep.");
+            var newEnd = end ?? newStart + length;
+            if (newEnd <= newStart) throw new ArgumentException("The end has to be after the start.");
+            JsonObject When(DateTimeOffset t) => before.AllDay
+                ? new JsonObject { ["date"] = t.ToString("yyyy-MM-dd") }
+                : new JsonObject { ["dateTime"] = t.ToString("o") };
+            body["start"] = When(newStart);
+            body["end"] = When(newEnd);
+        }
+        if (body.Count == 0) throw new ArgumentException("Nothing to change: give a new title, start, end, location or description.");
+        var notify = before.Attendees.Count > 0 ? "?sendUpdates=all" : "";
+        var after = ToEvent(await SendAsync(HttpMethod.Patch, $"{cal}/calendars/primary/events/{Uri.EscapeDataString(id)}{notify}", body, ct));
+        return (before, after);
+    }
+
     public async Task DeleteEventAsync(string id, CancellationToken ct)
     {
         var (_, cal) = await auth.WorkspaceEndpointsAsync();

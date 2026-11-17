@@ -208,6 +208,9 @@ public sealed class ModelRoutingSettings
     public string FastModel { get; set; } = "";
     public string? StrongProviderId { get; set; }
     public string StrongModel { get; set; } = "";
+    /// <summary>Optional: a model that can see pictures, used when a message has one or a screenshot comes back.</summary>
+    public string? VisionProviderId { get; set; }
+    public string VisionModel { get; set; } = "";
 }
 
 /// <summary>How Hearth helps you teach it: offers to make repeated requests skills or routines, and a weekly recap.</summary>

@@ -110,13 +110,45 @@ public sealed class MicrosoftTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task OutlookFindsFreeTimeAndMovesEventsKeepingTheirLength()
+    {
+        await ConnectAsync();
+        // Busy 10:00–11:00 UTC on Mon Nov 16; a "free" block and a cancelled meeting don't count.
+        _ms.Graph = (method, url) => url.Contains("/me/calendarView") ? FakeMicrosoft.Json("""
+            {"value":[
+              {"start":{"dateTime":"2026-11-16T10:00:00.0000000"},"end":{"dateTime":"2026-11-16T11:00:00.0000000"},"showAs":"busy"},
+              {"start":{"dateTime":"2026-11-16T12:00:00.0000000"},"end":{"dateTime":"2026-11-16T13:00:00.0000000"},"showAs":"free"},
+              {"start":{"dateTime":"2026-11-16T14:00:00.0000000"},"end":{"dateTime":"2026-11-16T15:00:00.0000000"},"showAs":"busy","isCancelled":true}]}
+            """)
+            : method == HttpMethod.Get && url.Contains("/me/events/E1") ? FakeMicrosoft.Json("""
+            {"subject":"Standup","start":{"dateTime":"2026-11-17T09:00:00.0000000"},"end":{"dateTime":"2026-11-17T09:45:00.0000000"}}
+            """)
+            : FakeMicrosoft.Json("{}");
+        var busy = await _sp.GetRequiredService<Hearth.Core.Services.Microsoft.GraphClient>()
+            .BusyAsync(new DateTimeOffset(2026, 11, 16, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 17, 0, 0, 0, TimeSpan.Zero), default);
+        var only = Assert.Single(busy);
+        Assert.Equal(new DateTimeOffset(2026, 11, 16, 10, 0, 0, TimeSpan.Zero), only.Start);
+
+        var free = await (await ToolAsync("outlook_free_time")).ExecuteAsync(new JsonObject { ["minutes"] = 30 }, Ctx(), default);
+        Assert.False(free.IsError, free.Text);
+
+        var moved = await (await ToolAsync("outlook_update_event")).ExecuteAsync(
+            new JsonObject { ["id"] = "E1", ["start"] = "2026-11-17T15:00:00Z" }, Ctx(), default);
+        Assert.Contains("Moved \"Standup\"", moved.Text);
+        var patch = _ms.Requests.Last(r => r.method == HttpMethod.Patch);
+        Assert.EndsWith("/me/events/E1", patch.url);
+        Assert.Contains("\"dateTime\":\"2026-11-17T15:00:00\"", patch.body);
+        Assert.Contains("\"dateTime\":\"2026-11-17T15:45:00\"", patch.body); // 45 minutes, as before
+    }
+
+    [Fact]
     public async Task ToolsOnlyAppearOnceConnectedAndUseGraph()
     {
         var provider = _sp.GetServices<IToolProvider>().OfType<MicrosoftToolProvider>().Single();
         Assert.Empty(await provider.GetToolsAsync(new AppSettings(), default));
         await ConnectAsync();
         var tools = await provider.GetToolsAsync(new AppSettings(), default);
-        Assert.Equal(12, tools.Count);
+        Assert.Equal(14, tools.Count);
 
         _ms.Graph = (_, url) => url.Contains("/me/messages?$search")
             ? FakeMicrosoft.Json("{\"value\":[{\"id\":\"M1\",\"subject\":\"Offer letter\",\"isRead\":false,\"receivedDateTime\":\"2026-11-05T14:00:00Z\",\"bodyPreview\":\"Congrats\",\"from\":{\"emailAddress\":{\"name\":\"Shield AI\",\"address\":\"hr@shield.ai\"}}}]}")

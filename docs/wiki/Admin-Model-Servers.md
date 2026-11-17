@@ -77,6 +77,15 @@ and hard work (research, analysis, writing documents, code, long or multi-part r
 It's decided on the spot from each message, with no extra model call; the reason shows in the reply's details. Pick
 the server and model for each side. Bots with their own model or server keep theirs.
 
+Background work is sorted by what it needs:
+
+- **Heartbeats** and a task's **wake checks** (is it time to carry on?) go to the fast model.
+- A task that's **planning**, **getting past a problem**, or on a **step that's taking a while** goes to the strong model.
+
+**Vision model** (optional): a model that can see pictures, for example a Claude model, or llava or qwen2.5-vl on a
+local server. Messages with a picture go to it. When a bot using the computer or the browser gets a screenshot back,
+the rest of that reply switches to it, so a text-only fast model never has to read a screenshot.
+
 ## Per-bot models
 
 Each bot can run on its own server and model (bot editor → Profile → Model), e.g. a Writer on Claude and everyone

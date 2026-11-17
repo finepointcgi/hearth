@@ -139,6 +139,46 @@ public sealed class GraphClient(MicrosoftAuth auth, IHttpClientFactory http)
         return $"Added \"{subject}\" on {start:ddd MMM d h:mm tt}{(string.IsNullOrWhiteSpace(attendees) ? "" : $"; invitations sent to {attendees}")} (id {made?["id"]}).";
     }
 
+    /// <summary>The times the user is busy between two dates (events shown as free don't count).</summary>
+    public async Task<List<(DateTimeOffset Start, DateTimeOffset End)>> BusyAsync(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        var path = $"/me/calendarView?startDateTime={Q(from.UtcDateTime.ToString("o"))}&endDateTime={Q(to.UtcDateTime.ToString("o"))}" +
+                   "&$orderby=start/dateTime&$top=200&$select=start,end,showAs,isCancelled";
+        var items = (await GetJsonAsync(path, ct))["value"]?.AsArray() ?? [];
+        return items.Where(e => e?["showAs"]?.ToString() is not ("free" or "workingElsewhere") && e?["isCancelled"]?.GetValue<bool>() != true)
+            .Select(e => (Utc(e!["start"]), Utc(e["end"]))).Where(b => b.Item2 > b.Item1).ToList();
+    }
+
+    /// <summary>
+    /// Reschedules or edits an event (null leaves that part alone). A new start without an end keeps the event's
+    /// length. Attendees get the update from Outlook.
+    /// </summary>
+    public async Task<string> UpdateEventAsync(string id, string? subject, DateTimeOffset? start, DateTimeOffset? end, string? location,
+        string? notes, CancellationToken ct)
+    {
+        var before = await GetJsonAsync($"/me/events/{Q(id)}?$select=subject,start,end,isAllDay", ct);
+        var (oldStart, oldEnd) = (Utc(before["start"]), Utc(before["end"]));
+        var ev = new JsonObject();
+        if (!string.IsNullOrWhiteSpace(subject)) ev["subject"] = subject;
+        if (location is not null) ev["location"] = new JsonObject { ["displayName"] = location };
+        if (notes is not null) ev["body"] = new JsonObject { ["contentType"] = "Text", ["content"] = notes };
+        DateTimeOffset? newStart = null;
+        if (start is not null || end is not null)
+        {
+            newStart = start ?? oldStart;
+            var newEnd = end ?? newStart.Value + (oldEnd - oldStart);
+            if (newEnd <= newStart) throw new InvalidOperationException("The end has to be after the start.");
+            ev["start"] = new JsonObject { ["dateTime"] = newStart.Value.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss"), ["timeZone"] = "UTC" };
+            ev["end"] = new JsonObject { ["dateTime"] = newEnd.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss"), ["timeZone"] = "UTC" };
+        }
+        if (ev.Count == 0) throw new InvalidOperationException("Nothing to change: give a new subject, start, end, location or notes.");
+        (await SendAsync(HttpMethod.Patch, $"/me/events/{Q(id)}", ev, ct)).Dispose();
+        var title = ev["subject"]?.ToString() ?? before["subject"]?.ToString();
+        return newStart is { } moved
+            ? $"Moved \"{title}\" from {oldStart:ddd MMM d h:mm tt} to {moved:ddd MMM d h:mm tt}. Attendees get the update."
+            : $"Updated \"{title}\".";
+    }
+
     /// <summary>Deletes an event (attendees get a cancellation).</summary>
     public async Task DeleteEventAsync(string id, CancellationToken ct) =>
         (await SendAsync(HttpMethod.Delete, $"/me/events/{Q(id)}", null, ct)).Dispose();

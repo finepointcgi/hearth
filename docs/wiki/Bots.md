@@ -51,6 +51,18 @@ Click **Edit** on a bot card or its name in the side panel. The editor has five 
 
 ![Bot editor: Abilities](images/bot-editor-abilities.png)
 
+Start from a preset, or flip the switches one by one:
+
+| Preset | What it allows |
+|---|---|
+| **Safe Home** | Web search, your documents, calendar, pictures, skills and other bots. No email, files, code, browser, contacts or screen. |
+| **Careful Work** | Adds the browser, files, email, Google and Microsoft apps, contacts and connected tools. Code edits ask first; no screen control. |
+| **Full Power** | Everything, including your screen and keyboard, and code edits without asking each time. |
+
+A preset leaves the bot's project folder, browser profile and desktop choice alone. Under the presets, a short summary
+says in plain words what the bot can do and what it can't touch; it says **Custom** once you've changed a switch by
+hand. Sending email still asks you first whatever the preset (see [Permissions](Admin-Security-and-Permissions.md)).
+
 Simple on/off switches for what this bot may do. A **Needs setup** label means the ability also needs something set up
 elsewhere; it links there.
 

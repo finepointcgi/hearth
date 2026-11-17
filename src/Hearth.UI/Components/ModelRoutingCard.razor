@@ -4,24 +4,25 @@
 
 <MudPaper Class="card" Elevation="0">
     <h3>Automatic model choice</h3>
-    <p class="muted small">Send everyday messages to a fast model (local, free, private) and hard work (research, analysis, writing documents, code, long or multi-part requests, attachments) to a strong one. Decided on the spot from each message, with no extra model call; the reason shows in the reply's details. Bots with their own model or server keep theirs.</p>
+    <p class="muted small">Send everyday messages to a fast model (local, free, private) and hard work (research, analysis, writing documents, code, long or multi-part requests, attachments) to a strong one. Background work is sorted too: heartbeats and a task's wake checks go to the fast model; planning a task, getting past a problem and a step that drags go to the strong one. Decided on the spot, with no extra model call; the reason shows in the reply's details. Bots with their own model or server keep theirs.</p>
     <MudSwitch T="bool" Color="Color.Primary" @bind-Value="_r.Enabled" Class="check" Label="Choose the model for each message automatically" />
-    @foreach (var (label, strong) in new[] { ("Fast model", false), ("Strong model", true) })
+    @foreach (var (label, which) in new[] { ("Fast model", Kind.Fast), ("Strong model", Kind.Strong), ("Vision model", Kind.Vision) })
     {
-        var isStrong = strong;
+        var kind = which;
         <div class="row">
             <b style="min-width:7rem">@label</b>
-            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(isStrong ? _r.StrongProviderId : _r.FastProviderId)" ValueChanged="(string v) => SetProvider(isStrong, v)" T="string">
-                <MudSelectItem Value="@("")">(choose a server)</MudSelectItem>
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Value="@(ProviderOf(kind) ?? "")" ValueChanged="(string v) => SetProvider(kind, v)" T="string">
+                <MudSelectItem Value="@("")">@(kind == Kind.Vision ? "(none: optional)" : "(choose a server)")</MudSelectItem>
                 @foreach (var p in _providers) { <MudSelectItem Value="@(p.Id)">@p.Name</MudSelectItem> }
             </MudSelect>
-            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="grow" Value="@(isStrong ? _r.StrongModel : _r.FastModel)" ValueChanged="(string v) => SetModel(isStrong, v ?? string.Empty)" T="string">
+            <MudSelect Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="grow" Value="@(ModelOf(kind))" ValueChanged="(string v) => SetModel(kind, v ?? string.Empty)" T="string">
                 <MudSelectItem Value="@("")">(choose a model)</MudSelectItem>
-                @foreach (var m in ModelsFor(isStrong ? _r.StrongProviderId : _r.FastProviderId)) { <MudSelectItem Value="@(m)">@m</MudSelectItem> }
-                @if ((isStrong ? _r.StrongModel : _r.FastModel) is { Length: > 0 } cur && !ModelsFor(isStrong ? _r.StrongProviderId : _r.FastProviderId).Contains(cur)) { <MudSelectItem Value="@(cur)">@cur</MudSelectItem> }
+                @foreach (var m in ModelsFor(ProviderOf(kind))) { <MudSelectItem Value="@(m)">@m</MudSelectItem> }
+                @if (ModelOf(kind) is { Length: > 0 } cur && !ModelsFor(ProviderOf(kind)).Contains(cur)) { <MudSelectItem Value="@(cur)">@cur</MudSelectItem> }
             </MudSelect>
         </div>
     }
+    <p class="muted small">The vision model is optional: one that can see pictures (e.g. a Claude model, or llava or qwen2.5-vl on a local server). It's used for messages with a picture, and from the moment a screenshot comes back while a bot uses the computer or the browser.</p>
     <div class="row end">
         @if (_message is not null) { <span class="muted small grow">@_message</span> }
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save</MudButton>
@@ -34,7 +35,15 @@
     private readonly Dictionary<string, List<string>> _models = [];
     private string? _message;
 
-    private void SetModel(bool strong, string model) { if (strong) _r.StrongModel = model; else _r.FastModel = model; }
+    private enum Kind { Fast, Strong, Vision }
+
+    private string? ProviderOf(Kind k) => k switch { Kind.Strong => _r.StrongProviderId, Kind.Vision => _r.VisionProviderId, _ => _r.FastProviderId };
+    private string ModelOf(Kind k) => k switch { Kind.Strong => _r.StrongModel, Kind.Vision => _r.VisionModel, _ => _r.FastModel };
+
+    private void SetModel(Kind k, string model)
+    {
+        if (k == Kind.Strong) _r.StrongModel = model; else if (k == Kind.Vision) _r.VisionModel = model; else _r.FastModel = model;
+    }
 
     private List<string> ModelsFor(string? providerId) => providerId is null ? [] : _models.GetValueOrDefault(providerId) ?? [];
 
@@ -46,8 +55,9 @@
         {
             Enabled = s.ModelRouting.Enabled, FastProviderId = s.ModelRouting.FastProviderId, FastModel = s.ModelRouting.FastModel,
             StrongProviderId = s.ModelRouting.StrongProviderId, StrongModel = s.ModelRouting.StrongModel,
+            VisionProviderId = s.ModelRouting.VisionProviderId, VisionModel = s.ModelRouting.VisionModel,
         };
-        foreach (var id in new[] { _r.FastProviderId, _r.StrongProviderId }.OfType<string>().Distinct()) await LoadAsync(id);
+        foreach (var id in new[] { _r.FastProviderId, _r.StrongProviderId, _r.VisionProviderId }.OfType<string>().Distinct()) await LoadAsync(id);
     }
 
     private async Task LoadAsync(string id)
@@ -57,16 +67,16 @@
         catch { _models[id] = string.IsNullOrWhiteSpace(p.DefaultModel) ? [] : [p.DefaultModel]; }
     }
 
-    private async Task SetProvider(bool strong, string? id)
+    private async Task SetProvider(Kind k, string? id)
     {
         id = string.IsNullOrEmpty(id) ? null : id;
-        if (strong) { _r.StrongProviderId = id; _r.StrongModel = ""; } else { _r.FastProviderId = id; _r.FastModel = ""; }
+        if (k == Kind.Strong) _r.StrongProviderId = id; else if (k == Kind.Vision) _r.VisionProviderId = id; else _r.FastProviderId = id;
+        SetModel(k, "");
         if (id is not null)
         {
             await LoadAsync(id);
             var def = _providers.First(p => p.Id == id).DefaultModel;
-            var pick = !string.IsNullOrWhiteSpace(def) ? def : ModelsFor(id).FirstOrDefault() ?? "";
-            if (strong) _r.StrongModel = pick; else _r.FastModel = pick;
+            SetModel(k, !string.IsNullOrWhiteSpace(def) ? def : ModelsFor(id).FirstOrDefault() ?? "");
         }
     }
 
@@ -74,9 +84,10 @@
     {
         if (_r.Enabled && (_r.FastProviderId is null || _r.StrongProviderId is null || _r.FastModel.Length == 0 || _r.StrongModel.Length == 0))
         { _message = "Choose a server and model for both, or turn it off."; return; }
+        if (_r.VisionProviderId is null) _r.VisionModel = "";
         var s = await SettingsStore.GetAsync();
         s.ModelRouting = _r;
         await SettingsStore.SaveAsync(s);
-        _message = _r.Enabled ? $"On: everyday → {_r.FastModel}, hard work → {_r.StrongModel}." : "Off: the chat's model picker decides.";
+        _message = _r.Enabled ? $"On: everyday → {_r.FastModel}, hard work → {_r.StrongModel}{(_r.VisionModel.Length > 0 ? $", pictures → {_r.VisionModel}" : "")}." : "Off: the chat's model picker decides.";
     }
 }

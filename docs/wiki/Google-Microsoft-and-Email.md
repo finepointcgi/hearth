@@ -45,7 +45,7 @@ Under **What bots can use**, tick the services you want:
 |---|---|---|
 | **Sheets** | Find, read, write, append, create spreadsheets | `sheets_find`, `sheets_info`, `sheets_read`, `sheets_write`, `sheets_append`, `sheets_create`, `sheets_add_tab`, `sheets_clear` |
 | **Gmail** | Search, read, draft, send and organize email | `gmail_search`, `gmail_read`, `gmail_draft`, `gmail_send`, `gmail_organize` |
-| **Calendar** | Check your schedule, add and remove events | `calendar_events`, `calendar_create`, `calendar_delete` |
+| **Calendar** | Check your schedule, find free time, add, move and remove events | `calendar_events`, `calendar_free_time`, `calendar_create`, `calendar_update`, `calendar_delete` |
 | **Docs & Drive** | Find and read any file in your Drive, write new Google Docs | |
 | **Contacts** | Look up names, emails and phone numbers (read-only) | |
 
@@ -79,6 +79,13 @@ A work account's organisation may need an admin to approve the permissions; pers
 work right away.
 
 The Permissions page has separate rows for **Microsoft 365** and **Sending Outlook email**.
+
+**Calendar, Google or Outlook.**
+- **Find free time** (`calendar_free_time`, `outlook_free_time`) lists open slots of a given length. It looks only at
+  working hours (9:00–17:00 on weekdays unless the bot is told otherwise) and ignores events marked free.
+- **Moving an event** (`calendar_update`, `outlook_update_event`) keeps its length unless a new end is given, and
+  attendees are sent the update.
+- **Replies** (`gmail_draft`/`gmail_send` and the Outlook ones with `reply_to_id`) stay in the same email thread.
 
 ## Bot inbox (email)
 
