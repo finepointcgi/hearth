@@ -47,8 +47,9 @@ public sealed class ProjectHistory(IAppPaths paths)
     /// <summary>
     /// Copies the saved version beside the file, then renames it into place. Copying straight over the file fails
     /// on macOS and Linux while anything else has it open, even only to read it (the folder sync, a backup, an
-    /// editor): .NET takes an exclusive lock on the destination. A rename doesn't need one. On Windows a reader
-    /// that doesn't allow deleting can still block it for a moment, so it retries briefly.
+    /// editor): .NET takes an exclusive lock on the destination. A rename doesn't need one. Windows refuses to
+    /// rename over a file anyone has open, even a reader that allows it, so then the saved version is written into
+    /// the file in place, sharing it with the reader. Either can be blocked for a moment, so it retries briefly.
     /// </summary>
     private static async Task RestoreAsync(string backup, string path)
     {
@@ -59,10 +60,22 @@ public sealed class ProjectHistory(IAppPaths paths)
             for (var attempt = 1; ; attempt++)
             {
                 try { File.Move(tmp, path, overwrite: true); return; }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < 8) { await Task.Delay(25 * attempt); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    try { await OverwriteAsync(tmp, path); return; }
+                    catch (Exception ex2) when (ex2 is IOException or UnauthorizedAccessException && attempt < 8) { await Task.Delay(25 * attempt); }
+                }
             }
         }
         finally { try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* best effort */ } }
+    }
+
+    /// <summary>Writes <paramref name="source"/> into the existing file at <paramref name="path"/>, letting others keep it open.</summary>
+    private static async Task OverwriteAsync(string source, string path)
+    {
+        await using var dst = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+        await using (var src = File.OpenRead(source)) await src.CopyToAsync(dst);
+        dst.SetLength(dst.Position);
     }
 
     /// <summary>Puts a file back the way it was before a change. Returns an error, or null.</summary>
