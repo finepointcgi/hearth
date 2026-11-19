@@ -20,7 +20,13 @@ var builder = WebApplication.CreateBuilder(args);
 // HttpClient's request logs include full URLs — Telegram puts the bot token in the URL — so keep them out of logs.
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+// A phone puts the tab to sleep when you switch apps; the page then has to rejoin its session. The default gives it 3
+// minutes before it has to reload (losing what's on screen); chats keep running either way, so allow a longer break.
+builder.Services.AddRazorComponents().AddInteractiveServerComponents(o =>
+{
+    o.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(30);
+    o.DisconnectedCircuitMaxRetained = 50;
+});
 // Allow larger uploads (documents, images) over the SignalR circuit.
 builder.Services.AddSignalR(o => o.MaximumReceiveMessageSize = 4 * 1024 * 1024);
 // Python and stdio MCP servers would let anyone who can open the page run code on this server,

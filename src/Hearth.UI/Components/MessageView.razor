@@ -15,6 +15,10 @@
         {
             <div class="msg-from">🎯 Task step</div>
         }
+        else if (Message.RoutineName == Hearth.Core.Services.ChatService.PlanRoutine)
+        {
+            <div class="msg-from">📋 Carrying on with the plan</div>
+        }
         else if (Message.RoutineName is Hearth.Core.Services.Phone.PhoneService.CallerName)
         {
             <div class="msg-from">📞 You, on the phone</div>
