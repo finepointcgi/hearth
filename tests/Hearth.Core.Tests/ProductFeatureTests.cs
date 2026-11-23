@@ -186,6 +186,13 @@ public sealed class ProductFeatureTests : IDisposable
         var mer = McpCatalog.All.Single(i => i.Id == "meridian").Build(new Dictionary<string, string>
             { ["Meridian address"] = "https://mer.example.com", ["Personal access token"] = "mrd_abc" });
         Assert.Equal(("https://mer.example.com/api/mcp", "Bearer mrd_abc"), (mer.Url, mer.Headers["Authorization"]));
+        var bb = McpCatalog.All.Single(i => i.Id == "bytebench").Build(new Dictionary<string, string>
+            { ["ByteBench address"] = "https://bb.example.com/", ["Personal access token"] = "gbp_abc" });
+        Assert.Equal(("https://bb.example.com/mcp", "Bearer gbp_abc", McpTransport.Http), (bb.Url, bb.Headers["Authorization"], bb.Transport));
+        var lead = Assert.Single(BotTemplates.SuiteToAdd(["bytebench"], ["Chief of Staff"]));
+        Assert.Equal("Delivery Lead", lead.Name);
+        Assert.True(lead.AllowsSelected("bytebench_search_issues"));
+        Assert.False(lead.AllowsSelected("workbench_list_projects"));
         var suite = BotTemplates.SuiteToAdd(["workbench", "keel"], ["Chief of Staff"]);
         Assert.Equal(["Program Manager", "Configuration Engineer"], suite.Select(b => b.Name));
         Assert.True(suite[0].AllowsSelected("workbench_get_project_financials"));

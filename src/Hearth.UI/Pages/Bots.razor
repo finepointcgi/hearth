@@ -138,7 +138,7 @@
         RefreshSuite();
     }
 
-    // Engineering team: one bot per Workbench, Meridian and Keel MCP server that is set up (Tools and MCP).
+    // Engineering team: one bot per Workbench, Meridian, ByteBench and Keel MCP server that is set up (Tools and MCP).
     private List<string> _servers = [];
     private List<Bot> _suite = [];
     private void RefreshSuite() => _suite = BotTemplates.SuiteToAdd(_servers, State.Bots.Select(b => b.Name));
