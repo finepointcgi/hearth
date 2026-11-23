@@ -40,7 +40,12 @@ public sealed class ChatService(
     /// <summary>Entry point from the chat UI: replies to the last user message in any kind of conversation.</summary>
     public async Task GenerateAsync(Conversation conv, SendOptions opts, Func<Task> onUpdate, CancellationToken ct)
     {
-        try { await GenerateCoreAsync(conv, opts, onUpdate, ct); }
+        try
+        {
+            var planBefore = PlanKey(conv);
+            await GenerateCoreAsync(conv, opts, onUpdate, ct);
+            await FinishThePlanAsync(conv, planBefore, opts, onUpdate, ct);
+        }
         finally
         {
             // Name the chat once there's something to name it after (any kind of chat, groups included).
@@ -54,6 +59,56 @@ public sealed class ChatService(
                     if (topic) await AutoTopicAsync(conv, onUpdate);
                 });
         }
+    }
+
+    /// <summary>The routine name on the "keep going" message sent when a reply ends with the plan unfinished.</summary>
+    public const string PlanRoutine = "Plan";
+    /// <summary>How many times a reply may be sent back to finish its plan (each needs the plan to have moved on).</summary>
+    public const int MaxPlanNudges = 3;
+
+    /// <summary>
+    /// A bot that writes itself a plan often finishes a step, says so and stops with steps still open, leaving the
+    /// plan stuck at 2/4. When the reply ends like that, it is sent back to carry on. It stops when the plan is
+    /// done, the bot asks something real, the chat was paused or stopped, or a nudge didn't move the plan on.
+    /// </summary>
+    private async Task FinishThePlanAsync(Conversation conv, string planBefore, SendOptions opts, Func<Task> onUpdate, CancellationToken ct)
+    {
+        if (PlanKey(conv) == planBefore) return; // this turn didn't touch the plan: an old plan isn't this reply's business
+        var doneBefore = -1;
+        for (var nudge = 0; nudge < MaxPlanNudges && !ct.IsCancellationRequested; nudge++)
+        {
+            if (conv.Code is not null || conv.Plan.FirstOrDefault(t => t.Status != CodeTodoStatus.Completed) is not { } next) return;
+            var done = conv.Plan.Count(t => t.Status == CodeTodoStatus.Completed);
+            if (done == doneBefore) return; // the last nudge changed nothing: leave it to the user
+            if (conv.Messages.LastOrDefault() is not { Role: ChatRole.Assistant, Notice: null, Error: null, Content.Length: > 0 } last) return;
+            if (AsksSomethingReal(last.Content)) return;
+            doneBefore = done;
+
+            var bot = last.BotId is null || conv.BotIds.Count < 2 ? null : (await bots.GetManyAsync([last.BotId])).FirstOrDefault();
+            conv.Messages.Add(new ChatMessage
+            {
+                Role = ChatRole.User,
+                RoutineName = PlanRoutine,
+                Content = (bot is null ? "" : $"@{bot.Name} ") + $"The plan isn't finished: next is \"{next.Content}\". Carry on with it and keep going until every step is done. " +
+                          "Keep the plan up to date as you go. If you're blocked or need something from me, say exactly what.",
+            });
+            await store.SaveAsync(conv);
+            await onUpdate();
+            await GenerateCoreAsync(conv, opts, onUpdate, ct);
+        }
+    }
+
+    private static string PlanKey(Conversation conv) => string.Join("|", conv.Plan.Select(t => $"{t.Content}:{t.Status}"));
+
+    /// <summary>True when the reply ends on a question for the user, as opposed to "shall I continue?".</summary>
+    public static bool AsksSomethingReal(string reply)
+    {
+        var end = reply.TrimEnd();
+        if (!end.EndsWith('?')) return false;
+        var line = end[(end.LastIndexOfAny(['\n', '.', '!']) + 1)..];
+        string[] permission = ["shall i", "should i", "want me to", "would you like me to", "do you want me to", "ready for", "ready to", "proceed", "continue", "go ahead", "move on", "next step"];
+        if (System.Text.RegularExpressions.Regex.IsMatch(line, @"\b(which|what|who|whom|whose|when|where|how|why)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return true;
+        return !permission.Any(p => line.Contains(p, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task GenerateCoreAsync(Conversation conv, SendOptions opts, Func<Task> onUpdate, CancellationToken ct)
@@ -464,6 +519,7 @@ public sealed class ChatService(
         {
             "Heartbeat" => "Heartbeat",
             "Task" => "Task",
+            PlanRoutine => "Chat",
             "Bot check" => "Bot check",
             "Helper" => "Helpers",
             "API" => "API",
