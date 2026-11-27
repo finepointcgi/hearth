@@ -9,4 +9,8 @@
     <ProjectReference Include="..\Hearth.UI\Hearth.UI.csproj" />
     <ProjectReference Include="..\Hearth.Computer\Hearth.Computer.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Optional single sign-on (Hearth:Oidc). MIT. -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.13" />
+  </ItemGroup>
 </Project>

@@ -20,6 +20,8 @@ public sealed class Account
     public bool ComputerAccess { get; set; }
     /// <summary>The owner always can; others only when allowed.</summary>
     public bool CanUseComputer => IsOwner || ComputerAccess;
+    /// <summary>The single sign-on identity linked to this account ("issuer|subject"), or null for a password-only account.</summary>
+    public string? ExternalId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
 }
 
@@ -153,6 +155,44 @@ public sealed class AccountStore(string rootDataDirectory)
         a.Salt = Convert.ToBase64String(salt);
         a.PasswordHash = Convert.ToBase64String(Rfc2898DeriveBytes.Pbkdf2(password, salt, Iterations, HashAlgorithmName.SHA256, 32));
     }
+
+    /// <summary>
+    /// Single sign-on: the account linked to <paramref name="externalId"/> ("issuer|subject"). An unlinked account with the same
+    /// name is linked on first sign-in; otherwise one is made when <paramref name="autoCreate"/> is on. While accounts are off,
+    /// only <paramref name="ownerUser"/> may sign in, and doing so turns accounts on with them as the owner of the current data.
+    /// Accounts made here get a random password nobody knows (an administrator can set one later).
+    /// </summary>
+    public async Task<(Account? account, string? problem)> SignInExternalAsync(string externalId, string userName, string? ownerUser, bool autoCreate)
+    {
+        var name = userName.Trim();
+        if (name.Length == 0) return (null, "The identity provider didn't send a user name.");
+        if (name.Length > 40) name = name[..40];
+        var isOwnerUser = ownerUser is { Length: > 0 } && name.Equals(ownerUser.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        if (!Enabled)
+        {
+            if (!isOwnerUser) return (null, "Hearth isn't set up for single sign-on yet: its owner has to sign in first.");
+            if (await EnableAsync(name, RandomPassword()) is { } p) return (null, p);
+            await UpdateAsync(x => { if (x.Accounts.FirstOrDefault(a => a.IsOwner) is { } o) o.ExternalId ??= externalId; });
+        }
+
+        if (Get().Accounts.FirstOrDefault(a => a.ExternalId == externalId) is { } linked) return (linked, null);
+        if (Get().Accounts.FirstOrDefault(a => a.ExternalId is null && a.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { } byName)
+        {
+            await UpdateAsync(x => { if (x.Accounts.FirstOrDefault(a => a.Id == byName.Id) is { } a) a.ExternalId = externalId; });
+            return (Find(byName.Id), null);
+        }
+
+        if (!autoCreate) return (null, $"There's no Hearth account for {name}. Ask the owner to add one.");
+        var unique = name;
+        for (var n = 2; Get().Accounts.Any(a => a.Name.Equals(unique, StringComparison.OrdinalIgnoreCase)); n++) unique = $"{name[..Math.Min(name.Length, 36)]} {n}";
+        var (created, problem) = await AddAsync(unique, RandomPassword());
+        if (created is null) return (null, problem);
+        await UpdateAsync(x => { if (x.Accounts.FirstOrDefault(a => a.Id == created.Id) is { } a) a.ExternalId = externalId; });
+        return (Find(created.Id), null);
+    }
+
+    private static string RandomPassword() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
     /// <summary>The account with this name and password, or null.</summary>
     public Account? Verify(string name, string password)
