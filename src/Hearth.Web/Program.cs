@@ -92,7 +92,7 @@ app.Use(async (ctx, next) =>
     else if (password is { Length: > 0 })
         allowed |= ctx.Request.Cookies.TryGetValue("hearth_auth", out var c)
                    && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(c), Encoding.UTF8.GetBytes(cookieValue));
-    else allowed = sso is null;   // with single sign-on, nobody gets in before the owner has signed in
+    else allowed |= sso is null;   // with single sign-on, nobody gets in before the owner has signed in (sign-in pages stay open)
     if (allowed) { await next(); return; }
     if (HttpMethods.IsGet(ctx.Request.Method) && !path.StartsWith("/_")) ctx.Response.Redirect("/login");
     else ctx.Response.StatusCode = 401;
