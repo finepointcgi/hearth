@@ -41,6 +41,26 @@ their name and password.
 **Turn off separate accounts** returns to a single Hearth: everyone else loses access until accounts are turned on
 again (their data is kept, and they keep their passwords).
 
+### Single sign-on (companies)
+
+Hearth can send people to your company's identity provider (Keycloak, Entra ID, Okta, Authentik…) instead of asking for a
+password. Register a client with the redirect URI `https://<hearth>/login/sso/callback`, then set:
+
+```bash
+Hearth__Oidc__Authority=https://idp.example.com/realms/company
+Hearth__Oidc__ClientId=hearth
+Hearth__Oidc__ClientSecret=…            # for a confidential client
+Hearth__Oidc__OwnerUser=alice           # the provider user name of Hearth's owner
+Hearth__Oidc__DisplayName="Company sign-in"
+Hearth__Oidc__AutoCreateAccounts=true   # false: only people the owner added may sign in
+```
+
+The sign-in page then shows **Sign in with Company sign-in**. Each person gets their own Hearth account (as in
+*Separate accounts*), linked to their identity, so they see only their own bots, chats and memories. Until the owner has
+signed in, nobody can use Hearth; the owner's first sign-in turns accounts on and keeps the existing data as theirs. People
+added this way have no Hearth password (the owner can set one) and no computer access unless the owner allows it. An
+existing account with the same name is linked on its first single sign-on.
+
 ## Permissions (what bots may do)
 
 ![Settings → Permissions](images/permissions.png)

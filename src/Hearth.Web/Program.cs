@@ -54,6 +54,10 @@ builder.Services.AddSingleton(sp => new Hearth.Web.AccountHosts(sp, sp.GetRequir
 builder.Services.AddScoped<Hearth.Web.CurrentAccount>();
 builder.Services.AddScoped<ICurrentUser>(sp => sp.GetRequiredService<Hearth.Web.CurrentAccount>());
 
+// Single sign-on (Hearth:Oidc), optional: each person signs in through the company's identity provider.
+var sso = Hearth.Web.HearthSso.FromConfiguration(builder.Configuration);
+sso?.AddTo(builder.Services);
+
 var app = builder.Build();
 // Behind "tailscale serve" (or another local HTTPS proxy): honour its X-Forwarded-* headers. Only loopback proxies are trusted.
 app.UseForwardedHeaders(new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
@@ -70,6 +74,7 @@ if (!app.Environment.IsDevelopment()) app.UseExceptionHandler("/error", createSc
 var password = Setting(app.Configuration, "Password");
 var accounts = app.Services.GetRequiredService<AccountStore>();
 var cookieValue = string.IsNullOrEmpty(password) ? "" : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("hearth-session:" + password)));
+if (sso is not null) app.UseAuthentication();   // handles the provider's callback under /login/sso
 app.Use(async (ctx, next) =>
 {
     var path = ctx.Request.Path.Value ?? "";
@@ -87,13 +92,13 @@ app.Use(async (ctx, next) =>
     else if (password is { Length: > 0 })
         allowed |= ctx.Request.Cookies.TryGetValue("hearth_auth", out var c)
                    && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(c), Encoding.UTF8.GetBytes(cookieValue));
-    else allowed = true;
+    else allowed |= sso is null;   // with single sign-on, nobody gets in before the owner has signed in (sign-in pages stay open)
     if (allowed) { await next(); return; }
     if (HttpMethods.IsGet(ctx.Request.Method) && !path.StartsWith("/_")) ctx.Response.Redirect("/login");
     else ctx.Response.StatusCode = 401;
 });
-app.MapGet("/login", (HttpRequest req) => accounts.Enabled || password is { Length: > 0 }
-    ? Results.Content(LoginPage(req.Query.ContainsKey("wrong"), accounts.Enabled, req.Query.ContainsKey("wait")), "text/html")
+app.MapGet("/login", (HttpRequest req) => accounts.Enabled || password is { Length: > 0 } || sso is not null
+    ? Results.Content(LoginPage(req.Query.ContainsKey("wrong"), accounts.Enabled, req.Query.ContainsKey("wait"), sso?.LoginButton(), passwords: accounts.Enabled || password is { Length: > 0 }), "text/html")
     : Results.Redirect("/"));
 var loginGuard = new Hearth.Core.Services.Phone.LoginGuard();
 app.MapPost("/login", async (HttpContext ctx) =>
@@ -121,6 +126,7 @@ app.MapPost("/login", async (HttpContext ctx) =>
     ctx.Response.Cookies.Append("hearth_auth", cookieValue, cookie);
     return Results.Redirect("/");
 }).DisableAntiforgery();
+sso?.MapEndpoints(app, accounts);
 app.MapGet("/signout", (HttpContext ctx) =>
 {
     ctx.Response.Cookies.Delete("hearth_user");
@@ -298,7 +304,7 @@ static string ContentText(System.Text.Json.Nodes.JsonNode? content) => content s
     _ => content.ToString(),
 };
 
-static string LoginPage(bool wrong, bool withName, bool wait = false) => $$"""
+static string LoginPage(bool wrong, bool withName, bool wait = false, string? ssoButton = null, bool passwords = true) => $$"""
     <!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Hearth — sign in</title>
     <style>
@@ -307,13 +313,17 @@ static string LoginPage(bool wrong, bool withName, bool wait = false) => $$"""
       h1{margin:0;font-size:1.3rem} input{padding:.65rem .8rem;border-radius:10px;border:1px solid #2a2a2a;background:#0a0a0a;color:#ececec;font-size:1rem}
       button{padding:.65rem;border-radius:10px;border:0;background:#f5f5f5;color:#0a0a0a;font-weight:600;font-size:1rem;cursor:pointer}
       .err{color:#ff6b6b;font-size:.9rem}
+      .sso{display:block;text-align:center;padding:.65rem;border-radius:10px;background:#2563eb;color:#fff;font-weight:600;text-decoration:none}
+      .or{text-align:center;color:#888;font-size:.85rem}
     </style></head><body>
     <form method="post" action="/login"><h1>◎ Hearth</h1>
       {{(wrong ? $"<div class=\"err\">Wrong {(withName ? "name or password" : "password")}.</div>" : "")}}
       {{(wait ? "<div class=\"err\">Too many wrong tries. Wait a few minutes and try again.</div>" : "")}}
-      {{(withName ? "<input name=\"name\" placeholder=\"Your name\" autofocus autocomplete=\"username\" autocapitalize=\"none\">" : "")}}
-      <input type="password" name="password" placeholder="Password" {{(withName ? "" : "autofocus")}} autocomplete="current-password">
-      <button type="submit">Sign in</button></form></body></html>
+      {{ssoButton ?? ""}}
+      {{(ssoButton is not null && passwords ? "<div class=\"or\">or with a Hearth password</div>" : "")}}
+      {{(passwords && withName ? "<input name=\"name\" placeholder=\"Your name\" autocomplete=\"username\" autocapitalize=\"none\">" : "")}}
+      {{(passwords ? $"<input type=\"password\" name=\"password\" placeholder=\"Password\" autocomplete=\"current-password\"><button type=\"submit\">Sign in</button>" : "")}}
+      </form></body></html>
     """;
 
 /// <summary>Where this server listens, for the "Phone access" card.</summary>
